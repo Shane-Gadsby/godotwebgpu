@@ -31,6 +31,8 @@
 #pragma once
 
 #include "core/math/projection.h"
+#include "core/os/mutex.h"
+#include "core/templates/hash_map.h"
 #include "core/templates/paged_array.h"
 #include "servers/rendering/renderer_geometry_instance.h"
 #include "servers/rendering/rendering_server_types.h"
@@ -344,14 +346,42 @@ public:
 		Color focus_peaking_color = Color(1.0, 0.0, 0.0);
 		float focus_peaking_sensitivity = 0.5;
 		bool false_color = false;
-		bool histogram = false;
+		bool histogram = false; // Drawn: counted every frame and drawn over the image.
 		RSE::CameraMonitoringHistogramMode histogram_mode = RSE::CAMERA_MONITORING_HISTOGRAM_LUMA;
 		RSE::CameraMonitoringHistogramPosition histogram_position = RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT;
 		float histogram_size = 0.25; // Width as a fraction of the frame width.
 		float histogram_opacity = 0.75;
+		// Read back for scripts (Camera3D.get_monitoring_histogram()): counted on the frames a readback is due,
+		// drawn or not. `camera` keys the result, so each camera has its own counts.
+		bool histogram_readback = false;
+		float histogram_readback_interval = 0.0; // Seconds; 0 = every frame.
+		RID camera;
 
-		bool is_active() const { return zebras || zebras_second || focus_peaking || false_color || histogram; }
+		bool is_overlay_active() const { return zebras || zebras_second || focus_peaking || false_color || histogram; }
+		bool is_active() const { return is_overlay_active() || histogram_readback; }
 	};
+
+	/* Camera monitoring histogram readback
+	 *
+	 * The renderer publishes each camera's latest histogram here from the render thread (in the readback's callback);
+	 * the getters run on any thread, so Camera3D reads it without going through the RenderingServer command queue.
+	 */
+	struct CameraHistogramReadback {
+		PackedInt32Array channels[RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE + 1]; // Indexed by the channel enum.
+		uint64_t serial = 0;
+	};
+
+private:
+	mutable Mutex camera_histogram_mutex;
+	HashMap<RID, CameraHistogramReadback> camera_histograms;
+	uint64_t camera_histogram_serial = 0;
+
+public:
+	void camera_monitoring_histogram_publish(RID p_camera, const CameraHistogramReadback &p_readback);
+	PackedInt32Array camera_monitoring_histogram_get(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const;
+	uint64_t camera_monitoring_histogram_get_serial(RID p_camera) const;
+	// The camera was freed, or stopped reading back: drop its result (and, in RD, its GPU buffer).
+	virtual void camera_monitoring_free(RID p_camera);
 
 	struct CameraData {
 		// flags

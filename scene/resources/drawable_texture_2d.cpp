@@ -222,6 +222,15 @@ Ref<Image> DrawableTexture2D::get_image() const {
 	}
 }
 
+void DrawableTexture2D::get_image_async(const Callable &p_callback) const {
+	ERR_FAIL_COND_MSG(!p_callback.is_valid(), "get_image_async() needs a valid callback.");
+	if (texture.is_valid()) {
+		RS::get_singleton()->texture_2d_get_async(texture, p_callback);
+	} else {
+		p_callback.call_deferred(Ref<Image>());
+	}
+}
+
 void DrawableTexture2D::generate_mipmaps() {
 	if (texture.is_valid()) {
 		RS::get_singleton()->texture_drawable_generate_mipmaps(texture);

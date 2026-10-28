@@ -31,6 +31,7 @@
 #include "color.h"
 
 #include "core/math/color_names.inc"
+#include "core/math/color_temperature.h"
 #include "core/math/math_funcs.h"
 #include "core/string/ustring.h"
 #include "core/templates/hash_map.h"
@@ -459,6 +460,13 @@ Color Color::from_hsv(float p_h, float p_s, float p_v, float p_alpha) {
 	Color c;
 	c.set_hsv(p_h, p_s, p_v, p_alpha);
 	return c;
+}
+
+// The color of a blackbody at the given temperature, linear, from the model in core/math/color_temperature.h that
+// Light3D and the white balance of CameraAttributes use too. Clamped to the fit's range (Krystek 1985: 1000-15000 K).
+Color Color::from_temperature(float p_kelvin, TemperatureNormalization p_normalization) {
+	const float kelvin = CLAMP(p_kelvin, 1000.0f, 15000.0f);
+	return ColorTemperature::normalize(ColorTemperature::planckian_linear_srgb(kelvin), p_normalization);
 }
 
 Color Color::from_rgbe9995(uint32_t p_rgbe) {

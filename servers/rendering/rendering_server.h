@@ -131,6 +131,7 @@ public:
 	virtual RID texture_3d_placeholder_create() = 0;
 
 	virtual Ref<Image> texture_2d_get(RID p_texture) const = 0;
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) = 0;
 	virtual Ref<Image> texture_2d_layer_get(RID p_texture, int p_layer) const = 0;
 	virtual Vector<Ref<Image>> texture_3d_get(RID p_texture) const = 0;
 
@@ -553,6 +554,11 @@ public:
 	virtual void camera_set_monitoring_focus_peaking(RID p_camera, bool p_enable, const Color &p_color, float p_sensitivity) = 0;
 	virtual void camera_set_monitoring_false_color(RID p_camera, bool p_enable) = 0;
 	virtual void camera_set_monitoring_histogram(RID p_camera, bool p_enable, RSE::CameraMonitoringHistogramMode p_mode, RSE::CameraMonitoringHistogramPosition p_position, float p_size, float p_opacity) = 0;
+	// Histogram readback for scripts: counted on the GPU, read back asynchronously (never stalls), at most once per
+	// interval. The getters are thread-safe and do not go through the command queue: they return the latest result.
+	virtual void camera_set_monitoring_histogram_readback(RID p_camera, bool p_enable, float p_interval) = 0;
+	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const = 0;
+	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const = 0;
 
 	/* VIEWPORT API */
 
@@ -750,6 +756,7 @@ public:
 	virtual void camera_attributes_set_dof_blur_bokeh_shape(RSE::DOFBokehShape p_shape) = 0;
 
 	virtual void camera_attributes_set_dof_blur(RID p_camera_attributes, bool p_far_enable, float p_far_distance, float p_far_transition, bool p_near_enable, float p_near_distance, float p_near_transition, float p_amount) = 0;
+	virtual void camera_attributes_set_dof_physical_blur_size(RID p_camera_attributes, bool p_enable, float p_frame_fraction, bool p_frame_horizontal) = 0;
 	virtual void camera_attributes_set_exposure(RID p_camera_attributes, float p_multiplier, float p_exposure_normalization) = 0;
 	virtual void camera_attributes_set_auto_exposure(RID p_camera_attributes, bool p_enable, float p_min_sensitivity, float p_max_sensitivity, float p_speed, float p_scale) = 0;
 	virtual void camera_attributes_set_white_balance(RID p_camera_attributes, float p_temperature, float p_tint) = 0;
@@ -1232,6 +1239,7 @@ VARIANT_ENUM_CAST_EXT(RSE::DOFBlurQuality, RenderingServer::DOFBlurQuality);
 VARIANT_ENUM_CAST_EXT(RSE::DOFBokehShape, RenderingServer::DOFBokehShape);
 VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramMode, RenderingServer::CameraMonitoringHistogramMode);
 VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramPosition, RenderingServer::CameraMonitoringHistogramPosition);
+VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramChannel, RenderingServer::CameraMonitoringHistogramChannel);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesGrainType, RenderingServer::CameraAttributesGrainType);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesLUTInput, RenderingServer::CameraAttributesLUTInput);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesMotionBlurQuality, RenderingServer::CameraAttributesMotionBlurQuality);

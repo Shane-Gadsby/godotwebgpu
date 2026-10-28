@@ -87,6 +87,7 @@ public:
 
 	void update(const Ref<Image> &p_image);
 	Ref<Image> get_image() const override;
+	virtual void get_image_async(const Callable &p_callback) const override;
 
 	int get_width() const override;
 	int get_height() const override;

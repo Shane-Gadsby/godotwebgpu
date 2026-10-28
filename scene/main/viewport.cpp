@@ -207,6 +207,16 @@ Ref<Image> ViewportTexture::get_image() const {
 	return RS::get_singleton()->texture_2d_get(vp->texture_rid);
 }
 
+void ViewportTexture::get_image_async(const Callable &p_callback) const {
+	ERR_FAIL_COND_MSG(!p_callback.is_valid(), "get_image_async() needs a valid callback.");
+	if (!vp) {
+		_err_print_viewport_not_set();
+		p_callback.call_deferred(Ref<Image>());
+		return;
+	}
+	RS::get_singleton()->texture_2d_get_async(vp->texture_rid, p_callback);
+}
+
 void ViewportTexture::_err_print_viewport_not_set() const {
 	if (!vp_pending && !vp_changed) {
 		ERR_PRINT("Viewport Texture must be set to use it.");

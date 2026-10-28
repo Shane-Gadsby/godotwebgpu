@@ -60,6 +60,29 @@
 				Returns the camera's frustum planes in world space units as an array of [Plane]s in the following order: near, far, left, top, right, bottom. Not to be confused with [member frustum_offset].
 			</description>
 		</method>
+		<method name="get_monitoring_histogram">
+			<return type="PackedInt32Array" />
+			<param index="0" name="channel" type="int" enum="Camera3D.MonitoringHistogramChannel" default="0" />
+			<description>
+				Returns the latest histogram read back from the GPU for [param channel]: 256 pixel counts, one per 8-bit code value (bin [code]i[/code] counts the pixels whose value rounds to [code]i / 255[/code]). Returns an empty array while [member monitoring_histogram_enabled] is [code]false[/code], and until the first readback arrives.
+				The counts are of the display-encoded image (nonlinear, as it is shown), after tonemapping and [CameraAttributes]' noise reduction and sharpening, and before the monitoring overlays (zebras, false color, focus peaking, the histogram itself), so turning those on or off does not change them. Luma is Rec. 709 Y' of the display-encoded values. Each channel's counts add up to the width times the height of the viewport's 3D render target, so [code]count / (width * height)[/code] is a fraction of the frame.
+				The first call starts the readback, as does connecting to [signal monitoring_histogram_updated]; it then runs while the histogram is enabled, independently of [member monitoring_visible_in_output] and [member monitoring_histogram_draw]. The readback is asynchronous and never stalls rendering: the result is one or more frames old, and on the web the first frames return an empty array. [member monitoring_histogram_update_interval] throttles it. Each camera has its own histogram, so two cameras rendering in the same frame each return their own; a camera rendered into several viewports returns the latest of them.
+				[codeblock]
+				func _ready():
+				    $Camera3D.monitoring_histogram_enabled = true
+				    $Camera3D.monitoring_histogram_draw = false # The app draws its own.
+				    $Camera3D.monitoring_histogram_update_interval = 0.25
+				    $Camera3D.monitoring_histogram_updated.connect(_on_histogram)
+
+				func _on_histogram():
+				    var luma = $Camera3D.get_monitoring_histogram()
+				    var highlights_clipping = false
+				    for i in range(250, 256):
+				        highlights_clipping = highlights_clipping or luma[i] &gt; 0
+				[/codeblock]
+				[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. In Compatibility, which has no compute shaders, it always returns an empty array. Not available in XR (multiview) rendering.
+			</description>
+		</method>
 		<method name="get_pyramid_shape_rid">
 			<return type="RID" />
 			<description>
@@ -262,8 +285,11 @@
 		<member name="monitoring_focus_peaking_sensitivity" type="float" setter="set_monitoring_focus_peaking_sensitivity" getter="get_monitoring_focus_peaking_sensitivity" default="0.5">
 			How weak an edge still counts as in focus for [member monitoring_focus_peaking_enabled], from [code]0.0[/code] (only the strongest edges, a luma step of 40% within a pixel) to [code]1.0[/code] (edges of 3%).
 		</member>
+		<member name="monitoring_histogram_draw" type="bool" setter="set_monitoring_histogram_draw" getter="is_monitoring_histogram_draw" default="true">
+			If [code]true[/code], [member monitoring_histogram_enabled] draws the histogram over the image (following [member monitoring_visible_in_output]). If [code]false[/code], nothing is drawn and the histogram is only counted for [method get_monitoring_histogram], on the frames a readback is due: for a project that shows the histogram in its own UI.
+		</member>
 		<member name="monitoring_histogram_enabled" type="bool" setter="set_monitoring_histogram_enabled" getter="is_monitoring_histogram_enabled" default="false">
-			If [code]true[/code], a histogram of the frame (256 bins, one per 8-bit code value of the display image) is counted on the GPU every frame and drawn in a corner of the image, its bars scaled to the tallest bin. This overlay follows [member monitoring_visible_in_output].
+			If [code]true[/code], a histogram of the frame (256 bins, one per 8-bit code value of the display image) is counted on the GPU every frame and drawn in a corner of the image, its bars scaled to the tallest bin. This overlay follows [member monitoring_visible_in_output]. Scripts can read the counts with [method get_monitoring_histogram]; [member monitoring_histogram_draw] turns the drawing off.
 			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods, which have compute shaders, not Compatibility.
 		</member>
 		<member name="monitoring_histogram_mode" type="int" setter="set_monitoring_histogram_mode" getter="get_monitoring_histogram_mode" enum="Camera3D.MonitoringHistogramMode" default="0">
@@ -277,6 +303,9 @@
 		</member>
 		<member name="monitoring_histogram_size" type="float" setter="set_monitoring_histogram_size" getter="get_monitoring_histogram_size" default="0.25">
 			The width of the histogram as a fraction of the image width. Its height is half its width.
+		</member>
+		<member name="monitoring_histogram_update_interval" type="float" setter="set_monitoring_histogram_update_interval" getter="get_monitoring_histogram_update_interval" default="0.0">
+			The time in seconds between two readbacks of the histogram for [method get_monitoring_histogram] and [signal monitoring_histogram_updated]. [code]0.0[/code] reads it back every frame. A UI that redraws a few times a second can use [code]0.25[/code], which also saves the counting on the frames in between when [member monitoring_histogram_draw] is [code]false[/code].
 		</member>
 		<member name="monitoring_visible_in_output" type="bool" setter="set_monitoring_visible_in_output" getter="is_monitoring_visible_in_output" default="false">
 			If [code]false[/code], the monitoring overlays ([member monitoring_zebras_enabled], [member monitoring_focus_peaking_enabled], [member monitoring_false_color_enabled], [member monitoring_histogram_enabled]) are only drawn in the editor, where the editor renders through this camera: the 3D viewport's camera preview and the Camera3D inspector preview. A running project then draws none of them and does no work for them. If [code]true[/code], they are also drawn in the running project.
@@ -363,6 +392,11 @@
 				Emitted when the autofocus finds nothing to focus on: [method autofocus_trigger] measured nothing, or continuous autofocus lost its subject. The focus stays where it was.
 			</description>
 		</signal>
+		<signal name="monitoring_histogram_updated">
+			<description>
+				Emitted when a new histogram readback has arrived, so [method get_monitoring_histogram] returns new counts: at most once per frame, and about once per [member monitoring_histogram_update_interval]. Connecting to it starts the readback while [member monitoring_histogram_enabled] is [code]true[/code].
+			</description>
+		</signal>
 	</signals>
 	<constants>
 		<constant name="PROJECTION_PERSPECTIVE" value="0" enum="ProjectionType">
@@ -445,6 +479,18 @@
 		</constant>
 		<constant name="MONITORING_HISTOGRAM_BOTTOM_RIGHT" value="3" enum="MonitoringHistogramPosition">
 			The histogram is drawn in the bottom right corner.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_CHANNEL_LUMA" value="0" enum="MonitoringHistogramChannel">
+			Rec. 709 luma (Y') of the display-encoded image.
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_CHANNEL_RED" value="1" enum="MonitoringHistogramChannel">
+			The display-encoded red channel (R').
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_CHANNEL_GREEN" value="2" enum="MonitoringHistogramChannel">
+			The display-encoded green channel (G').
+		</constant>
+		<constant name="MONITORING_HISTOGRAM_CHANNEL_BLUE" value="3" enum="MonitoringHistogramChannel">
+			The display-encoded blue channel (B').
 		</constant>
 	</constants>
 </class>

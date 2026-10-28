@@ -623,6 +623,9 @@ public:
 	virtual void texture_3d_placeholder_initialize(RID p_texture) override;
 
 	virtual Ref<Image> texture_2d_get(RID p_texture) const override;
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) override;
+	static Ref<Image> _texture_2d_image_from_data(const Vector<uint8_t> &p_data, int p_width, int p_height, bool p_mipmaps, Image::Format p_validated_format, Image::Format p_format, RD::DataFormat p_rd_format);
+	static void _texture_2d_get_async_done(const Vector<uint8_t> &p_data, RID p_texture, int p_width, int p_height, bool p_mipmaps, int p_validated_format, int p_format, int p_rd_format, const Callable &p_callback);
 	virtual Ref<Image> texture_2d_layer_get(RID p_texture, int p_layer) const override;
 	virtual Vector<Ref<Image>> texture_3d_get(RID p_texture) const override;
 

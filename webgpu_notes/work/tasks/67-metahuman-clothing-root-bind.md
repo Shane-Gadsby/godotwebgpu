@@ -1,8 +1,8 @@
 # 67-metahuman-clothing-root-bind: "Skin bind #0 contains named bind 'Root'" on every load of a MetaHuman with clothing
 
-State: open
+State: integrated (TASKS §4.79)
 Owner: worker-67
-Claimed:
+Claimed: 2026-10-28 22:10
 Needs: build (editor + web template), native run; investigation first
 Branch: work/67
 Results: webgpu_notes/work/results/67-metahuman-clothing-root-bind/

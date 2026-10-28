@@ -1,8 +1,8 @@
 # 65-light-temperature-without-plu: let Light3D.light_temperature colour a light without physical light units
 
-State: open
+State: ready-for-integration
 Owner: worker-64 (with task 64, on work/64)
-Claimed:
+Claimed: 2026-10-28 20:20
 Needs: build (editor + web template), native Vulkan run, browser (Playwright)
 Branch: work/64
 Results: webgpu_notes/work/results/65-light-temperature-without-plu/
@@ -14,7 +14,7 @@ Many projects, camera-sim included, don't use physical light units, because they
 and re-calibrate exposure.
 
 camera-sim's copy is `CinemaSettings.light_color_for_temperature()` (`scripts/camera_settings.gd`). It uses the
-same Planckian-locus approximation as `_color_from_temperature()` in `scene/3d/light_3d.cpp`, normalised
+same Planckian-locus approximation as `_color_from_temperature()` in `scene/3d/light_3d.cpp`, normalized
 differently (see below), and writes the result to `light_color` on its key, fill, rim and room lights.
 
 ## The problem
@@ -23,7 +23,7 @@ differently (see below), and writes the result to `light_color` on its key, fill
 - `Light3D::set_temperature()` returns early without physical light units, so `light_temperature` is stored but
   never applied.
 - `_validate_property()` hides `light_temperature` without physical light units.
-- `_color_from_temperature()` normalises the colour so **its brightest channel is 1**
+- `_color_from_temperature()` normalizes the colour so **its brightest channel is 1**
   (`linear /= linear[max_axis_index()]`), then clamps. So the light's brightness changes with its temperature:
   a 3200 K light (red 1, blue well below 1) has less luminance than a 6500 K light at the same energy. With
   physical light units the energy is in lumens or lux and this is arguably a bug too, but changing that path
@@ -34,13 +34,13 @@ differently (see below), and writes the result to `light_color` on its key, fill
 1. **Opt-in, per light:** e.g. `Light3D.light_temperature_enabled` (bool, default `false`). When it's true,
    `light_temperature` tints the light whether or not physical light units are on, and the inspector shows it.
    When it's false, everything behaves exactly as today. With physical light units on, today's always-on
-   behaviour stays; document how the two interact (simplest: physical light units imply it, and the property
+   behavior stays; document how the two interact (simplest: physical light units imply it, and the property
    only matters without them).
-2. **Constant luminance** for the opt-in path: normalise the temperature's colour to **luminance 1** (Rec. 709 Y
+2. **Constant luminance** for the opt-in path: normalize the temperature's colour to **luminance 1** (Rec. 709 Y
    of the linear colour), not to its brightest channel, so changing a light's temperature never changes how
-   bright it is. Channels may then exceed 1 (blue at high temperatures); don't clamp, since light colours are
+   bright it is. Channels may then exceed 1 (blue at high temperatures); don't clamp, since light colors are
    linear HDR. Then multiply by `light_color` as `set_color()` already does with physical light units.
-   Document the normalisation.
+   Document the normalization.
 3. **The same formula as white balance.** `_color_from_temperature()`, `camera_attributes_storage.cpp`
    (`_white_balance_planckian_uv`) and `camera_metering.glsl` all use the Krystek uv fit. Keep the light using
    that same fit, so a light at T renders neutral under a white balance of T (the docs already promise this).

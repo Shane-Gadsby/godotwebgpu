@@ -160,6 +160,16 @@
 				Sets the quality level of the DOF blur effect to [param quality]. [param use_jitter] can be used to jitter samples taken during the blur pass to hide artifacts at the cost of looking more fuzzy.
 			</description>
 		</method>
+		<method name="camera_attributes_set_dof_physical_blur_size">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="frame_fraction" type="float" />
+			<param index="3" name="frame_horizontal" type="bool" />
+			<description>
+				Sizes the physically-based DOF blur (the negative transitions of [method camera_attributes_set_dof_blur]) by the lens instead of by [code]amount[/code], as [member CameraAttributesPhysical.dof_physical_blur_size] does. [param frame_fraction] is the diameter of the blur circle of a point at infinity, as a fraction of the frame's height, or of its width if [param frame_horizontal] is [code]true[/code]. The renderer turns it into pixels of the image it blurs, so the blur keeps its size relative to the frame at every resolution.
+			</description>
+		</method>
 		<method name="camera_attributes_set_exposure">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -381,6 +391,21 @@
 				[b]Note:[/b] The equivalent node is [Camera3D].
 			</description>
 		</method>
+		<method name="camera_get_monitoring_histogram" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="channel" type="int" enum="RenderingServer.CameraMonitoringHistogramChannel" />
+			<description>
+				Returns the camera's latest histogram readback for [param channel] (256 counts), or an empty array if none has arrived. Thread-safe and not queued: it reads the last published result without waiting for the rendering thread. See [method Camera3D.get_monitoring_histogram] and [method camera_set_monitoring_histogram_readback].
+			</description>
+		</method>
+		<method name="camera_get_monitoring_histogram_serial" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="camera" type="RID" />
+			<description>
+				Returns a number that changes every time a new histogram readback for the camera arrives, or [code]0[/code] if none has. Thread-safe and not queued, like [method camera_get_monitoring_histogram].
+			</description>
+		</method>
 		<method name="camera_set_camera_attributes">
 			<return type="void" />
 			<param index="0" name="camera" type="RID" />
@@ -452,6 +477,15 @@
 			<param index="5" name="opacity" type="float" />
 			<description>
 				Sets the histogram drawn over the camera's image. [param size] is its width as a fraction of the image width. See [member Camera3D.monitoring_histogram_enabled].
+			</description>
+		</method>
+		<method name="camera_set_monitoring_histogram_readback">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="interval" type="float" />
+			<description>
+				If [param enable] is [code]true[/code], the camera's histogram is counted and read back asynchronously for [method camera_get_monitoring_histogram], at most once per [param interval] seconds ([code]0.0[/code] = every frame), whether or not it is drawn. The readback never stalls rendering; results are one or more frames old. Only supported in the Forward+ and Mobile rendering methods. See [member Camera3D.monitoring_histogram_update_interval].
 			</description>
 		</method>
 		<method name="camera_set_monitoring_zebra_colors">
@@ -4343,6 +4377,15 @@
 				var texture = ImageTexture.create_from_image(RenderingServer.texture_2d_get(texture_rid))
 				$Sprite2D.texture = texture
 				[/codeblock]
+				[b]Note:[/b] On the web, a read from the GPU cannot wait for the data: the first call for a texture returns [code]null[/code], and a later call returns what the previous call copied. Use [method texture_2d_get_async], which behaves the same on every platform.
+			</description>
+		</method>
+		<method name="texture_2d_get_async">
+			<return type="void" />
+			<param index="0" name="texture" type="RID" />
+			<param index="1" name="callback" type="Callable" />
+			<description>
+				Asynchronous version of [method texture_2d_get]. Once the current frame's viewports have been drawn, copies [param texture] from the GPU, and when the data has arrived, calls [param callback] on the main thread with an [Image], or with [code]null[/code] if [param texture] is invalid or freed before then, or the read fails. [param callback] is called exactly once, never from inside this method, and requests complete in the order they were made. This is what [method Texture2D.get_image_async] uses, and it behaves the same on every platform, including the web, where [method texture_2d_get] cannot wait for the GPU.
 			</description>
 		</method>
 		<method name="texture_2d_layer_get" qualifiers="const">
@@ -5896,6 +5939,18 @@
 		</constant>
 		<constant name="CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT" value="3" enum="CameraMonitoringHistogramPosition">
 			The monitoring histogram is drawn in the bottom right corner.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_CHANNEL_LUMA" value="0" enum="CameraMonitoringHistogramChannel">
+			Rec. 709 luma (Y') of the display-encoded image.
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_CHANNEL_RED" value="1" enum="CameraMonitoringHistogramChannel">
+			The display-encoded red channel (R').
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_CHANNEL_GREEN" value="2" enum="CameraMonitoringHistogramChannel">
+			The display-encoded green channel (G').
+		</constant>
+		<constant name="CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE" value="3" enum="CameraMonitoringHistogramChannel">
+			The display-encoded blue channel (B').
 		</constant>
 		<constant name="VIEWPORT_SCALING_3D_MODE_BILINEAR" value="0" enum="ViewportScaling3DMode">
 			Use bilinear scaling for the viewport's 3D buffer. The amount of scaling can be set using [member Viewport.scaling_3d_scale]. Values less than [code]1.0[/code] will result in undersampling while values greater than [code]1.0[/code] will result in supersampling. A value of [code]1.0[/code] disables scaling.

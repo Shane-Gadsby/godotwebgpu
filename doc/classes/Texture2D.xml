@@ -155,6 +155,31 @@
 				Returns an [Image] that is a copy of data from this [Texture2D] (a new [Image] is created each time). [Image]s can be accessed and manipulated directly.
 				[b]Note:[/b] This will return [code]null[/code] if this [Texture2D] is invalid.
 				[b]Note:[/b] This will fetch the texture data from the GPU, which might cause performance problems when overused. Avoid calling [method get_image] every frame, especially on large textures.
+				[b]Note:[/b] On the web, a read from the GPU cannot wait for the data. For a texture whose pixels are on the GPU (a [ViewportTexture], a [Texture2DRD], a [DrawableTexture2D], or an [ImageTexture] in an exported project), the first call returns [code]null[/code], and a later call returns what the previous call copied, a frame or more old. Use [method get_image_async] instead, which calls back once the pixels have arrived and behaves the same on every platform.
+			</description>
+		</method>
+		<method name="get_image_async" qualifiers="const">
+			<return type="void" />
+			<param index="0" name="callback" type="Callable" />
+			<description>
+				Reads this texture back and calls [param callback] with an [Image] of its pixels once they have arrived, or with [code]null[/code] if the texture is invalid, is freed before the data arrives, or the read fails. [param callback] is called exactly once per call, later, on the main thread; never from inside this method.
+				For a texture whose pixels are on the GPU (a [ViewportTexture] from [method Viewport.get_texture], a [Texture2DRD], a [DrawableTexture2D], an [ImageTexture]), the copy is made once the current frame has been drawn, so the image is what this frame rendered, even when called from [method Node._ready]. It arrives a few frames later (see [member ProjectSettings.rendering/rendering_device/vsync/frame_queue_size]) without stalling the GPU, unlike [method get_image]. Requests complete in the order they were made. The result is the same on every platform, including the web, where [method get_image] cannot wait for the GPU. Other textures call back with what [method get_image] returns.
+				[codeblock]
+				func save_screenshot():
+					get_viewport().get_texture().get_image_async(func(image: Image):
+						if image:
+							image.save_png("user://screenshot.png"))
+				[/codeblock]
+				To [code]await[/code] the image, have the callback emit a signal:
+				[codeblock]
+				signal image_read(image: Image)
+
+				func capture() -&gt; Image:
+					get_viewport().get_texture().get_image_async(image_read.emit)
+					return await image_read
+				[/codeblock]
+				[b]Note:[/b] Every function awaiting [code]image_read[/code] resumes on its next emission, so with this pattern keep one request per signal in flight at a time.
+				[b]Note:[/b] The copy is made when a frame is drawn. If nothing is drawn (for example, the window is minimized while [member OS.low_processor_usage_mode] is enabled), the callback waits for the next frame that is.
 			</description>
 		</method>
 		<method name="get_mipmap_count" qualifiers="const">

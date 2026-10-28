@@ -457,6 +457,7 @@ public:
 		RDD::DataFormat format = RDD::DATA_FORMAT_MAX;
 		uint32_t gpu_pixel_size = 0; // Non-zero when driver promotes format (e.g. R8→R32Float).
 		RDD::TextureID driver_texture_id = {}; // For readback conversion.
+		RID texture; // To tell, in a download that waited for its map, whether driver_texture_id is still alive.
 	};
 
 public:
@@ -1930,6 +1931,31 @@ private:
 		uint32_t timestamp_result_count = 0;
 		uint64_t index = 0;
 	};
+
+	// Asynchronous downloads whose frame has been waited on, in the order they were requested. On a backend whose
+	// staging-buffer maps complete asynchronously (WebGPU, buffer_get_readback_status()), a batch can still be mapping
+	// when its frame comes round again: it then waits here, with its staging blocks taken out of the download ring so
+	// nothing records a copy into a buffer that is being mapped, and its callbacks run once every map has completed.
+	// Later batches wait behind it, so callbacks keep their order. Every other backend completes a batch in the same
+	// _stall_for_frame() that queued it, exactly as before.
+	struct DownloadBatch {
+		LocalVector<RDD::BufferID> buffer_staging_buffers;
+		LocalVector<RDD::BufferCopyRegion> buffer_copy_regions;
+		LocalVector<BufferGetDataRequest> buffer_get_data_requests;
+		LocalVector<RDD::BufferID> texture_staging_buffers;
+		LocalVector<RDD::BufferTextureCopyRegion> buffer_texture_copy_regions;
+		LocalVector<uint32_t> texture_mipmap_offsets;
+		LocalVector<TextureGetDataRequest> texture_get_data_requests;
+		LocalVector<RDD::BufferID> held_blocks; // Staging blocks out of the ring while this batch waits.
+		bool waited = false;
+	};
+	List<DownloadBatch> download_batches;
+
+	Error _download_batch_status(const DownloadBatch &p_batch);
+	void _download_batch_hold_blocks(DownloadBatch &p_batch);
+	void _download_batch_release_blocks(DownloadBatch &p_batch);
+	void _download_batch_complete(DownloadBatch &p_batch, bool p_failed);
+	void _process_download_batches();
 
 	uint32_t max_timestamp_query_elements = 0;
 

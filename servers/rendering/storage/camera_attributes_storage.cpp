@@ -30,6 +30,7 @@
 
 #include "camera_attributes_storage.h"
 
+#include "core/math/color_temperature.h"
 #include "servers/rendering/panini_projection.h"
 
 #ifdef DEBUG_ENABLED
@@ -124,6 +125,26 @@ float RendererCameraAttributes::camera_attributes_get_dof_near_transition(RID p_
 	return cam_attributes->dof_blur_near_transition;
 }
 
+/* Physical DOF blur size */
+
+void RendererCameraAttributes::camera_attributes_set_dof_physical_blur_size(RID p_camera_attributes, bool p_enable, float p_frame_fraction, bool p_frame_horizontal) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->dof_physical_blur_size = p_enable;
+	cam_attributes->dof_physical_blur_frame_fraction = MAX(p_frame_fraction, 0.0f);
+	cam_attributes->dof_physical_blur_frame_horizontal = p_frame_horizontal;
+}
+
+float RendererCameraAttributes::camera_attributes_get_dof_physical_blur_radius(RID p_camera_attributes, const Size2i &p_buffer_size) {
+	const CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes || !cam_attributes->dof_physical_blur_size) {
+		return -1.0f;
+	}
+	// Half the diameter, over the frame dimension it is a fraction of.
+	const int frame_px = cam_attributes->dof_physical_blur_frame_horizontal ? p_buffer_size.width : p_buffer_size.height;
+	return 0.5f * cam_attributes->dof_physical_blur_frame_fraction * float(frame_px);
+}
+
 float RendererCameraAttributes::camera_attributes_get_dof_blur_amount(RID p_camera_attributes) {
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 	ERR_FAIL_NULL_V(cam_attributes, 0.0);
@@ -215,11 +236,9 @@ uint64_t RendererCameraAttributes::camera_attributes_get_auto_exposure_version(R
 // Duv per unit of tint: +-150 is +-0.05 Duv.
 static constexpr double WHITE_BALANCE_DUV_PER_TINT = 0.05 / 150.0;
 
+// The engine's one Planckian locus fit (core/math/color_temperature.h), in double precision.
 static void _white_balance_planckian_uv(double p_temperature, double &r_u, double &r_v) {
-	const double t = p_temperature;
-	const double t2 = t * t;
-	r_u = (0.860117757 + 1.54118254e-4 * t + 1.28641212e-7 * t2) / (1.0 + 8.42420235e-4 * t + 7.08145163e-7 * t2);
-	r_v = (0.317398726 + 4.22806245e-5 * t + 4.20481691e-8 * t2) / (1.0 - 2.89741816e-5 * t + 1.61456053e-7 * t2);
+	ColorTemperature::planckian_uv<double>(p_temperature, r_u, r_v);
 }
 
 // Bradford LMS of the white at the given temperature and tint, with Y = 1.

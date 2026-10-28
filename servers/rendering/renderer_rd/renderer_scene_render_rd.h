@@ -355,6 +355,7 @@ public:
 	virtual PackedByteArray bake_render_area_light_atlas(const TypedArray<RID> &p_area_light_textures, const TypedArray<Rect2> &p_area_light_atlas_texture_rects, const Size2i &p_size, int p_mipmaps) override;
 
 	virtual bool free(RID p_rid) override;
+	virtual void camera_monitoring_free(RID p_camera) override;
 
 	virtual void update() override;
 

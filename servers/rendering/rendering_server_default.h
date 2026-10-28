@@ -66,6 +66,15 @@ class RenderingServerDefault : public RenderingServer {
 
 	List<Callable> frame_drawn_callbacks;
 
+	// texture_2d_get_async() requests, issued once the frame's viewports are drawn so they read what this frame
+	// rendered. Rendering thread only.
+	struct TextureReadback {
+		RID texture;
+		Callable callback;
+	};
+	LocalVector<TextureReadback> texture_readbacks;
+	void _texture_2d_get_async(RID p_texture, const Callable &p_callback);
+
 	static void _changes_changed() {}
 
 	uint64_t frame_profile_frame = 0;
@@ -239,6 +248,15 @@ public:
 	FUNCRIDTEX0(texture_3d_placeholder)
 
 	FUNC1RC(Ref<Image>, texture_2d_get, RID)
+
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) override {
+		if (Thread::get_caller_id() == server_thread) {
+			command_queue.flush_if_pending();
+			_texture_2d_get_async(p_texture, p_callback);
+		} else {
+			command_queue.push(this, &RenderingServerDefault::_texture_2d_get_async, p_texture, p_callback);
+		}
+	}
 	FUNC2RC(Ref<Image>, texture_2d_layer_get, RID, int)
 	FUNC1RC(Vector<Ref<Image>>, texture_3d_get, RID)
 
@@ -737,6 +755,15 @@ public:
 	FUNC4(camera_set_monitoring_focus_peaking, RID, bool, const Color &, float)
 	FUNC2(camera_set_monitoring_false_color, RID, bool)
 	FUNC6(camera_set_monitoring_histogram, RID, bool, RSE::CameraMonitoringHistogramMode, RSE::CameraMonitoringHistogramPosition, float, float)
+	FUNC3(camera_set_monitoring_histogram_readback, RID, bool, float)
+	// Not queued: a readback result is published under a mutex on the render thread, so the calling thread reads it
+	// directly. Going through the command queue would make every call wait for the render thread.
+	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const override {
+		return RSG::scene->camera_get_monitoring_histogram(p_camera, p_channel);
+	}
+	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const override {
+		return RSG::scene->camera_get_monitoring_histogram_serial(p_camera);
+	}
 
 	/* OCCLUDER */
 	FUNCRIDSPLIT(occluder)
@@ -950,6 +977,7 @@ public:
 	FUNC1(camera_attributes_set_dof_blur_bokeh_shape, RSE::DOFBokehShape)
 
 	FUNC8(camera_attributes_set_dof_blur, RID, bool, float, float, bool, float, float, float)
+	FUNC4(camera_attributes_set_dof_physical_blur_size, RID, bool, float, bool)
 	FUNC3(camera_attributes_set_exposure, RID, float, float)
 	FUNC6(camera_attributes_set_auto_exposure, RID, bool, float, float, float, float)
 	FUNC3(camera_attributes_set_white_balance, RID, float, float)

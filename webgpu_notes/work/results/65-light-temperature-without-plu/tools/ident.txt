@@ -1,0 +1,12 @@
+pre_proj vs post64_proj forward_plus: 9/9 identical
+pre_proj vs post64_proj mobile: 9/9 identical
+pre_proj vs post64_proj gl_compatibility: 9/9 identical
+pre_proj vs post65_proj forward_plus: 9/9 identical
+pre_proj vs post65_proj mobile: 9/9 identical
+pre_proj vs post65_proj gl_compatibility: 9/9 identical
+pre_projplu vs post64_projplu forward_plus: 9/9 identical
+pre_projplu vs post64_projplu mobile: 9/9 identical
+pre_projplu vs post64_projplu gl_compatibility: 9/9 identical
+pre_projplu vs post65_projplu forward_plus: 9/9 identical
+pre_projplu vs post65_projplu mobile: 9/9 identical
+pre_projplu vs post65_projplu gl_compatibility: 9/9 identical

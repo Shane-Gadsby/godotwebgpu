@@ -2290,6 +2290,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("texture_3d_placeholder_create"), &RenderingServer::texture_3d_placeholder_create);
 
 	ClassDB::bind_method(D_METHOD("texture_2d_get", "texture"), &RenderingServer::texture_2d_get);
+	ClassDB::bind_method(D_METHOD("texture_2d_get_async", "texture", "callback"), &RenderingServer::texture_2d_get_async);
 	ClassDB::bind_method(D_METHOD("texture_2d_layer_get", "texture", "layer"), &RenderingServer::texture_2d_layer_get);
 	ClassDB::bind_method(D_METHOD("texture_3d_get", "texture"), &RenderingServer::_texture_3d_get);
 
@@ -2881,6 +2882,14 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_LEFT);
 	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT);
 
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_histogram_readback", "camera", "enable", "interval"), &RenderingServer::camera_set_monitoring_histogram_readback);
+	ClassDB::bind_method(D_METHOD("camera_get_monitoring_histogram", "camera", "channel"), &RenderingServer::camera_get_monitoring_histogram);
+	ClassDB::bind_method(D_METHOD("camera_get_monitoring_histogram_serial", "camera"), &RenderingServer::camera_get_monitoring_histogram_serial);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_LUMA);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_RED);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_GREEN);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE);
+
 	/* VIEWPORT */
 
 	ClassDB::bind_method(D_METHOD("viewport_create"), &RenderingServer::viewport_create);
@@ -3244,6 +3253,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_dof_blur_bokeh_shape", "shape"), &RenderingServer::camera_attributes_set_dof_blur_bokeh_shape);
 
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_dof_blur", "camera_attributes", "far_enable", "far_distance", "far_transition", "near_enable", "near_distance", "near_transition", "amount"), &RenderingServer::camera_attributes_set_dof_blur);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_dof_physical_blur_size", "camera_attributes", "enable", "frame_fraction", "frame_horizontal"), &RenderingServer::camera_attributes_set_dof_physical_blur_size);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_exposure", "camera_attributes", "multiplier", "normalization"), &RenderingServer::camera_attributes_set_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure", "camera_attributes", "enable", "min_sensitivity", "max_sensitivity", "speed", "scale"), &RenderingServer::camera_attributes_set_auto_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_white_balance", "camera_attributes", "temperature", "tint"), &RenderingServer::camera_attributes_set_white_balance);
@@ -3840,6 +3850,7 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/camera/depth_of_field/depth_of_field_bokeh_shape", PROPERTY_HINT_ENUM, "Box (Fast),Hexagon (Average),Circle (Slowest)"), 1);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/camera/depth_of_field/depth_of_field_bokeh_quality", PROPERTY_HINT_ENUM, "Very Low (Fastest),Low (Fast),Medium (Average),High (Slow)"), 1);
 	GLOBAL_DEF("rendering/camera/depth_of_field/depth_of_field_use_jitter", false);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size", PROPERTY_HINT_RANGE, "0.5,10,0.1,or_greater,suffix:%"), 3.0);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/camera/motion_blur/motion_blur_quality", PROPERTY_HINT_ENUM, "Low (Fast),Medium (Average),High (Slow)"), 1);
 
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/ssao/quality", PROPERTY_HINT_ENUM, "Very Low (Fast),Low (Fast),Medium (Average),High (Slow),Ultra (Custom)"), 2);

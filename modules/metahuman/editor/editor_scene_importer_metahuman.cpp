@@ -34,6 +34,7 @@
 #include "../metahuman_hair_simulator.h"
 #include "../metahuman_rig.h"
 #include "../metahuman_riglogic.h"
+#include "metahuman_clothing_binds.h"
 #include "metahuman_groom.h"
 #include "metahuman_hair.h"
 #include "metahuman_shaders.h"
@@ -1247,6 +1248,7 @@ void _add_clothing(Context &p_ctx, const Dictionary &p_component) {
 	}
 
 	double worst_rest_mismatch = 0.0;
+	HashSet<String> reported_bones;
 	for (ImporterMeshInstance3D *source : instances) {
 		const Ref<ImporterMesh> source_mesh = source->get_mesh();
 		const Ref<Skin> source_skin = source->get_skin();
@@ -1259,6 +1261,8 @@ void _add_clothing(Context &p_ctx, const Dictionary &p_component) {
 		LocalVector<int> bind_bones;
 		LocalVector<Transform3D> bind_to_rest;
 		if (source_skin.is_valid()) {
+			// Only a bind some vertex is weighted to needs a bone: Unreal's exports bind every joint.
+			const LocalVector<int> weighted = metahuman_count_bind_weights(source_mesh, source_skin->get_bind_count());
 			for (int b = 0; b < source_skin->get_bind_count(); b++) {
 				StringName bind_name = source_skin->get_bind_name(b);
 				if (bind_name == StringName() && fbx_skeleton && source_skin->get_bind_bone(b) >= 0) {
@@ -1267,7 +1271,12 @@ void _add_clothing(Context &p_ctx, const Dictionary &p_component) {
 				const int bone = _find_bone_any_case(p_ctx.skeleton, bind_name);
 				bind_bones.push_back(bone);
 				if (bone < 0) {
-					WARN_PRINT(vformat("MetaHuman: clothing bone '%s' is not in the skeleton; its vertices follow the root.", bind_name));
+					if (weighted[b] == 0) {
+						print_verbose(vformat("MetaHuman: clothing '%s': unweighted bind '%s' has no bone in the DNA skeleton; dropped.", path, bind_name));
+					} else if (!reported_bones.has(bind_name)) {
+						reported_bones.insert(bind_name);
+						WARN_PRINT(vformat("MetaHuman: clothing '%s': bone '%s' is not in the DNA skeleton, and %d vertices of '%s' are weighted to it; they follow the root.", path, bind_name, weighted[b], source->get_name()));
+					}
 					bind_to_rest.push_back(Transform3D());
 					continue;
 				}
