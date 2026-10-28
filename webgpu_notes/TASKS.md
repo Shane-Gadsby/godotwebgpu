@@ -429,7 +429,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.49 | Web loading screen: progress bar toggle and colors (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.56** |
 | 2.51 | Web export: a Start button and "preload before run" (new, 2026-10-28, user request) | DONE 2026-10-28 → §4.61, §4.63 | export options; the Start button's look customizable (border color/radius, font family/color, cursor, hover/press darkening) |
 | 2.52 | Web: `DisplayServer.window_set_size()` never emits `size_changed` (new, 2026-10-28, camera-sim) | DONE 2026-10-28 → §4.62 | canvas resized synchronously in `godot_js_display_desired_size_set()`, so `process_events()` sees no change and the viewport/surface keep the old size |
-| 2.53 | Web: fullscreen driven by the embedding page (new, 2026-10-28, camera-sim) | OPEN — work task 54 (after 52) | `postMessage` protocol (`godot:fullscreen` / `ready` / `exit-fullscreen`), export options, allowed origins |
+| 2.53 | Web: fullscreen driven by the embedding page (new, 2026-10-28, camera-sim) | DONE 2026-10-28 → §4.67 | `postMessage` protocol (`godot:fullscreen` / `ready` / `exit-fullscreen`), export options, allowed origins |
 | 2.50 | Build scripts: the no-threads, no-dlink web templates first (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.60** | build and install `template_debug` + `template_release` with `threads=no dlink_enabled=no` right after the editor, before every other template | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
 | 2.16 ✔ | test-suite gaps | OPEN (gap 4 partly via `perf_guard`; gaps 5, 7 closed) | regression corpus, error-path, async readback, frame-time/compile/texture perf guards, Safari |
@@ -534,7 +534,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.50 | ~~Build scripts: no-threads non-dlink web templates first~~ | **`DONE` 2026-10-28 → §4.60** | — |
 | 2.51 | Web export: Start button + preload before run, customizable button | `DONE` → §4.61, §4.63 | — |
 | 2.52 | Web: `window_set_size()` never emits `size_changed` | `DONE` → §4.62 | — |
-| 2.53 | Web: fullscreen driven by the embedding page | `OPEN` (task 54) | ~1 session |
+| 2.53 | Web: fullscreen driven by the embedding page | `DONE` → §4.67 | — |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
 
@@ -3261,6 +3261,13 @@ texel's value (1.5% at 33³). The color grading LUT carries a flag (Forward+ pus
 64x64 headless, square under xvfb. A camera FOV computed from it is wrong and the run still "works". Pass the size in,
 or compute it in the first frame.
 
+88. **Playwright's `keyboard.press('Escape')` does not leave fullscreen in Chrome** (2026-10-28, work task 54; it does
+in Firefox). The key goes to the renderer, not the browser UI that owns the exit, so a test relying on it stays in
+fullscreen and every following step fails as if the engine were wrong. Leave with `document.exitFullscreen()` in the
+fullscreen document. Also seen the same day: Firefox now and then ignores a parent page's own `iframe.requestFullscreen()`
+in a long fullscreen sequence (lead's first run of `embed_test.mjs`: 6 checks failed with the game never reached, a
+rerun passed 59/59); a single fullscreen failure there is not an engine regression until it reproduces.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5126,6 +5133,25 @@ off 0 px against the pre-merge editor in all three renderers; dots within 0.29 /
 Compatibility) and 0.36 px on the web (baked export). The worker's web captures had soft edges against native even
 with Panini off (an unbaked headless export; not seen in the lead's baked one). Not tested: MSAA, scaled 3D, frustum
 offsets. Questions `panini-vertical-compression`, `panini-fov`, `panini-look`. §3 trap 87.
+
+### 4.67 Web: the embedding page drives the game's fullscreen (October 2026) *(work task 54; §2.53, camera-sim)*
+
+`html/embed_fullscreen/enabled` (off) and `html/embed_fullscreen/allowed_origins` (comma-separated, shown only while
+enabled; empty = any parent), passed as `GODOT_CONFIG.embedFullscreen`. A page on another origin cannot fullscreen the
+game's canvas (its click is not user activation in a cross-origin iframe), so it fullscreens the iframe and says so
+with `postMessage`: parent → game `{type: 'godot:fullscreen', on}` on every `fullscreenchange` and in answer to game →
+parent `godot:ready`; game → parent `godot:exit-fullscreen` (`window_set_mode(WINDOWED)` while the parent holds it;
+the mode changes on the parent's answer, `godot_js_display_fullscreen_exit()` returns 2) and `godot:request-fullscreen`
+(`window_set_mode(FULLSCREEN)` once a protocol parent is known; canvas request after 1 s without an answer).
+`GodotDisplayScreen.isFullscreen()` counts the parent's fullscreen, so the existing sizing path draws at iframe size x
+DPR and fires `size_changed`. Only `event.source === window.parent`, only listed origins; the parent's echo of the
+game's own canvas fullscreen is ignored; option off or not framed = no listener. `full-size.html` refits from a
+`ResizeObserver` on the canvas (task 52's leftover). Worker: `embed_test.mjs` on two origins, all 8 points in Chrome
+and Firefox; task 52's `resize_test.mjs` with a scale check under policies 0/1/2. Lead (merged tree with 48): dev_mode
+editor and web template 0 warnings; Chrome all checks pass; Firefox 59/59 on a rerun after a first run where the
+parent's own fullscreen request was ignored 6 times (§3 trap 88); resize test passes under all three policies. Not
+done: threads template, Safari, the export dialog by hand. Question `embed-request-option`. camera-sim's switch-over
+steps are in `results/54-web-embed-fullscreen-messages/for-tasks.md`.
 
 ## 5. References — retired docs
 

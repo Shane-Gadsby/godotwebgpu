@@ -1,6 +1,6 @@
 # 54-web-embed-fullscreen-messages: fullscreen driven by the embedding page, via postMessage
 
-State: ready-for-integration
+State: integrated (TASKS §4.67)
 Owner: worker-54
 Claimed: 2026-10-28 14:20
 Needs: build (web template + editor), browser (Playwright, two origins); best **after 52-web-window-set-size-signal**
