@@ -624,6 +624,16 @@ SHADER_REGISTRY = [
         ("gather", "\n#define MODE_GATHER\n", [COMP]),
     ]),
 
+    # ── Light Shafts (LightShafts, light_shafts.cpp) ──
+    ("servers/rendering/renderer_rd/shaders/effects/light_shafts.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("mask", "\n#define MODE_MASK\n", [VERT, FRAG]),
+        ("mask_resolved_depth", "\n#define MODE_MASK_RESOLVED_DEPTH\n", [VERT, FRAG]),
+        ("prefilter", "\n#define MODE_PREFILTER\n", [VERT, FRAG]),
+        ("blur", "\n#define MODE_BLUR\n", [VERT, FRAG]),
+        ("composite", "\n#define MODE_COMPOSITE\n", [VERT, FRAG]),
+    ]),
+
     # ── Camera metering (CameraMetering, camera_metering.cpp): AE metering modes, auto white balance ──
     ("servers/rendering/renderer_rd/shaders/effects/camera_metering.glsl",
      GENERAL_DEFINES_NONE, [

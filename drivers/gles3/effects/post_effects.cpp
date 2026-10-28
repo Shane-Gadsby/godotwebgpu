@@ -124,6 +124,9 @@ void PostEffects::post_copy(
 	if (p_luminance_multiplier != 1.0) {
 		flags |= PostShaderGLES3::USE_LUMINANCE_MULTIPLIER;
 	}
+	if (light_shafts_texture != 0 && !p_use_multiview) {
+		flags |= PostShaderGLES3::USE_LIGHT_SHAFTS;
+	}
 
 	bool success = post.shader.version_bind_shader(post.shader_version, mode, flags);
 	if (!success) {
@@ -160,6 +163,12 @@ void PostEffects::post_copy(
 		post.shader.version_set_uniform(PostShaderGLES3::SRGB_WHITE, p_srgb_white, post.shader_version, mode, flags);
 	}
 
+	if (flags & PostShaderGLES3::USE_LIGHT_SHAFTS) {
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_2D, light_shafts_texture);
+		post.shader.version_set_uniform(PostShaderGLES3::LIGHT_SHAFTS_SCALE, light_shafts_scale.r, light_shafts_scale.g, light_shafts_scale.b, post.shader_version, mode, flags);
+	}
+
 	post.shader.version_set_uniform(PostShaderGLES3::VIEW, float(p_view), post.shader_version, mode, flags);
 	post.shader.version_set_uniform(PostShaderGLES3::LUMINANCE_MULTIPLIER, p_luminance_multiplier, post.shader_version, mode, flags);
 
@@ -174,6 +183,12 @@ void PostEffects::post_copy(
 		glActiveTexture(GL_TEXTURE3);
 		glBindTexture(texture_target, 0);
 	}
+
+	if (flags & PostShaderGLES3::USE_LIGHT_SHAFTS) {
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+	light_shafts_texture = 0; // One frame's shafts at a time.
 
 	// Return back to nearest
 	glActiveTexture(GL_TEXTURE0);

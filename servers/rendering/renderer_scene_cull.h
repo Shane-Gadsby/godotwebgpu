@@ -1305,6 +1305,10 @@ public:
 	PASS7(environment_set_lens_flare, RID, bool, float, float, int, float, float)
 	PASS3(environment_set_veiling_glare, RID, bool, float)
 	PASS4(environment_set_diffusion_filter, RID, bool, float, bool)
+
+	// Light shafts
+	PASS6(environment_set_light_shafts, RID, bool, float, float, float, const Color &)
+	PASS1(environment_set_light_shafts_quality, RSE::EnvironmentLightShaftsQuality)
 	PASS1RC(Vector<float>, environment_get_glow_levels, RID)
 	PASS1RC(float, environment_get_glow_intensity, RID)
 	PASS1RC(float, environment_get_glow_strength, RID)

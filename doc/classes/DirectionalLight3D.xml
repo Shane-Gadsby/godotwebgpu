@@ -36,6 +36,9 @@
 		<member name="directional_shadow_split_3" type="float" setter="set_param" getter="get_param" default="0.5">
 			The distance from shadow split 2 to split 3. Relative to [member directional_shadow_max_distance]. Only used when [member directional_shadow_mode] is [constant SHADOW_PARALLEL_4_SPLITS].
 		</member>
+		<member name="light_shafts_enabled" type="bool" setter="set_light_shafts_enabled" getter="is_light_shafts_enabled" default="false">
+			If [code]true[/code], this light is the sun of the screen-space light shafts of [member Environment.light_shafts_enabled]. If more than one light opts in, one of them is used.
+		</member>
 		<member name="sky_mode" type="int" setter="set_sky_mode" getter="get_sky_mode" enum="DirectionalLight3D.SkyMode" default="0">
 			Whether this [DirectionalLight3D] is visible in the sky, in the scene, or both in the sky and in the scene.
 		</member>

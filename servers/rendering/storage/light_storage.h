@@ -75,6 +75,9 @@ public:
 	virtual bool light_directional_get_blend_splits(RID p_light) const = 0;
 	virtual void light_directional_set_sky_mode(RID p_light, RSE::LightDirectionalSkyMode p_mode) = 0;
 	virtual RSE::LightDirectionalSkyMode light_directional_get_sky_mode(RID p_light) const = 0;
+	// Screen-space light shafts come from the first directional light that opts in (Environment.light_shafts_*).
+	virtual void light_directional_set_light_shafts(RID p_light, bool p_enable) = 0;
+	virtual bool light_directional_get_light_shafts(RID p_light) const = 0;
 
 	virtual RSE::LightDirectionalShadowMode light_directional_get_shadow_mode(RID p_light) = 0;
 	virtual RSE::LightOmniShadowMode light_omni_get_shadow_mode(RID p_light) = 0;

@@ -645,6 +645,26 @@ M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_tcr_autogen_pass.glsl_
 M servers_rendering_renderer_rd_shaders_effects_fsr2_fsr2_tcr_autogen_pass.glsl_default_comp.wgsl --keep-rw 0,9,130,132,266,273,277,281,286,292,294,300,304,306,309,313,316,337,373,386
 M servers_rendering_renderer_rd_shaders_effects_fsr_upscale.glsl_fallback_comp.wgsl 0,142,149,264,432
 M servers_rendering_renderer_rd_shaders_effects_fsr_upscale.glsl_fallback_comp.wgsl --keep-rw 0,142,149,264,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_blur_frag.wgsl 0,34,142,149,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_blur_frag.wgsl --keep-rw 0,34,142,149,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_blur_vert.wgsl 0
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_blur_vert.wgsl --keep-rw 0
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_composite_frag.wgsl 0,34,142,149,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_composite_frag.wgsl --keep-rw 0,34,142,149,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_composite_vert.wgsl 0
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_composite_vert.wgsl --keep-rw 0
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_mask_frag.wgsl 0,4,34,142,149,169,220,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_mask_frag.wgsl --keep-rw 0,4,34,142,149,169,220,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_mask_resolved_depth_frag.wgsl 0,34,142,149,169,219,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_mask_resolved_depth_frag.wgsl --keep-rw 0,34,142,149,169,219,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_mask_resolved_depth_vert.wgsl 0
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_mask_resolved_depth_vert.wgsl --keep-rw 0
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_mask_vert.wgsl 0
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_mask_vert.wgsl --keep-rw 0
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_prefilter_frag.wgsl 0,34,142,149,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_prefilter_frag.wgsl --keep-rw 0,34,142,149,432
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_prefilter_vert.wgsl 0
+M servers_rendering_renderer_rd_shaders_effects_light_shafts.glsl_prefilter_vert.wgsl --keep-rw 0
 M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_read_comp.wgsl 0,142,149,260,432
 M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_read_comp.wgsl --keep-rw 0,142,149,260,432
 M servers_rendering_renderer_rd_shaders_effects_luminance_reduce.glsl_reduce_comp.wgsl 0,120,147,260,432

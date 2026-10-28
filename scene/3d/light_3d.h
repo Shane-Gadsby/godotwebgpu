@@ -184,6 +184,7 @@ private:
 	bool blend_splits;
 	ShadowMode shadow_mode;
 	SkyMode sky_mode = SKY_MODE_LIGHT_AND_SKY;
+	bool light_shafts_enabled = false;
 
 protected:
 	static void _bind_methods();
@@ -198,6 +199,9 @@ public:
 
 	void set_sky_mode(SkyMode p_mode);
 	SkyMode get_sky_mode() const;
+
+	void set_light_shafts_enabled(bool p_enabled);
+	bool is_light_shafts_enabled() const;
 
 	DirectionalLight3D();
 };

@@ -2555,6 +2555,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("light_directional_set_shadow_mode", "light", "mode"), &RenderingServer::light_directional_set_shadow_mode);
 	ClassDB::bind_method(D_METHOD("light_directional_set_blend_splits", "light", "enable"), &RenderingServer::light_directional_set_blend_splits);
 	ClassDB::bind_method(D_METHOD("light_directional_set_sky_mode", "light", "mode"), &RenderingServer::light_directional_set_sky_mode);
+	ClassDB::bind_method(D_METHOD("light_directional_set_light_shafts", "light", "enable"), &RenderingServer::light_directional_set_light_shafts);
 
 	ClassDB::bind_method(D_METHOD("light_area_set_size", "light", "size"), &RenderingServer::light_area_set_size);
 	ClassDB::bind_method(D_METHOD("light_area_set_normalize_energy", "light", "enable"), &RenderingServer::light_area_set_normalize_energy);
@@ -3107,6 +3108,8 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("environment_set_lens_flare", "env", "enable", "intensity", "threshold", "ghost_count", "halo_intensity", "chromatic_aberration"), &RenderingServer::environment_set_lens_flare);
 	ClassDB::bind_method(D_METHOD("environment_set_veiling_glare", "env", "enable", "strength"), &RenderingServer::environment_set_veiling_glare);
 	ClassDB::bind_method(D_METHOD("environment_set_diffusion_filter", "env", "enable", "strength", "black"), &RenderingServer::environment_set_diffusion_filter);
+	ClassDB::bind_method(D_METHOD("environment_set_light_shafts", "env", "enable", "intensity", "threshold", "decay", "tint"), &RenderingServer::environment_set_light_shafts);
+	ClassDB::bind_method(D_METHOD("environment_set_light_shafts_quality", "quality"), &RenderingServer::environment_set_light_shafts_quality);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap", "env", "tone_mapper", "exposure", "white"), &RenderingServer::environment_set_tonemap);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap_agx_contrast", "env", "agx_contrast"), &RenderingServer::environment_set_tonemap_agx_contrast);
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment", "env", "enable", "brightness", "contrast", "saturation", "use_1d_color_correction", "color_correction"), &RenderingServer::environment_set_adjustment);
@@ -3183,6 +3186,10 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::ENV_SSIL_QUALITY_MEDIUM);
 	BIND_ENUM_CONSTANT(RSE::ENV_SSIL_QUALITY_HIGH);
 	BIND_ENUM_CONSTANT(RSE::ENV_SSIL_QUALITY_ULTRA);
+
+	BIND_ENUM_CONSTANT(RSE::ENV_LIGHT_SHAFTS_QUALITY_LOW);
+	BIND_ENUM_CONSTANT(RSE::ENV_LIGHT_SHAFTS_QUALITY_MEDIUM);
+	BIND_ENUM_CONSTANT(RSE::ENV_LIGHT_SHAFTS_QUALITY_HIGH);
 
 	BIND_ENUM_CONSTANT(RSE::ENV_SDFGI_Y_SCALE_50_PERCENT);
 	BIND_ENUM_CONSTANT(RSE::ENV_SDFGI_Y_SCALE_75_PERCENT);
@@ -3833,6 +3840,8 @@ void RenderingServer::init() {
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/ssil/blur_passes", PROPERTY_HINT_RANGE, "0,6"), 4);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/environment/ssil/fadeout_from", PROPERTY_HINT_RANGE, "0.0,512,0.1,or_greater"), 50.0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/environment/ssil/fadeout_to", PROPERTY_HINT_RANGE, "64,65536,0.1,or_greater"), 300.0);
+
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/light_shafts/quality", PROPERTY_HINT_ENUM, "Low (Fast),Medium (Average),High (Slow)"), 1);
 
 	// Move the project setting definitions here so they are available when we init the rendering internals.
 	GLOBAL_DEF_BASIC("rendering/viewport/hdr_2d", false);

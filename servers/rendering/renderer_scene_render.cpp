@@ -462,6 +462,20 @@ CameraGlareEnvironment RendererSceneRender::environment_get_camera_glare(RID p_e
 	return environment_storage.environment_get_camera_glare(p_env);
 }
 
+// Light shafts
+
+void RendererSceneRender::environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint) {
+	environment_storage.environment_set_light_shafts(p_env, p_enable, p_intensity, p_threshold, p_decay, p_tint);
+}
+
+void RendererSceneRender::environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality) {
+	environment_storage.environment_set_light_shafts_quality(p_quality);
+}
+
+RendererEnvironmentStorage::LightShafts RendererSceneRender::environment_get_light_shafts(RID p_env) const {
+	return environment_storage.environment_get_light_shafts(p_env);
+}
+
 // SSR
 
 void RendererSceneRender::environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_int, float p_fade_out, float p_depth_tolerance) {

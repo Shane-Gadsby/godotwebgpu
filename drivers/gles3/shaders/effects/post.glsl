@@ -17,6 +17,7 @@ USE_SSAO_LOW = false
 USE_SSAO_MED = false
 USE_SSAO_HIGH = false
 USE_SSAO_MEGA = false
+USE_LIGHT_SHAFTS = false
 
 #[vertex]
 layout(location = 0) in vec2 vertex_attrib;
@@ -154,6 +155,13 @@ uniform sampler2D depth_buffer; // texunit:3
 #endif
 #endif
 
+#ifdef USE_LIGHT_SHAFTS
+// Screen-space light shafts (GLES3::LightShafts), quarter resolution, in linear light times their buffer's encode scale.
+uniform sampler2D light_shafts_color; // texunit:6
+// Intensity, tint and the sun's fade, divided by the encode scale.
+uniform vec3 light_shafts_scale;
+#endif
+
 in vec2 uv_interp;
 
 layout(location = 0) out vec4 frag_color;
@@ -214,6 +222,11 @@ void main() {
 #if defined(USE_SOME_SSAO)
 	// Putting SSAO after the conversion to linear color, though it might be better before the glow.
 	color.rgb *= s4ao(uv_interp); // The USE_SSAO_X controls the number of samples.
+#endif
+
+#ifdef USE_LIGHT_SHAFTS
+	// Scattered sunlight, in scene-linear light like the frame here; in the air in front of everything, so after SSAO.
+	color.rgb += textureLod(light_shafts_color, lens_uv, 0.0).rgb * light_shafts_scale;
 #endif
 
 #ifdef USE_CAMERA_EFFECTS

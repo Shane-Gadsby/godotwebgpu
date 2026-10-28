@@ -1036,6 +1036,16 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 			using_subpass_post_process = false;
 		}
 
+		if (p_render_data->environment.is_valid() && environment_get_light_shafts(p_render_data->environment).enabled) {
+			// Light shafts are separate passes over the finished color and depth (RendererRD::LightShafts).
+			using_subpass_post_process = false;
+			if (use_msaa) {
+				// The mask reads a resolved depth texture, as DOF does.
+				scene_state.used_depth_texture = true;
+				resolve_depth_buffer = true;
+			}
+		}
+
 		if (use_msaa && p_render_data->environment.is_valid() && RSG::camera_attributes->camera_attributes_uses_dof(p_render_data->camera_attributes)) {
 			// Need to resolve depth texture for DOF when using MSAA.
 			scene_state.used_depth_texture = true;

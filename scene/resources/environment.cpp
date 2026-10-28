@@ -864,6 +864,57 @@ void Environment::_update_diffusion_filter() {
 	RS::get_singleton()->environment_set_diffusion_filter(environment, diffusion_filter_enabled, diffusion_filter_strength, diffusion_filter_black);
 }
 
+// Light shafts
+
+void Environment::set_light_shafts_enabled(bool p_enabled) {
+	light_shafts_enabled = p_enabled;
+	_update_light_shafts();
+}
+
+bool Environment::is_light_shafts_enabled() const {
+	return light_shafts_enabled;
+}
+
+void Environment::set_light_shafts_intensity(float p_intensity) {
+	light_shafts_intensity = MAX(p_intensity, 0.0f);
+	_update_light_shafts();
+}
+
+float Environment::get_light_shafts_intensity() const {
+	return light_shafts_intensity;
+}
+
+void Environment::set_light_shafts_threshold(float p_threshold) {
+	light_shafts_threshold = MAX(p_threshold, 0.0f);
+	_update_light_shafts();
+}
+
+float Environment::get_light_shafts_threshold() const {
+	return light_shafts_threshold;
+}
+
+void Environment::set_light_shafts_decay(float p_decay) {
+	light_shafts_decay = MAX(p_decay, 0.01f);
+	_update_light_shafts();
+}
+
+float Environment::get_light_shafts_decay() const {
+	return light_shafts_decay;
+}
+
+void Environment::set_light_shafts_tint(const Color &p_tint) {
+	light_shafts_tint = p_tint;
+	_update_light_shafts();
+}
+
+Color Environment::get_light_shafts_tint() const {
+	return light_shafts_tint;
+}
+
+void Environment::_update_light_shafts() {
+	RS::get_singleton()->environment_set_light_shafts(environment, light_shafts_enabled, light_shafts_intensity, light_shafts_threshold, light_shafts_decay, light_shafts_tint);
+}
+
 void Environment::_update_glow() {
 	Vector<float> normalized_levels;
 	if (glow_normalize_levels) {
@@ -1684,6 +1735,17 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_diffusion_filter_black", "black"), &Environment::set_diffusion_filter_black);
 	ClassDB::bind_method(D_METHOD("is_diffusion_filter_black"), &Environment::is_diffusion_filter_black);
 
+	ClassDB::bind_method(D_METHOD("set_light_shafts_enabled", "enabled"), &Environment::set_light_shafts_enabled);
+	ClassDB::bind_method(D_METHOD("is_light_shafts_enabled"), &Environment::is_light_shafts_enabled);
+	ClassDB::bind_method(D_METHOD("set_light_shafts_intensity", "intensity"), &Environment::set_light_shafts_intensity);
+	ClassDB::bind_method(D_METHOD("get_light_shafts_intensity"), &Environment::get_light_shafts_intensity);
+	ClassDB::bind_method(D_METHOD("set_light_shafts_threshold", "threshold"), &Environment::set_light_shafts_threshold);
+	ClassDB::bind_method(D_METHOD("get_light_shafts_threshold"), &Environment::get_light_shafts_threshold);
+	ClassDB::bind_method(D_METHOD("set_light_shafts_decay", "decay"), &Environment::set_light_shafts_decay);
+	ClassDB::bind_method(D_METHOD("get_light_shafts_decay"), &Environment::get_light_shafts_decay);
+	ClassDB::bind_method(D_METHOD("set_light_shafts_tint", "tint"), &Environment::set_light_shafts_tint);
+	ClassDB::bind_method(D_METHOD("get_light_shafts_tint"), &Environment::get_light_shafts_tint);
+
 	ADD_GROUP("Lens Flare", "lens_flare_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "lens_flare_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_lens_flare_enabled", "is_lens_flare_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lens_flare_intensity", PROPERTY_HINT_RANGE, "0,100,0.01,exp,or_greater"), "set_lens_flare_intensity", "get_lens_flare_intensity");
@@ -1700,6 +1762,13 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "diffusion_filter_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_diffusion_filter_enabled", "is_diffusion_filter_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "diffusion_filter_strength", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater"), "set_diffusion_filter_strength", "get_diffusion_filter_strength");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "diffusion_filter_black"), "set_diffusion_filter_black", "is_diffusion_filter_black");
+
+	ADD_GROUP("Light Shafts", "light_shafts_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "light_shafts_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_light_shafts_enabled", "is_light_shafts_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "light_shafts_intensity", PROPERTY_HINT_RANGE, "0,16,0.01,or_greater"), "set_light_shafts_intensity", "get_light_shafts_intensity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "light_shafts_threshold", PROPERTY_HINT_RANGE, "0,16,0.01,or_greater"), "set_light_shafts_threshold", "get_light_shafts_threshold");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "light_shafts_decay", PROPERTY_HINT_RANGE, "0.01,16,0.01,exp,or_greater"), "set_light_shafts_decay", "get_light_shafts_decay");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "light_shafts_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_light_shafts_tint", "get_light_shafts_tint");
 
 	ADD_GROUP("Fog", "fog_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fog_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_fog_enabled", "is_fog_enabled");

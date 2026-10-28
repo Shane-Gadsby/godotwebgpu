@@ -5066,6 +5066,33 @@
 				Sets the [member VoxelGIData.use_two_bounces] value to use on the specified [param voxel_gi]'s [RID].
 			</description>
 		</method>
+		<method name="environment_set_light_shafts">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="intensity" type="float" />
+			<param index="3" name="threshold" type="float" />
+			<param index="4" name="decay" type="float" />
+			<param index="5" name="tint" type="Color" />
+			<description>
+				Sets the screen-space light shafts of the environment. See [member Environment.light_shafts_enabled] for details.
+			</description>
+		</method>
+		<method name="environment_set_light_shafts_quality">
+			<return type="void" />
+			<param index="0" name="quality" type="int" enum="RenderingServer.EnvironmentLightShaftsQuality" />
+			<description>
+				Sets the number of samples each light shaft takes. See [member ProjectSettings.rendering/environment/light_shafts/quality].
+			</description>
+		</method>
+		<method name="light_directional_set_light_shafts">
+			<return type="void" />
+			<param index="0" name="light" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				If [code]true[/code], this directional light is the sun of the environment's screen-space light shafts. See [member DirectionalLight3D.light_shafts_enabled].
+			</description>
+		</method>
 	</methods>
 	<members>
 		<member name="render_loop_enabled" type="bool" setter="set_render_loop_enabled" getter="is_render_loop_enabled">
@@ -6745,6 +6772,15 @@
 		<constant name="FEATURE_SHADERS" value="0" enum="Features" deprecated="This constant has not been used since Godot 3.0.">
 		</constant>
 		<constant name="FEATURE_MULTITHREADED" value="1" enum="Features" deprecated="This constant has not been used since Godot 3.0.">
+		</constant>
+		<constant name="ENV_LIGHT_SHAFTS_QUALITY_LOW" value="0" enum="EnvironmentLightShaftsQuality">
+			16 samples per light shaft.
+		</constant>
+		<constant name="ENV_LIGHT_SHAFTS_QUALITY_MEDIUM" value="1" enum="EnvironmentLightShaftsQuality">
+			32 samples per light shaft.
+		</constant>
+		<constant name="ENV_LIGHT_SHAFTS_QUALITY_HIGH" value="2" enum="EnvironmentLightShaftsQuality">
+			64 samples per light shaft.
 		</constant>
 	</constants>
 </class>

@@ -1,0 +1,44 @@
+gpu lease taken Wed 28 Oct 2026 14:18:21 AEST
+2085 MiB, 16376 MiB
+=== web off
+[gpu_time] adapter nvidia/lovelace NVIDIA GeForce RTX 4080 SUPER, maxSampledTexturesPerShaderStage 48
+frames 73 over 444 ms (1 round(s)) -> 167 fps, 6.00 ms/frame
+GPU busy 0.33 ms/frame (5% of the GPU timeline), 2044 passes timed
+copyTextureToTexture 0.0/frame (copies are timed as 'copy' rows)
+ms/frame  passes/f  draws|dispatches/f  pipelines -> first attachment
+   0.057       1.0         14  render  SceneForwardClusteredShaderRD:18                             -> unnamed#37 1152x648x1 mip1 fmt40 usage0x
+   0.056       4.0         45  render  SceneForwardClusteredShaderRD:0                              -> unnamed#42 4096x4096x1 mip1 fmt45 usage0
+   0.040       1.0          0  render                                                               -> unnamed#42 4096x4096x1 mip1 fmt45 usage0
+   0.032       1.0          1  render  TonemapShaderRD:0                                            -> unnamed#31 1152x648x1 mip1 fmt22 usage0x
+   0.031       7.0          7  copy    copyBufferToBuffer                                           -> 5728 B
+   0.029       7.0          7  copy    copyBufferToBuffer                                           -> 144 B
+   0.025       1.0          1  render  SkyShaderRD:0                                                -> unnamed#37 1152x648x1 mip1 fmt40 usage0x
+   0.024       1.0         14  render  SceneForwardClusteredShaderRD:0                              -> unnamed#38 1152x648x1 mip1 fmt49 usage0x
+   0.016       1.0          1  render  BlitShaderRD:0                                               -> 1152x648x1 rgba8unorm
+   0.004       1.0          1  copy    copyBufferToBuffer                                           -> 464 B
+   0.004       1.0          1  copy    copyBufferToBuffer                                           -> 272 B
+   0.004       1.0          1  copy    copyBufferToBuffer                                           -> 352 B
+engine frame stats: {"fps":165,"frames":166,"drawCalls":76,"indirectDraws":0,"setBindGroup":28,"bindGroupSkips":0,"dynamicBindGroups":6,"setVertexBuffer":101,"renderPasses":11,"pushConstantWrites":9,"ringOverflows":0,"rwShadowRefreshes":0}
+shader sources: {"baked":0,"precompiled":115,"translated":221}
+=== web on
+[gpu_time] adapter nvidia/lovelace NVIDIA GeForce RTX 4080 SUPER, maxSampledTexturesPerShaderStage 48
+frames 63 over 386 ms (1 round(s)) -> 166 fps, 6.03 ms/frame
+GPU busy 0.40 ms/frame (7% of the GPU timeline), 2016 passes timed
+copyTextureToTexture 0.0/frame (copies are timed as 'copy' rows)
+ms/frame  passes/f  draws|dispatches/f  pipelines -> first attachment
+   0.054       1.0         14  render  SceneForwardClusteredShaderRD:18                             -> unnamed#37 1152x648x1 mip1 fmt40 usage0x
+   0.053       4.0         45  render  SceneForwardClusteredShaderRD:0                              -> unnamed#42 4096x4096x1 mip1 fmt45 usage0
+   0.036       7.0          7  copy    copyBufferToBuffer                                           -> 5728 B
+   0.036       1.0          0  render                                                               -> unnamed#42 4096x4096x1 mip1 fmt45 usage0
+   0.035       7.0          7  copy    copyBufferToBuffer                                           -> 144 B
+   0.031       1.0          1  render  TonemapShaderRD:0                                            -> unnamed#31 1152x648x1 mip1 fmt22 usage0x
+   0.024       1.0          1  render  LightShaftsShaderRD:0                                        -> unnamed#43 288x162x1 mip1 fmt40 usage0x1
+   0.023       1.0          1  render  SkyShaderRD:0                                                -> unnamed#37 1152x648x1 mip1 fmt40 usage0x
+   0.022       1.0         14  render  SceneForwardClusteredShaderRD:0                              -> unnamed#38 1152x648x1 mip1 fmt49 usage0x
+   0.022       1.0          1  render  LightShaftsShaderRD:4                                        -> unnamed#37 1152x648x1 mip1 fmt40 usage0x
+   0.021       1.0          1  render  LightShaftsShaderRD:3                                        -> unnamed#45 288x162x1 mip1 fmt40 usage0x1
+   0.015       1.0          1  render  BlitShaderRD:0                                               -> 1152x648x1 rgba8unorm
+engine frame stats: {"fps":165,"frames":165,"drawCalls":80,"indirectDraws":0,"setBindGroup":32,"bindGroupSkips":0,"dynamicBindGroups":6,"setVertexBuffer":101,"renderPasses":15,"pushConstantWrites":13,"ringOverflows":0,"rwShadowRefreshes":0}
+shader sources: {"baked":0,"precompiled":121,"translated":221}
+dropped: gpu
+done rc=0 Wed 28 Oct 2026 14:18:48 AEST

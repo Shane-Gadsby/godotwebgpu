@@ -3037,6 +3037,9 @@
 		<member name="rendering/environment/glow/upscale_mode.mobile" type="int" setter="" getter="" default="0">
 			Lower-end override for [member rendering/environment/glow/upscale_mode] on mobile devices, due to performance concerns or driver support.
 		</member>
+		<member name="rendering/environment/light_shafts/quality" type="int" setter="" getter="" default="1">
+			Samples per pixel along each light shaft ([member Environment.light_shafts_enabled]): 16 on Low, 32 on Medium, 64 on High. The shafts look the same at every quality; lower qualities are noisier and cheaper.
+		</member>
 		<member name="rendering/environment/screen_space_reflection/half_size" type="bool" setter="" getter="" default="true" keywords="resolution">
 			If [code]true[/code], screen-space reflections will be rendered at half size and then upscaled before being added to the scene. This is faster but may look pixelated or cause flickering. If [code]false[/code], screen-space reflections will be rendered at full size.
 		</member>
