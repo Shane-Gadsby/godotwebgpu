@@ -1072,6 +1072,23 @@ Error RenderingDevice::_staging_buffer_allocate(StagingBuffers &p_staging_buffer
 	return OK;
 }
 
+Error RenderingDevice::_download_staging_overflow_block(uint32_t p_amount, uint32_t &r_alloc_offset, uint32_t &r_alloc_size, StagingRequiredAction &r_required_action) {
+	// The download ring is full of this frame's blocks. An asynchronous download does not flush and stall for room, as a
+	// synchronous one may: the flush submits the frame without the request being read, so a request already partly
+	// recorded lost those parts (its callback got them as zeros), and on WebGPU the blocks the flush left mapping were
+	// written again at once, a validation error that drops the whole submit. Stalling is also what an asynchronous
+	// read promises not to do. Take one block past the ring's limit instead. The limit is a soft one: a download batch
+	// that waited for its maps frees the blocks over it when it completes (_download_batch_release_blocks()).
+	// _staging_buffer_allocate() left `current` on a block of this frame, which _insert_staging_block() puts after the
+	// new one.
+	RETURN_IF_ERROR(_insert_staging_block(download_staging_buffers));
+	download_staging_buffers.blocks.write[download_staging_buffers.current].frame_used = frames_drawn;
+	r_alloc_offset = 0;
+	r_alloc_size = p_amount;
+	r_required_action = STAGING_REQUIRED_ACTION_NONE;
+	return OK;
+}
+
 void RenderingDevice::_staging_buffer_execute_required_action(StagingBuffers &p_staging_buffers, StagingRequiredAction p_required_action) {
 	switch (p_required_action) {
 		case STAGING_REQUIRED_ACTION_NONE: {
@@ -1091,6 +1108,13 @@ void RenderingDevice::_staging_buffer_execute_required_action(StagingBuffers &p_
 		} break;
 		case STAGING_REQUIRED_ACTION_STALL_PREVIOUS: {
 			_stall_for_previous_frames();
+
+			if (p_staging_buffers.blocks[p_staging_buffers.current].frame_used == frames_drawn) {
+				// The stalls took download blocks still being mapped out of the ring (WebGPU), which moved `current`
+				// onto a block this frame already wrote. The caller writes at offset 0, so give it a new block.
+				Error err = _insert_staging_block(p_staging_buffers);
+				ERR_FAIL_COND_MSG(err != OK, "Can't create a staging block after stalling for previous frames.");
+			}
 
 			for (int i = 0; i < p_staging_buffers.blocks.size(); i++) {
 				// Clear all blocks but the ones from this frame.
@@ -1476,25 +1500,11 @@ Error RenderingDevice::buffer_get_data_async(RID p_buffer, const Callable &p_cal
 	while (to_submit > 0) {
 		RETURN_IF_ERROR(_staging_buffer_allocate(download_staging_buffers, MIN(to_submit, download_staging_buffers.block_size), required_align, block_write_offset, block_write_amount, required_action));
 
-		const bool flush_frames = (get_data_request.frame_local_count > 0) && required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL;
-		if (flush_frames) {
-			if (_buffer_make_mutable(buffer, p_buffer)) {
-				// The buffer must be mutable to be used as a copy source.
-				draw_graph.add_synchronization();
-			}
-
-			for (uint32_t i = 0; i < get_data_request.frame_local_count; i++) {
-				uint32_t local_index = get_data_request.frame_local_index + i;
-				draw_graph.add_buffer_get_data(buffer->driver_id, buffer->draw_tracker, frames[frame].download_buffer_staging_buffers[local_index], frames[frame].download_buffer_copy_regions[local_index]);
-			}
+		if (required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL) {
+			RETURN_IF_ERROR(_download_staging_overflow_block(MIN(to_submit, download_staging_buffers.block_size), block_write_offset, block_write_amount, required_action));
 		}
 
 		_staging_buffer_execute_required_action(download_staging_buffers, required_action);
-
-		if (flush_frames) {
-			get_data_request.frame_local_count = 0;
-			get_data_request.frame_local_index = frames[frame].download_buffer_copy_regions.size();
-		}
 
 		RDD::BufferCopyRegion region;
 		region.src_offset = submit_from + p_offset;
@@ -3236,20 +3246,13 @@ Error RenderingDevice::texture_get_data_async(RID p_texture, uint32_t p_layer, c
 					Error err = _staging_buffer_allocate(download_staging_buffers, to_allocate, required_align, block_write_offset, block_write_amount, required_action, false);
 					ERR_FAIL_COND_V(err, ERR_CANT_CREATE);
 
-					const bool flush_frames = (get_data_request.frame_local_count > 0) && required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL;
-					if (flush_frames) {
-						for (uint32_t j = 0; j < get_data_request.frame_local_count; j++) {
-							uint32_t local_index = get_data_request.frame_local_index + j;
-							draw_graph.add_texture_get_data(tex->driver_id, tex->draw_tracker, frames[frame].download_texture_staging_buffers[local_index], frames[frame].download_buffer_texture_copy_regions[local_index]);
-						}
+					if (required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL) {
+						// (A 1920x1080 RGBA16F read is 16.6 MB, more than WebGPU's whole 16 MB ring.)
+						err = _download_staging_overflow_block(to_allocate, block_write_offset, block_write_amount, required_action);
+						ERR_FAIL_COND_V(err, ERR_CANT_CREATE);
 					}
 
 					_staging_buffer_execute_required_action(download_staging_buffers, required_action);
-
-					if (flush_frames) {
-						get_data_request.frame_local_count = 0;
-						get_data_request.frame_local_index = frames[frame].download_buffer_texture_copy_regions.size();
-					}
 
 					RDD::BufferTextureCopyRegion copy_region;
 					copy_region.buffer_offset = block_write_offset;
@@ -9381,9 +9384,11 @@ Error RenderingDevice::initialize(RenderingContextDriver *p_context, DisplayServ
 	upload_staging_buffers.max_size *= 1024 * 1024;
 	upload_staging_buffers.max_size = MAX(upload_staging_buffers.max_size, upload_staging_buffers.block_size * 4);
 
-	// Copy the sizes to the download staging buffers.
+	// Copy the sizes to the download staging buffers. The driver's cap is for uploads (a loading spike's blocks would
+	// stay allocated); the download ring only grows with the readbacks a project asks for, and a 1920x1080 RGBA16F
+	// read alone is 16.6 MB, more than WebGPU's 16 MB cap, so every such read created and freed its blocks each frame.
 	download_staging_buffers.block_size = upload_staging_buffers.block_size;
-	download_staging_buffers.max_size = upload_staging_buffers.max_size;
+	download_staging_buffers.max_size = MAX(upload_staging_buffers.max_size, uint64_t(MAX(1u, uint32_t(GLOBAL_GET("rendering/rendering_device/staging_buffer/max_size_mb")))) * 1024 * 1024);
 
 	texture_upload_region_size_px = GLOBAL_GET("rendering/rendering_device/staging_buffer/texture_upload_region_size_px");
 	texture_upload_region_size_px = Math::nearest_power_of_2_templated(texture_upload_region_size_px);

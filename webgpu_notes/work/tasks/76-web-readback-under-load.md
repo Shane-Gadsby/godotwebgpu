@@ -1,8 +1,8 @@
 # 76-web-readback-under-load: async readback every frame on WebGPU; float readback 11x dark
 
-State: open
+State: ready-for-integration
 Owner: worker-76
-Claimed:
+Claimed: 2026-10-28 23:33
 Needs: build, browser
 Branch: work/76
 Results: webgpu_notes/work/results/76-web-readback-under-load/

@@ -1047,11 +1047,14 @@ public:
 		// path incurs expensive WASM→JS→GPU bridge crossings that can be
 		// avoided by creating the buffer with mappedAtCreation.
 		API_TRAIT_BUFFER_CREATE_MAPPED_AT_CREATION,
-		// If non-zero, caps the staging buffer pool max_size to this value
-		// (in MB), overriding the project setting. On backends where staging
-		// blocks use CPU shadow memory (e.g. WebGPU), keeping the pool small
-		// avoids wasting memory after the loading spike subsides. The pool
-		// handles overflow correctly via stall-and-reuse.
+		// If non-zero, caps the upload staging buffer pool max_size to this
+		// value (in MB), overriding the project setting. On backends where
+		// staging blocks use CPU shadow memory (e.g. WebGPU), keeping the pool
+		// small avoids wasting memory after the loading spike subsides; uploads
+		// handle overflow via stall-and-reuse. The download pool keeps the
+		// project setting: it only grows with the readbacks a project makes,
+		// and asynchronous readbacks never stall for room (they take blocks
+		// past the limit instead, RenderingDevice::_download_staging_overflow_block()).
 		API_TRAIT_STAGING_BUFFER_MAX_SIZE_MB,
 		// If non-zero, skeleton bone buffer updates use direct queue writes
 		// (e.g. wgpuQueueWriteBuffer) instead of going through staging buffers

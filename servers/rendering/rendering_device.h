@@ -179,6 +179,7 @@ private:
 	Error _staging_buffer_allocate(StagingBuffers &p_staging_buffers, uint32_t p_amount, uint32_t p_required_align, uint32_t &r_alloc_offset, uint32_t &r_alloc_size, StagingRequiredAction &r_required_action, bool p_can_segment = true);
 	void _staging_buffer_execute_required_action(StagingBuffers &p_staging_buffers, StagingRequiredAction p_required_action);
 	Error _insert_staging_block(StagingBuffers &p_staging_buffers);
+	Error _download_staging_overflow_block(uint32_t p_amount, uint32_t &r_alloc_offset, uint32_t &r_alloc_size, StagingRequiredAction &r_required_action);
 
 	StagingBuffers upload_staging_buffers;
 	StagingBuffers download_staging_buffers;
