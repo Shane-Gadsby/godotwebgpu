@@ -37,6 +37,8 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 61 | start screen download text: each message switchable and editable, text colour (user request) | 7 | worker-61 (retired); **merged `2111490a44`**, verified, TASKS §4.77, trap 96 |
 | 62 | Camera3D monitoring histogram: script readback, count without drawing, one per camera (camera-sim) | 8 | worker-62 |
 | 63 | CameraAttributesPhysical: opt-in physical DOF blur size (sensor + resolution aware), 32 px cap (camera-sim) | 8 | worker-63 |
+| 64 | Color.from_temperature() and one shared colour-temperature helper (camera-sim) | 8 | worker-64 |
+| 65 | Light3D.light_temperature without physical light units, constant luminance (camera-sim; with 64, work/64) | 8 | worker-64 |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 
