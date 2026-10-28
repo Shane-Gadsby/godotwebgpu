@@ -63,6 +63,28 @@
 				Sets the parameters to use with the auto-exposure effect. These parameters take on the same meaning as their counterparts in [CameraAttributes] and [CameraAttributesPractical].
 			</description>
 		</method>
+		<method name="camera_attributes_set_auto_exposure_metering">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="mode" type="int" enum="RenderingServer.CameraAttributesMeteringMode" />
+			<param index="2" name="spot_size" type="float" />
+			<param index="3" name="spot_point" type="Vector2" />
+			<param index="4" name="highlight_percentile" type="float" />
+			<description>
+				Sets how auto exposure meters the frame. [param mode] is the metering mode, [param spot_size] the spot's area in percent of the frame, [param spot_point] its center in UV coordinates and [param highlight_percentile] the percentile the highlight-weighted mode exposes to the clipping point. These take on the same meaning as the [code]auto_exposure_metering_*[/code] properties of [CameraAttributes].
+			</description>
+		</method>
+		<method name="camera_attributes_set_auto_white_balance">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="speed" type="float" />
+			<param index="3" name="min_temperature" type="float" />
+			<param index="4" name="max_temperature" type="float" />
+			<description>
+				Sets the auto white balance of the camera attributes: [param enable] turns it on, [param speed] is the inverse of its time constant in seconds and [param min_temperature] and [param max_temperature] limit the estimated light, in Kelvin. These take on the same meaning as the [code]white_balance_auto*[/code] properties of [CameraAttributes].
+			</description>
+		</method>
 		<method name="camera_attributes_set_chromatic_aberration">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -6223,6 +6245,18 @@
 		</constant>
 		<constant name="CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_HIGH" value="2" enum="CameraAttributesMotionBlurQuality">
 			Motion blur takes 32 samples per pixel. Smoothest, and slowest.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_METERING_AVERAGE" value="0" enum="CameraAttributesMeteringMode">
+			Auto exposure meters the average of the whole frame.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_METERING_CENTER_WEIGHTED" value="1" enum="CameraAttributesMeteringMode">
+			Auto exposure meters the whole frame with 75% of the weight in a central circle half the frame height across.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_METERING_SPOT" value="2" enum="CameraAttributesMeteringMode">
+			Auto exposure meters only a small circle of the frame.
+		</constant>
+		<constant name="CAMERA_ATTRIBUTES_METERING_HIGHLIGHT_WEIGHTED" value="3" enum="CameraAttributesMeteringMode">
+			Auto exposure exposes a high percentile of the frame to the clipping point.
 		</constant>
 		<constant name="INSTANCE_NONE" value="0" enum="InstanceType">
 			The instance does not have a type.

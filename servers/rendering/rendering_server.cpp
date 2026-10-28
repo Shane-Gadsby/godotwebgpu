@@ -3231,6 +3231,10 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur", "camera_attributes", "enable", "shutter_angle", "shutter_time", "strength", "max_length"), &RenderingServer::camera_attributes_set_motion_blur);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_rolling_shutter", "camera_attributes", "enable", "readout_time"), &RenderingServer::camera_attributes_set_rolling_shutter);
 
+	/* Exposure automation */
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_metering", "camera_attributes", "mode", "spot_size", "spot_point", "highlight_percentile"), &RenderingServer::camera_attributes_set_auto_exposure_metering);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_white_balance", "camera_attributes", "enable", "speed", "min_temperature", "max_temperature"), &RenderingServer::camera_attributes_set_auto_white_balance);
+
 	/* Lens optics */
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_lens", "camera_attributes", "sensor_size", "focal_length", "fov_focal_length", "focus_distance", "f_number", "max_f_number", "anamorphic_squeeze"), &RenderingServer::camera_attributes_set_lens);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_vignetting", "camera_attributes", "enable", "strength", "falloff"), &RenderingServer::camera_attributes_set_vignetting);
@@ -3263,6 +3267,11 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_LOW);
 	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_MEDIUM);
 	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_MOTION_BLUR_QUALITY_HIGH);
+
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_METERING_AVERAGE);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_METERING_CENTER_WEIGHTED);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_METERING_SPOT);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_ATTRIBUTES_METERING_HIGHLIGHT_WEIGHTED);
 
 	/* SCENARIO */
 

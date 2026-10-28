@@ -624,6 +624,18 @@ SHADER_REGISTRY = [
         ("gather", "\n#define MODE_GATHER\n", [COMP]),
     ]),
 
+    # ── Camera metering (CameraMetering, camera_metering.cpp): AE metering modes, auto white balance ──
+    ("servers/rendering/renderer_rd/shaders/effects/camera_metering.glsl",
+     GENERAL_DEFINES_NONE, [
+        ("meter_read", "\n#define MODE_METER_READ\n", [COMP]),
+        ("reduce", "\n#define MODE_REDUCE\n", [COMP]),
+        ("meter_resolve", "\n#define MODE_METER_RESOLVE\n", [COMP]),
+        ("histogram", "\n#define MODE_HISTOGRAM\n", [COMP]),
+        ("histogram_resolve", "\n#define MODE_HISTOGRAM_RESOLVE\n", [COMP]),
+        ("awb_read", "\n#define MODE_AWB_READ\n", [COMP]),
+        ("awb_resolve", "\n#define MODE_AWB_RESOLVE\n", [COMP]),
+    ]),
+
     # ── Shadow Frustum ──────────────────────────────────────────────
     ("servers/rendering/renderer_rd/shaders/effects/shadow_frustum.glsl",
      GENERAL_DEFINES_NONE, [("default", "", [VERT, FRAG])]),

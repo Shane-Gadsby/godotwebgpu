@@ -69,6 +69,11 @@ layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 #endif
 #include "camera_lens_inc.glsl"
 
+// CameraAttributes exposure automation: the auto white balance state, beside the exposure texture it complements.
+#define CAMERA_EXPOSURE_SET 1
+#define CAMERA_EXPOSURE_BINDING 2
+#include "camera_exposure_inc.glsl"
+
 #define FLAG_USE_BCS (1 << 0)
 #define FLAG_USE_GLOW (1 << 1)
 #define FLAG_USE_AUTO_EXPOSURE (1 << 2)
@@ -954,9 +959,16 @@ void main() {
 	}
 
 	// White balance, in linear scene-referred color: after FXAA, which resamples the source, and after the
-	// pre-tonemap glow, which is scene light too.
-	if (bool(params.flags & FLAG_USE_WHITE_BALANCE)) {
-		color.rgb = apply_white_balance(color.rgb, params.white_balance);
+	// pre-tonemap glow, which is scene light too. Auto white balance neutralizes the estimated illuminant, and the
+	// manual setting applies on top of it as a bias; both are von Kries gains in the same cone space, so they multiply.
+	bool use_white_balance = bool(params.flags & FLAG_USE_WHITE_BALANCE);
+	vec3 white_balance = params.white_balance;
+	if ((camera_effects.header.z & CAMERA_EXPOSURE_AUTO_WHITE_BALANCE) != 0u) {
+		white_balance = (use_white_balance ? white_balance : vec3(1.0f)) * camera_auto_white_balance_gains();
+		use_white_balance = true;
+	}
+	if (use_white_balance) {
+		color.rgb = apply_white_balance(color.rgb, white_balance);
 	}
 
 	// Grain, in the same scene-referred light: it happens on the film or sensor, before the print or the
@@ -983,8 +995,8 @@ void main() {
 		if (params.glow_map_strength > 0.001) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
-		if (bool(params.flags & FLAG_USE_WHITE_BALANCE)) {
-			glow = apply_white_balance(glow, params.white_balance);
+		if (use_white_balance) {
+			glow = apply_white_balance(glow, white_balance);
 		}
 		glow = apply_camera_tonemapping(glow, CAMERA_LUT_PARAMS);
 		color.rgb = apply_glow(color.rgb, glow, params.white);

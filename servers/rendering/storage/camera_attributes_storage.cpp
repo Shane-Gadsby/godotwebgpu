@@ -36,6 +36,7 @@
 
 RendererCameraAttributes *RendererCameraAttributes::singleton = nullptr;
 uint64_t RendererCameraAttributes::auto_exposure_counter = 2;
+uint64_t RendererCameraAttributes::auto_white_balance_counter = 2;
 
 RendererCameraAttributes::RendererCameraAttributes() {
 	singleton = this;
@@ -839,8 +840,132 @@ void RendererCameraAttributes::_fill_effects_lens(const CameraAttributes &p_attr
 void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
 }
 
-// Exposure automation (task 36) fills exposure[] and header[2] here.
+/* Exposure automation
+ *
+ * Metering modes. Every mode meters the same per-pixel value as Godot's original auto exposure, max(R, G, B) of the
+ * scene-linear frame, and the renderer turns the metered value into exposure the same way (scale / value), so the
+ * modes only change where and how the meter looks:
+ * - Average: the original reduction, untouched: the mean over the frame. A reflected-light meter integrates the
+ *   light linearly, and the exposure equation it is calibrated by uses the scene's average luminance (ISO 2720:1974).
+ * - Center-weighted: the same mean with 75% of the weight in a central circle 12 mm across on a 36x24 mm frame, the
+ *   rest spread over the remainder. That is Nikon's definition ("75% weight given to 12 mm dia. circle", Nikon
+ *   F100/F5/F6 specifications); the circle is half the frame height, so it covers the same part of any sensor
+ *   (Nikon's DX bodies use 8 mm on a 15.6 mm frame, 0.51).
+ * - Spot: the mean inside a circle covering spot_size percent of the frame (default 2.5%; Canon's spot meters cover
+ *   about 1.3-4% of the frame, Nikon's 4 mm circle 1.5% of an FX one), centered at spot_point.
+ * - Highlight-weighted: the highlight_percentile-th percentile instead of a mean, placed at 1.0 (the Linear
+ *   tonemapper's white) by the default auto_exposure_scale of 0.4, so only the brightest (100 - percentile)% of the
+ *   frame may clip, as Nikon's highlight-weighted metering protects highlights. auto_exposure_scale stays the exposure
+ *   compensation: twice the scale is one stop over. Counted in a histogram of log2 values on the GPU.
+ * The weights are per pixel center, normalized so the circle's share of the total is exact whatever the frame's
+ * aspect.
+ */
+
+// The default auto_exposure_scale: highlight metering reports percentile * this, so the default scale exposes the
+// percentile at 1.0.
+static constexpr float AUTO_EXPOSURE_HIGHLIGHT_KEY = 0.4f;
+// Nikon's center-weighted circle: 12 mm across a 24 mm frame height, with 75% of the weight.
+static constexpr float AUTO_EXPOSURE_CENTER_DIAMETER = 0.5f;
+static constexpr float AUTO_EXPOSURE_CENTER_WEIGHT = 0.75f;
+
+void RendererCameraAttributes::camera_attributes_set_auto_exposure_metering(RID p_camera_attributes, RSE::CameraAttributesMeteringMode p_mode, float p_spot_size, const Vector2 &p_spot_point, float p_highlight_percentile) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->auto_exposure_metering_mode = p_mode;
+	cam_attributes->auto_exposure_metering_spot_size = CLAMP(p_spot_size, 0.01f, 100.0f);
+	cam_attributes->auto_exposure_metering_spot_point = p_spot_point.clamp(Vector2(), Vector2(1.0, 1.0));
+	cam_attributes->auto_exposure_metering_highlight_percentile = CLAMP(p_highlight_percentile, 1.0f, 100.0f);
+}
+
+RendererCameraAttributes::AutoExposureMetering RendererCameraAttributes::camera_attributes_get_auto_exposure_metering(RID p_camera_attributes, const Size2i &p_frame_size) {
+	AutoExposureMetering metering;
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes || p_frame_size.x <= 0 || p_frame_size.y <= 0) {
+		return metering;
+	}
+	const float aspect = float(p_frame_size.x) / float(p_frame_size.y); // The frame's area in units of its height squared.
+	metering.mode = cam_attributes->auto_exposure_metering_mode;
+	metering.highlight_percentile = cam_attributes->auto_exposure_metering_highlight_percentile / 100.0f;
+	metering.highlight_key = AUTO_EXPOSURE_HIGHLIGHT_KEY;
+	switch (metering.mode) {
+		case RSE::CAMERA_ATTRIBUTES_METERING_CENTER_WEIGHTED: {
+			metering.center = Vector2(0.5f * aspect, 0.5f);
+			metering.radius = 0.5f * AUTO_EXPOSURE_CENTER_DIAMETER;
+			// Each region's share divided by its area, in frame areas, so the circle holds 75% of the total weight.
+			const float inner_area = MIN(Math::PI * metering.radius * metering.radius / aspect, 0.999f);
+			metering.inner_weight = AUTO_EXPOSURE_CENTER_WEIGHT / inner_area;
+			metering.outer_weight = (1.0f - AUTO_EXPOSURE_CENTER_WEIGHT) / (1.0f - inner_area);
+		} break;
+		case RSE::CAMERA_ATTRIBUTES_METERING_SPOT: {
+			const Vector2 point = cam_attributes->auto_exposure_metering_spot_point;
+			metering.center = Vector2(point.x * aspect, point.y);
+			metering.radius = Math::sqrt(cam_attributes->auto_exposure_metering_spot_size / 100.0f * aspect / Math::PI);
+			metering.inner_weight = 1.0f;
+			metering.outer_weight = 0.0f;
+		} break;
+		default:
+			break;
+	}
+	return metering;
+}
+
+/* Auto white balance
+ *
+ * Estimates the illuminant from the frame on the GPU and neutralizes it with the same von Kries adaptation in Bradford
+ * cone space as the manual white balance (see "White balance" above), every frame, without reading anything back:
+ * - The estimate is a gray world (Buchsbaum 1980, "A spatial processor model for object colour perception") over
+ *   the pixels that look gray, after the current correction: each pixel's weight falls off as a Gaussian of its
+ *   log chromaticity distance from neutral, ln(R/G) and ln(B/G), sigma 0.25. Selecting near-gray pixels with the
+ *   previous estimate's correction applied and iterating is Huo et al.'s robust AWB (IEEE Trans. Consumer
+ *   Electronics 52(2), 2006); here the iteration is the frame loop. Pixels that would clip (any channel at or above
+ *   1.0 once exposed as the tonemapper exposes them) are rejected, as a camera rejects clipped photosites.
+ * - The estimate is converted to a correlated color temperature and Duv on the same Planckian locus (Krystek 1985),
+ *   clamped to [min_temperature, max_temperature] and +-0.05 Duv (the manual tint's range), and adapted toward over
+ *   time in CIE 1960 uv, with a time constant of 1 / speed.
+ * - The gains map the adapted illuminant onto display white (R = G = B), so a gray card comes out neutral. The
+ *   manual temperature and tint still apply on top, as a bias: at their defaults (6500 K, 0) they do nothing, and
+ *   since the estimate starts at display white whenever auto white balance is turned on, they are its starting
+ *   point too.
+ * Forward+ only: the reduction is compute. Mobile and Compatibility apply the manual white balance alone.
+ */
+
+void RendererCameraAttributes::camera_attributes_set_auto_white_balance(RID p_camera_attributes, bool p_enable, float p_speed, float p_min_temperature, float p_max_temperature) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	if (!cam_attributes->auto_white_balance_enabled && p_enable) {
+		cam_attributes->auto_white_balance_version = ++auto_white_balance_counter;
+	}
+#ifdef DEBUG_ENABLED
+	if ((OS::get_singleton()->get_current_rendering_method() == "gl_compatibility" || OS::get_singleton()->get_current_rendering_method() == "mobile") && p_enable) {
+		WARN_PRINT_ONCE_ED("Auto white balance is only available when using the Forward+ renderer.");
+	}
+#endif
+	cam_attributes->auto_white_balance_enabled = p_enable;
+	cam_attributes->auto_white_balance_speed = MAX(p_speed, 0.0f);
+	cam_attributes->auto_white_balance_min_temperature = CLAMP(p_min_temperature, 1000.0f, 15000.0f);
+	cam_attributes->auto_white_balance_max_temperature = CLAMP(p_max_temperature, cam_attributes->auto_white_balance_min_temperature, 15000.0f);
+}
+
+RendererCameraAttributes::AutoWhiteBalance RendererCameraAttributes::camera_attributes_get_auto_white_balance(RID p_camera_attributes) {
+	AutoWhiteBalance awb;
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes) {
+		return awb;
+	}
+	awb.enabled = cam_attributes->auto_white_balance_enabled;
+	awb.speed = cam_attributes->auto_white_balance_speed;
+	awb.min_temperature = cam_attributes->auto_white_balance_min_temperature;
+	awb.max_temperature = cam_attributes->auto_white_balance_max_temperature;
+	awb.version = cam_attributes->auto_white_balance_version;
+	return awb;
+}
+
+// Exposure automation: header[2] says whether the tonemapper multiplies the auto white balance gains in. Only a
+// renderer that ran the auto white balance passes this frame sets the context's flag.
 void RendererCameraAttributes::_fill_effects_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
+	if (p_context.auto_white_balance && p_attributes.auto_white_balance_enabled) {
+		r_ubo.header[2] |= EXPOSURE_AUTO_WHITE_BALANCE;
+	}
 }
 
 bool RendererCameraAttributes::camera_attributes_fill_effects_buffer(RID p_camera_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {

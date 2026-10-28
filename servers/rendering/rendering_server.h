@@ -739,6 +739,10 @@ public:
 	virtual void camera_attributes_set_motion_blur(RID p_camera_attributes, bool p_enable, float p_shutter_angle, float p_shutter_time, float p_strength, float p_max_length) = 0;
 	virtual void camera_attributes_set_rolling_shutter(RID p_camera_attributes, bool p_enable, float p_readout_time) = 0;
 
+	/* Exposure automation */
+	virtual void camera_attributes_set_auto_exposure_metering(RID p_camera_attributes, RSE::CameraAttributesMeteringMode p_mode, float p_spot_size, const Vector2 &p_spot_point, float p_highlight_percentile) = 0;
+	virtual void camera_attributes_set_auto_white_balance(RID p_camera_attributes, bool p_enable, float p_speed, float p_min_temperature, float p_max_temperature) = 0;
+
 	/* Lens optics */
 	virtual void camera_attributes_set_lens(RID p_camera_attributes, const Vector2 &p_sensor_size, float p_focal_length, float p_fov_focal_length, float p_focus_distance, float p_f_number, float p_max_f_number, float p_anamorphic_squeeze) = 0;
 	virtual void camera_attributes_set_vignetting(RID p_camera_attributes, bool p_enable, float p_strength, float p_falloff) = 0;
@@ -1196,6 +1200,7 @@ VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramPosition, RenderingServer::C
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesGrainType, RenderingServer::CameraAttributesGrainType);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesLUTInput, RenderingServer::CameraAttributesLUTInput);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesMotionBlurQuality, RenderingServer::CameraAttributesMotionBlurQuality);
+VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesMeteringMode, RenderingServer::CameraAttributesMeteringMode);
 VARIANT_ENUM_CAST_EXT(RSE::ShadowQuality, RenderingServer::ShadowQuality);
 VARIANT_ENUM_CAST_EXT(RSE::InstanceType, RenderingServer::InstanceType);
 VARIANT_ENUM_CAST_EXT(RSE::InstanceFlags, RenderingServer::InstanceFlags);

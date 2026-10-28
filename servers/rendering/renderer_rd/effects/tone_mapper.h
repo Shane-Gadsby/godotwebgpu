@@ -229,6 +229,7 @@ public:
 		RID camera_lut_texture; // A 3D texture; the default 3D white texture when there is none.
 
 		RID camera_effects_buffer; // The CameraEffects uniform buffer; the default all-zero one when invalid.
+		RID auto_white_balance_texture; // CameraMetering's state (gains in texel 0); read when the buffer says so.
 
 		bool use_bcs = false;
 		float brightness = 1.0;

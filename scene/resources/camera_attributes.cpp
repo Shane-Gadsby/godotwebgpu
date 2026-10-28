@@ -115,6 +115,92 @@ float CameraAttributes::get_white_balance_tint() const {
 	return white_balance_tint;
 }
 
+/* Exposure automation */
+
+void CameraAttributes::set_auto_exposure_metering_mode(MeteringMode p_mode) {
+	auto_exposure_metering_mode = p_mode;
+	_update_auto_exposure_metering();
+	notify_property_list_changed();
+}
+
+CameraAttributes::MeteringMode CameraAttributes::get_auto_exposure_metering_mode() const {
+	return auto_exposure_metering_mode;
+}
+
+void CameraAttributes::set_auto_exposure_metering_spot_size(float p_size) {
+	auto_exposure_metering_spot_size = p_size;
+	_update_auto_exposure_metering();
+}
+
+float CameraAttributes::get_auto_exposure_metering_spot_size() const {
+	return auto_exposure_metering_spot_size;
+}
+
+void CameraAttributes::set_auto_exposure_metering_spot_point(const Vector2 &p_point) {
+	auto_exposure_metering_spot_point = p_point;
+	_update_auto_exposure_metering();
+}
+
+Vector2 CameraAttributes::get_auto_exposure_metering_spot_point() const {
+	return auto_exposure_metering_spot_point;
+}
+
+void CameraAttributes::set_auto_exposure_metering_highlight_percentile(float p_percentile) {
+	auto_exposure_metering_highlight_percentile = p_percentile;
+	_update_auto_exposure_metering();
+}
+
+float CameraAttributes::get_auto_exposure_metering_highlight_percentile() const {
+	return auto_exposure_metering_highlight_percentile;
+}
+
+void CameraAttributes::_update_auto_exposure_metering() {
+	RS::get_singleton()->camera_attributes_set_auto_exposure_metering(camera_attributes, RSE::CameraAttributesMeteringMode(auto_exposure_metering_mode), auto_exposure_metering_spot_size, auto_exposure_metering_spot_point, auto_exposure_metering_highlight_percentile);
+	emit_changed();
+}
+
+void CameraAttributes::set_white_balance_auto(bool p_enabled) {
+	white_balance_auto = p_enabled;
+	_update_auto_white_balance();
+	notify_property_list_changed();
+}
+
+bool CameraAttributes::is_white_balance_auto() const {
+	return white_balance_auto;
+}
+
+void CameraAttributes::set_white_balance_auto_speed(float p_speed) {
+	white_balance_auto_speed = p_speed;
+	_update_auto_white_balance();
+}
+
+float CameraAttributes::get_white_balance_auto_speed() const {
+	return white_balance_auto_speed;
+}
+
+void CameraAttributes::set_white_balance_auto_min_temperature(float p_temperature) {
+	white_balance_auto_min_temperature = p_temperature;
+	_update_auto_white_balance();
+}
+
+float CameraAttributes::get_white_balance_auto_min_temperature() const {
+	return white_balance_auto_min_temperature;
+}
+
+void CameraAttributes::set_white_balance_auto_max_temperature(float p_temperature) {
+	white_balance_auto_max_temperature = p_temperature;
+	_update_auto_white_balance();
+}
+
+float CameraAttributes::get_white_balance_auto_max_temperature() const {
+	return white_balance_auto_max_temperature;
+}
+
+void CameraAttributes::_update_auto_white_balance() {
+	RS::get_singleton()->camera_attributes_set_auto_white_balance(camera_attributes, white_balance_auto, white_balance_auto_speed, white_balance_auto_min_temperature, white_balance_auto_max_temperature);
+	emit_changed();
+}
+
 void CameraAttributes::_update_white_balance() {
 	RS::get_singleton()->camera_attributes_set_white_balance(camera_attributes, white_balance_temperature, white_balance_tint);
 }
@@ -501,6 +587,13 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 		return;
 	}
 
+	if (((p_property.name == "auto_exposure_metering_spot_size" || p_property.name == "auto_exposure_metering_spot_point") && auto_exposure_metering_mode != METERING_MODE_SPOT) ||
+			(p_property.name == "auto_exposure_metering_highlight_percentile" && auto_exposure_metering_mode != METERING_MODE_HIGHLIGHT_WEIGHTED) ||
+			(p_property.name.begins_with("white_balance_auto_") && !white_balance_auto)) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
 	if (p_property.name.begins_with("grain_") && p_property.name != "grain_enabled" && !grain_enabled) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
@@ -551,6 +644,24 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_speed"), &CameraAttributes::get_auto_exposure_speed);
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_scale", "exposure_grey"), &CameraAttributes::set_auto_exposure_scale);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_scale"), &CameraAttributes::get_auto_exposure_scale);
+
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_metering_mode", "mode"), &CameraAttributes::set_auto_exposure_metering_mode);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_metering_mode"), &CameraAttributes::get_auto_exposure_metering_mode);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_metering_spot_size", "size"), &CameraAttributes::set_auto_exposure_metering_spot_size);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_metering_spot_size"), &CameraAttributes::get_auto_exposure_metering_spot_size);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_metering_spot_point", "point"), &CameraAttributes::set_auto_exposure_metering_spot_point);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_metering_spot_point"), &CameraAttributes::get_auto_exposure_metering_spot_point);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_metering_highlight_percentile", "percentile"), &CameraAttributes::set_auto_exposure_metering_highlight_percentile);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_metering_highlight_percentile"), &CameraAttributes::get_auto_exposure_metering_highlight_percentile);
+
+	ClassDB::bind_method(D_METHOD("set_white_balance_auto", "enabled"), &CameraAttributes::set_white_balance_auto);
+	ClassDB::bind_method(D_METHOD("is_white_balance_auto"), &CameraAttributes::is_white_balance_auto);
+	ClassDB::bind_method(D_METHOD("set_white_balance_auto_speed", "speed"), &CameraAttributes::set_white_balance_auto_speed);
+	ClassDB::bind_method(D_METHOD("get_white_balance_auto_speed"), &CameraAttributes::get_white_balance_auto_speed);
+	ClassDB::bind_method(D_METHOD("set_white_balance_auto_min_temperature", "temperature"), &CameraAttributes::set_white_balance_auto_min_temperature);
+	ClassDB::bind_method(D_METHOD("get_white_balance_auto_min_temperature"), &CameraAttributes::get_white_balance_auto_min_temperature);
+	ClassDB::bind_method(D_METHOD("set_white_balance_auto_max_temperature", "temperature"), &CameraAttributes::set_white_balance_auto_max_temperature);
+	ClassDB::bind_method(D_METHOD("get_white_balance_auto_max_temperature"), &CameraAttributes::get_white_balance_auto_max_temperature);
 
 	ClassDB::bind_method(D_METHOD("set_white_balance_temperature", "temperature"), &CameraAttributes::set_white_balance_temperature);
 	ClassDB::bind_method(D_METHOD("get_white_balance_temperature"), &CameraAttributes::get_white_balance_temperature);
@@ -613,10 +724,18 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_exposure_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_auto_exposure_enabled", "is_auto_exposure_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_scale", PROPERTY_HINT_RANGE, "0.01,64,0.01"), "set_auto_exposure_scale", "get_auto_exposure_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_speed", PROPERTY_HINT_RANGE, "0.01,64,0.01"), "set_auto_exposure_speed", "get_auto_exposure_speed");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "auto_exposure_metering_mode", PROPERTY_HINT_ENUM, "Average,Center-Weighted,Spot,Highlight-Weighted"), "set_auto_exposure_metering_mode", "get_auto_exposure_metering_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_metering_spot_size", PROPERTY_HINT_RANGE, "0.1,20,0.1,or_greater,suffix:%"), "set_auto_exposure_metering_spot_size", "get_auto_exposure_metering_spot_size");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "auto_exposure_metering_spot_point", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_auto_exposure_metering_spot_point", "get_auto_exposure_metering_spot_point");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_metering_highlight_percentile", PROPERTY_HINT_RANGE, "50,100,0.1,suffix:%"), "set_auto_exposure_metering_highlight_percentile", "get_auto_exposure_metering_highlight_percentile");
 
 	ADD_GROUP("White Balance", "white_balance_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_temperature", PROPERTY_HINT_RANGE, "2000,10000,1,suffix:K"), "set_white_balance_temperature", "get_white_balance_temperature");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_tint", PROPERTY_HINT_RANGE, "-150,150,1"), "set_white_balance_tint", "get_white_balance_tint");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "white_balance_auto"), "set_white_balance_auto", "is_white_balance_auto");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_auto_speed", PROPERTY_HINT_RANGE, "0.01,16,0.01,or_greater"), "set_white_balance_auto_speed", "get_white_balance_auto_speed");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_auto_min_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,suffix:K"), "set_white_balance_auto_min_temperature", "get_white_balance_auto_min_temperature");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_auto_max_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,suffix:K"), "set_white_balance_auto_max_temperature", "get_white_balance_auto_max_temperature");
 
 	ADD_GROUP("Grain", "grain_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "grain_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_grain_enabled", "is_grain_enabled");
@@ -702,6 +821,11 @@ void CameraAttributes::_bind_methods() {
 	BIND_ENUM_CONSTANT(LUT_INPUT_RED_LOG3G10);
 	BIND_ENUM_CONSTANT(LUT_INPUT_ACESCCT);
 	BIND_ENUM_CONSTANT(LUT_INPUT_MAX);
+
+	BIND_ENUM_CONSTANT(METERING_MODE_AVERAGE);
+	BIND_ENUM_CONSTANT(METERING_MODE_CENTER_WEIGHTED);
+	BIND_ENUM_CONSTANT(METERING_MODE_SPOT);
+	BIND_ENUM_CONSTANT(METERING_MODE_HIGHLIGHT_WEIGHTED);
 }
 
 CameraAttributes::CameraAttributes() {
