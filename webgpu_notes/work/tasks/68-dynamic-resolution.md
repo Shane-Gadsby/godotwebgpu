@@ -1,8 +1,8 @@
 # 68-dynamic-resolution: dynamic 3D resolution with a frame-time target
 
-State: open
+State: claimed
 Owner: worker-68
-Claimed:
+Claimed: 2026-10-28
 Needs: build (editor + web template), browser (Playwright, perf guard), native Vulkan run; design first
 Branch: work/68
 Results: webgpu_notes/work/results/68-dynamic-resolution/
