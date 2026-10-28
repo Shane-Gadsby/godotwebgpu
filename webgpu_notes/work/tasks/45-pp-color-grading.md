@@ -1,6 +1,6 @@
 # 45-pp-color-grading
 
-State: claimed
+State: ready-for-integration
 Owner: worker-45
 Claimed: 2026-10-28
 Needs: build, gpu
