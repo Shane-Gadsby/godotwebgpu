@@ -29,7 +29,8 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 53 | web preload before start (`Engine.prefetch()`), after 51 (camera-sim; TASKS §2.51) | 6 | worker-53 (retired); **merged `f8d0124b46`**, verified (Chrome + Firefox), TASKS §4.63, trap 83 |
 | 54 | web fullscreen from the embedding page, after 52 (camera-sim; TASKS §2.53) | 6 | worker-54 (retired); **merged `f750ce90b9`**, verified (Chrome, Firefox on rerun), TASKS §4.67, trap 88 |
 | 55 | glare chain calibrated per lod: exact halation/diffusion/flare sizes at every resolution (`glare-lod-calibration`: Recalibrate) | 6 | worker-55 |
-| — | next after 45-49 merge: custom tonemap curve (`pp-custom-tonemap`), local exposure (`pp-local-exposure`) (both change the tonemap core) | 6 | — |
+| 56 | post-processing: custom tonemap curve on Environment (`pp-custom-tonemap`) | 7 | worker-56 |
+| 57 | post-processing: local exposure on CameraAttributes (`pp-local-exposure`) | 7 | worker-57 |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 
