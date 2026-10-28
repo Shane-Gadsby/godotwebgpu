@@ -31,6 +31,7 @@
 #include "color_grading.h"
 
 #include "core/math/math_funcs.h"
+#include "core/object/worker_thread_pool.h"
 
 // The model. Every step works on the image the tonemapper produced (display-referred), in this order, the order of
 // URP's LDR grading LUT (LutBuilderLdr.shader, Unity 6), which Unity, Unreal and Resolve users expect: filters and
@@ -253,17 +254,21 @@ Color RendererColorGrading::grade(const Params &p_params, const Color &p_srgb) {
 	return _grade(p_params, ColorGradingLinear(p_params), p_srgb);
 }
 
-Vector<uint8_t> RendererColorGrading::bake(const Params &p_params) {
-	const int n = LUT_SIZE;
-	Vector<uint8_t> data;
-	data.resize(n * n * n * 4 * sizeof(uint16_t));
-	uint16_t *w = reinterpret_cast<uint16_t *>(data.ptrw());
-	const float step = 1.0f / float(n - 1);
-	const ColorGradingLinear linear(p_params);
-	for (int k = 0; k < n; k++) {
+// One blue slice of the LUT per task: the bake runs on the render thread whenever a property changes, every frame
+// while one is animated, so it is spread over the worker threads (about 4.6 ms on one core, all controls on).
+struct ColorGradingBakeJob {
+	const RendererColorGrading::Params *params = nullptr;
+	const ColorGradingLinear *linear = nullptr;
+	uint16_t *dest = nullptr;
+
+	static void bake_slice(void *p_userdata, uint32_t p_slice) {
+		const ColorGradingBakeJob *job = static_cast<const ColorGradingBakeJob *>(p_userdata);
+		const int n = RendererColorGrading::LUT_SIZE;
+		const float step = 1.0f / float(n - 1);
+		uint16_t *w = job->dest + size_t(p_slice) * n * n * 4;
 		for (int j = 0; j < n; j++) {
 			for (int i = 0; i < n; i++) {
-				const Color graded = _grade(p_params, linear, Color(i * step, j * step, k * step));
+				const Color graded = _grade(*job->params, *job->linear, Color(i * step, j * step, p_slice * step));
 				*w++ = Math::make_half_float(graded.r);
 				*w++ = Math::make_half_float(graded.g);
 				*w++ = Math::make_half_float(graded.b);
@@ -271,5 +276,18 @@ Vector<uint8_t> RendererColorGrading::bake(const Params &p_params) {
 			}
 		}
 	}
+};
+
+Vector<uint8_t> RendererColorGrading::bake(const Params &p_params) {
+	const int n = LUT_SIZE;
+	Vector<uint8_t> data;
+	data.resize(n * n * n * 4 * sizeof(uint16_t));
+	const ColorGradingLinear linear(p_params);
+	ColorGradingBakeJob job;
+	job.params = &p_params;
+	job.linear = &linear;
+	job.dest = reinterpret_cast<uint16_t *>(data.ptrw());
+	WorkerThreadPool::GroupID group = WorkerThreadPool::get_singleton()->add_native_group_task(&ColorGradingBakeJob::bake_slice, &job, n, -1, true, "Color grading bake");
+	WorkerThreadPool::get_singleton()->wait_for_group_task_completion(group);
 	return data;
 }
