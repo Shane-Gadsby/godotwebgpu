@@ -1,8 +1,8 @@
 # 75-dynamic-resolution-controller: per-viewport dynamic 3D resolution (phases 3-4)
 
-State: open
+State: ready-for-integration
 Owner: worker-75
-Claimed:
+Claimed: 2026-10-29 00:14
 Needs: build, gpu, browser
 Branch: work/75
 Results: webgpu_notes/work/results/75-dynamic-resolution-controller/

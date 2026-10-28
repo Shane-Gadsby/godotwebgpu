@@ -796,6 +796,15 @@ public:
 
 	FUNC2(viewport_set_scaling_3d_mode, RID, RSE::ViewportScaling3DMode)
 	FUNC2(viewport_set_scaling_3d_scale, RID, float)
+	FUNC2(viewport_set_scaling_3d_dynamic, RID, bool)
+	FUNC2(viewport_set_scaling_3d_dynamic_target_fps, RID, float)
+	FUNC2(viewport_set_scaling_3d_dynamic_min_scale, RID, float)
+	FUNC2(viewport_set_scaling_3d_dynamic_max_scale, RID, float)
+	// Not through the command queue: RendererViewport publishes these as atomics, and a Viewport polls them every
+	// frame while dynamic scaling is on, which a synced call would turn into a stall on the render thread.
+	virtual float viewport_get_scaling_3d_effective_scale(RID p_viewport) const override { return RSG::viewport->viewport_get_scaling_3d_effective_scale(p_viewport); }
+	virtual RSE::ViewportScaling3DDynamicState viewport_get_scaling_3d_dynamic_state(RID p_viewport) const override { return RSG::viewport->viewport_get_scaling_3d_dynamic_state(p_viewport); }
+	virtual RSE::ViewportScaling3DDynamicSource viewport_get_scaling_3d_dynamic_source(RID p_viewport) const override { return RSG::viewport->viewport_get_scaling_3d_dynamic_source(p_viewport); }
 	FUNC2(viewport_set_fsr_sharpness, RID, float)
 	FUNC2(viewport_set_texture_mipmap_bias, RID, float)
 	FUNC2(viewport_set_anisotropic_filtering_level, RID, RSE::ViewportAnisotropicFiltering)

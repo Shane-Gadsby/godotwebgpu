@@ -9680,6 +9680,11 @@ uint64_t RenderingDevice::get_captured_timestamps_frame() const {
 	return frames[frame].index;
 }
 
+uint64_t RenderingDevice::get_submit_to_done_latency_usec() const {
+	ERR_RENDER_THREAD_GUARD_V(0);
+	return driver->get_submit_to_done_latency_usec();
+}
+
 uint64_t RenderingDevice::get_captured_timestamp_gpu_time(uint32_t p_index) const {
 	ERR_RENDER_THREAD_GUARD_V(0);
 	ERR_FAIL_UNSIGNED_INDEX_V(p_index, frames[frame].timestamp_result_count, 0);

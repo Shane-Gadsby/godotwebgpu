@@ -638,6 +638,21 @@ struct WGFence {
 	bool freed = false; // Freed while callback pending; callback will delete.
 };
 
+// Submit-to-done latency of the frame submissions (RDD::get_submit_to_done_latency_usec()). Its own work-done
+// callback per submit rather than the frame fence's: a fence is resubmitted while its previous callback can still be
+// pending (fence_wait() force-signals), which would pair a callback with the wrong submit time. Work-done callbacks
+// resolve in submission order, so a FIFO of submit times pairs them. Owned by the driver; when the driver goes away
+// with callbacks in flight it is orphaned and the last callback deletes it (the fence pattern).
+struct WGSubmitLatency {
+	static constexpr uint32_t RING = 64;
+	uint64_t submit_usec[RING] = {};
+	uint32_t head = 0; // Next submit.
+	uint32_t tail = 0; // Oldest submit whose callback has not fired.
+	uint64_t average_usec = 0; // Quarter-weight running average, one sample per frame; 0 until one lands.
+	bool orphaned = false;
+	bool wanted = false; // Set by the first get_submit_to_done_latency_usec(): until then no callback is registered.
+};
+
 // =============================================================================
 // Semaphore (mostly no-op on WebGPU — single queue)
 // =============================================================================

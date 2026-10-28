@@ -2929,6 +2929,13 @@ void RenderingServer::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_mode", "viewport", "scaling_3d_mode"), &RenderingServer::viewport_set_scaling_3d_mode);
 	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_scale", "viewport", "scale"), &RenderingServer::viewport_set_scaling_3d_scale);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic", "viewport", "enabled"), &RenderingServer::viewport_set_scaling_3d_dynamic);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_target_fps", "viewport", "fps"), &RenderingServer::viewport_set_scaling_3d_dynamic_target_fps);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_min_scale", "viewport", "scale"), &RenderingServer::viewport_set_scaling_3d_dynamic_min_scale);
+	ClassDB::bind_method(D_METHOD("viewport_set_scaling_3d_dynamic_max_scale", "viewport", "scale"), &RenderingServer::viewport_set_scaling_3d_dynamic_max_scale);
+	ClassDB::bind_method(D_METHOD("viewport_get_scaling_3d_effective_scale", "viewport"), &RenderingServer::viewport_get_scaling_3d_effective_scale);
+	ClassDB::bind_method(D_METHOD("viewport_get_scaling_3d_dynamic_state", "viewport"), &RenderingServer::viewport_get_scaling_3d_dynamic_state);
+	ClassDB::bind_method(D_METHOD("viewport_get_scaling_3d_dynamic_source", "viewport"), &RenderingServer::viewport_get_scaling_3d_dynamic_source);
 	ClassDB::bind_method(D_METHOD("viewport_set_fsr_sharpness", "viewport", "sharpness"), &RenderingServer::viewport_set_fsr_sharpness);
 	ClassDB::bind_method(D_METHOD("viewport_set_texture_mipmap_bias", "viewport", "mipmap_bias"), &RenderingServer::viewport_set_texture_mipmap_bias);
 	ClassDB::bind_method(D_METHOD("viewport_set_anisotropic_filtering_level", "viewport", "anisotropic_filtering_level"), &RenderingServer::viewport_set_anisotropic_filtering_level);
@@ -2989,6 +2996,19 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL);
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_MODE_NEAREST);
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_MODE_MAX);
+
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_STARTING);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_ADJUSTING);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_STABLE);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_CPU_LIMITED);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_AT_MIN_SCALE);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_MAX);
+
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_GPU_TIME);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_FRAME_TIME);
+	BIND_ENUM_CONSTANT(RSE::VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_MAX);
 
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_UPDATE_DISABLED);
 	BIND_ENUM_CONSTANT(RSE::VIEWPORT_UPDATE_ONCE); // Then goes to disabled, must be manually updated.
@@ -3927,6 +3947,12 @@ void RenderingServer::init() {
 	}
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.0001"), 1.0);
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/fsr_sharpness", PROPERTY_HINT_RANGE, "0,2,0.01"), 0.2f);
+	// Dynamic 3D resolution of the root viewport (SceneTree applies them; never in the editor).
+	GLOBAL_DEF_BASIC("rendering/scaling_3d/dynamic", false);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_target_fps", PROPERTY_HINT_RANGE, "10,360,1,or_greater"), 60.0);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_min_scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.01"), 0.5);
+	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/scaling_3d/dynamic_max_scale", PROPERTY_HINT_RANGE, "0.1,2.0,0.01"), 1.0);
+	GLOBAL_DEF("rendering/scaling_3d/dynamic_remember", false);
 
 	GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/textures/default_filters/texture_mipmap_bias", PROPERTY_HINT_RANGE, "-2,2,0.001"), 0.0f);
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/textures/decals/filter", PROPERTY_HINT_ENUM, "Nearest (Fast),Linear (Fast),Nearest Mipmap (Fast),Linear Mipmap (Fast),Nearest Mipmap Anisotropic (Average),Linear Mipmap Anisotropic (Average)"), RSE::DECAL_FILTER_LINEAR_MIPMAPS);

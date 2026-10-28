@@ -4728,6 +4728,27 @@
 				Returns the render target for the viewport.
 			</description>
 		</method>
+		<method name="viewport_get_scaling_3d_dynamic_source" qualifiers="const">
+			<return type="int" enum="RenderingServer.ViewportScaling3DDynamicSource" />
+			<param index="0" name="viewport" type="RID" />
+			<description>
+				Returns which measurement the dynamic 3D resolution controller of [param viewport] decides from. See [method Viewport.get_scaling_3d_dynamic_source].
+			</description>
+		</method>
+		<method name="viewport_get_scaling_3d_dynamic_state" qualifiers="const">
+			<return type="int" enum="RenderingServer.ViewportScaling3DDynamicState" />
+			<param index="0" name="viewport" type="RID" />
+			<description>
+				Returns what the dynamic 3D resolution controller of [param viewport] is doing. See [method Viewport.get_scaling_3d_dynamic_state].
+			</description>
+		</method>
+		<method name="viewport_get_scaling_3d_effective_scale" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="viewport" type="RID" />
+			<description>
+				Returns the 3D resolution scale [param viewport] renders at: the scale dynamic 3D resolution picked, or the value given to [method viewport_set_scaling_3d_scale] when it is off. Safe to call every frame; it does not wait for the rendering thread.
+			</description>
+		</method>
 		<method name="viewport_get_texture" qualifiers="const">
 			<return type="RID" />
 			<param index="0" name="viewport" type="RID" />
@@ -4942,6 +4963,38 @@
 			<param index="1" name="enabled" type="bool" />
 			<description>
 				If [code]true[/code], render the contents of the viewport directly to screen. This allows a low-level optimization where you can skip drawing a viewport to the root viewport. While this optimization can result in a significant increase in speed (especially on older devices), it comes at a cost of usability. When this is enabled, you cannot read from the viewport or from the screen_texture. You also lose the benefit of certain window settings, such as the various stretch modes. Another consequence to be aware of is that in 2D the rendering happens in window coordinates, so if you have a viewport that is double the size of the window, and you set this, then only the portion that fits within the window will be drawn, no automatic scaling is possible, even if your game scene is significantly larger than the window size.
+			</description>
+		</method>
+		<method name="viewport_set_scaling_3d_dynamic">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="enabled" type="bool" />
+			<description>
+				If [code]true[/code], the 3D resolution scale of [param viewport] is chosen at run time to hold the frame rate set with [method viewport_set_scaling_3d_dynamic_target_fps]. The value of [method viewport_set_scaling_3d_scale] is the starting scale. See [member Viewport.scaling_3d_dynamic].
+			</description>
+		</method>
+		<method name="viewport_set_scaling_3d_dynamic_max_scale">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="scale" type="float" />
+			<description>
+				Sets the largest 3D resolution scale dynamic 3D resolution may pick for [param viewport]. See [member Viewport.scaling_3d_dynamic_max_scale].
+			</description>
+		</method>
+		<method name="viewport_set_scaling_3d_dynamic_min_scale">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="scale" type="float" />
+			<description>
+				Sets the smallest 3D resolution scale dynamic 3D resolution may pick for [param viewport]. See [member Viewport.scaling_3d_dynamic_min_scale].
+			</description>
+		</method>
+		<method name="viewport_set_scaling_3d_dynamic_target_fps">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="fps" type="float" />
+			<description>
+				Sets the frame rate dynamic 3D resolution tries to hold for [param viewport]. See [member Viewport.scaling_3d_dynamic_target_fps].
 			</description>
 		</method>
 		<method name="viewport_set_scaling_3d_mode">
@@ -5991,6 +6044,39 @@
 		</constant>
 		<constant name="VIEWPORT_SCALING_3D_MODE_MAX" value="6" enum="ViewportScaling3DMode">
 			Represents the size of the [enum ViewportScaling3DMode] enum.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF" value="0" enum="ViewportScaling3DDynamicState">
+			Dynamic 3D resolution is off.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_STARTING" value="1" enum="ViewportScaling3DDynamicState">
+			The first 3 seconds after dynamic 3D resolution was turned on or the scene changed: nothing is measured (shader compilation and loading are not load).
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_ADJUSTING" value="2" enum="ViewportScaling3DDynamicState">
+			The scale changed recently; the controller is waiting for the frame to settle and measuring.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_STABLE" value="3" enum="ViewportScaling3DDynamicState">
+			The scale holds the target frame rate and nothing suggests changing it.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_CPU_LIMITED" value="4" enum="ViewportScaling3DDynamicState">
+			Frames miss the target, but resolution is not what limits them (the CPU, or the page, sets the pace): the scale is not lowered.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_AT_MIN_SCALE" value="5" enum="ViewportScaling3DDynamicState">
+			Frames miss the target at the minimum scale: nothing lower is allowed.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_STATE_MAX" value="6" enum="ViewportScaling3DDynamicState">
+			Represents the size of the [enum ViewportScaling3DDynamicState] enum.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_NONE" value="0" enum="ViewportScaling3DDynamicSource">
+			Not decided yet (dynamic 3D resolution is off or starting).
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_GPU_TIME" value="1" enum="ViewportScaling3DDynamicSource">
+			The viewport's own GPU time, from GPU timestamps: Vulkan, Direct3D 12, Metal, desktop OpenGL, and WebGPU when the browser offers [code]timestamp-query[/code].
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_FRAME_TIME" value="2" enum="ViewportScaling3DDynamicSource">
+			Frame time, where there is no GPU time (WebGL, OpenGL ES, WebGPU without [code]timestamp-query[/code]). A step down that does not shorten the frame is reverted and reported as CPU-limited. Slower to settle than GPU time, and on a display whose refresh rate is at or below the target it can only hold a scale that passes.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_DYNAMIC_SOURCE_MAX" value="3" enum="ViewportScaling3DDynamicSource">
+			Represents the size of the [enum ViewportScaling3DDynamicSource] enum.
 		</constant>
 		<constant name="VIEWPORT_UPDATE_DISABLED" value="0" enum="ViewportUpdateMode">
 			Do not update the viewport's render target.

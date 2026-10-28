@@ -585,6 +585,14 @@ public:
 
 	virtual void viewport_set_scaling_3d_mode(RID p_viewport, RSE::ViewportScaling3DMode p_scaling_3d_mode) = 0;
 	virtual void viewport_set_scaling_3d_scale(RID p_viewport, float p_scaling_3d_scale) = 0;
+	virtual void viewport_set_scaling_3d_dynamic(RID p_viewport, bool p_enabled) = 0;
+	virtual void viewport_set_scaling_3d_dynamic_target_fps(RID p_viewport, float p_fps) = 0;
+	virtual void viewport_set_scaling_3d_dynamic_min_scale(RID p_viewport, float p_scale) = 0;
+	virtual void viewport_set_scaling_3d_dynamic_max_scale(RID p_viewport, float p_scale) = 0;
+	// Read without a round trip to the render thread: a Viewport polls them once per frame while dynamic is on.
+	virtual float viewport_get_scaling_3d_effective_scale(RID p_viewport) const = 0;
+	virtual RSE::ViewportScaling3DDynamicState viewport_get_scaling_3d_dynamic_state(RID p_viewport) const = 0;
+	virtual RSE::ViewportScaling3DDynamicSource viewport_get_scaling_3d_dynamic_source(RID p_viewport) const = 0;
 	virtual void viewport_set_fsr_sharpness(RID p_viewport, float p_fsr_sharpness) = 0;
 	virtual void viewport_set_texture_mipmap_bias(RID p_viewport, float p_texture_mipmap_bias) = 0;
 	virtual void viewport_set_anisotropic_filtering_level(RID p_viewport, RSE::ViewportAnisotropicFiltering p_anisotropic_filtering_level) = 0;
@@ -1210,6 +1218,8 @@ VARIANT_ENUM_CAST_EXT(RSE::ParticlesCollisionType, RenderingServer::ParticlesCol
 VARIANT_ENUM_CAST_EXT(RSE::ParticlesCollisionHeightfieldResolution, RenderingServer::ParticlesCollisionHeightfieldResolution);
 VARIANT_ENUM_CAST_EXT(RSE::FogVolumeShape, RenderingServer::FogVolumeShape);
 VARIANT_ENUM_CAST_EXT(RSE::ViewportScaling3DMode, RenderingServer::ViewportScaling3DMode);
+VARIANT_ENUM_CAST_EXT(RSE::ViewportScaling3DDynamicState, RenderingServer::ViewportScaling3DDynamicState);
+VARIANT_ENUM_CAST_EXT(RSE::ViewportScaling3DDynamicSource, RenderingServer::ViewportScaling3DDynamicSource);
 VARIANT_ENUM_CAST_EXT(RSE::ViewportUpdateMode, RenderingServer::ViewportUpdateMode);
 VARIANT_ENUM_CAST_EXT(RSE::ViewportClearMode, RenderingServer::ViewportClearMode);
 VARIANT_ENUM_CAST_EXT(RSE::ViewportEnvironmentMode, RenderingServer::ViewportEnvironmentMode);

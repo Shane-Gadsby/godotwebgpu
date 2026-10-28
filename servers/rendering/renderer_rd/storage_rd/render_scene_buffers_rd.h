@@ -82,6 +82,7 @@ private:
 
 	// The internal size of the textures we render 3D to in case we render at a lower resolution and upscale
 	Size2i internal_size = Size2i(0, 0);
+	Size2i max_internal_size = Size2i(0, 0); // See RenderSceneBuffersConfiguration::max_internal_size.
 	RSE::ViewportScaling3DMode scaling_3d_mode = RSE::VIEWPORT_SCALING_3D_MODE_OFF;
 	float fsr_sharpness = 0.2f;
 	float texture_mipmap_bias = 0.0f;
@@ -253,6 +254,7 @@ public:
 	_FORCE_INLINE_ RID get_render_target() const { return render_target; }
 	_FORCE_INLINE_ uint32_t get_view_count() const { return view_count; }
 	_FORCE_INLINE_ Size2i get_internal_size() const { return internal_size; }
+	_FORCE_INLINE_ Size2i get_max_internal_size() const { return max_internal_size; }
 	_FORCE_INLINE_ Size2i get_target_size() const { return target_size; }
 	_FORCE_INLINE_ RSE::ViewportScaling3DMode get_scaling_3d_mode() const { return scaling_3d_mode; }
 	_FORCE_INLINE_ float get_fsr_sharpness() const { return fsr_sharpness; }

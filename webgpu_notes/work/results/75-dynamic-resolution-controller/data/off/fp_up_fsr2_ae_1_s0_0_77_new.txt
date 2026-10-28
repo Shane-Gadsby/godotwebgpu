@@ -1,0 +1,4 @@
+Vulkan 1.4.351 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 4080 SUPER
+[dr] {"adapter":"NVIDIA GeForce RTX 4080 SUPER","kind":"start","params":{"ae":"1","change_at":"10","cpu2":"-1","cpu_ms":"0","dur":"60","dyn":"0","frames":"12","hdr":"1","iters":"64","iters2":"0","load2_at":"0","max":"1.0","min":"0.5","mode":"off","remember":"0","s0":"0.77","target":"60","target2":"0","up":"fsr2","warm":"120"},"renderer":"forward_plus","size":[1920,1080],"start_scale":0.769999980926514,"t":0.005,"user_scale":0.769999980926514,"web":false}
+[dr] {"ae":"1","kind":"hashes","md5":["1c424f9d9631","9602f7cc3348","470f6a8180a9","f2cf332c4727","9f3366525fa0","85914a59f528","6f99057aecc5","336bc33af4c2","b32662ce9c35","3989aa939f9c","c1fed67b3fdd","2951420e078c"],"s0":"0.77","t":5.63,"up":"fsr2"}
+[dr] {"kind":"done","t":5.63}

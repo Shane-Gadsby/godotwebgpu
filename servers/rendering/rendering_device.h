@@ -2025,6 +2025,7 @@ public:
 	uint64_t get_captured_timestamp_gpu_time(uint32_t p_index) const;
 	uint64_t get_captured_timestamp_cpu_time(uint32_t p_index) const;
 	String get_captured_timestamp_name(uint32_t p_index) const;
+	uint64_t get_submit_to_done_latency_usec() const; // Not bound: see RenderingDeviceDriver.
 
 	/****************/
 	/**** LIMITS ****/

@@ -173,6 +173,7 @@ void RenderSceneBuffersRD::configure(const RenderSceneBuffersConfiguration *p_co
 
 	target_size = p_config->get_target_size();
 	internal_size = p_config->get_internal_size();
+	max_internal_size = p_config->get_max_internal_size();
 	view_count = p_config->get_view_count();
 
 	scaling_3d_mode = p_config->get_scaling_3d_mode();

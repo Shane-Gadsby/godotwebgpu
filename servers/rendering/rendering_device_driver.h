@@ -941,6 +941,11 @@ public:
 	virtual void command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) = 0;
 	virtual void command_timestamp_write(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_index) = 0;
 
+	// How long recent submissions took from submit to "GPU work done", in microseconds; 0 when the driver cannot tell.
+	// Only WebGPU reports it (onSubmittedWorkDone): the browser queues several frames, so this is the one sign of a
+	// GPU-bound page that needs no timestamp-query. The dynamic 3D resolution controller reads it.
+	virtual uint64_t get_submit_to_done_latency_usec() { return 0; }
+
 	/****************/
 	/**** LABELS ****/
 	/****************/

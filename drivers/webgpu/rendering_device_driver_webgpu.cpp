@@ -96,6 +96,26 @@ static void _fence_work_done_callback(WGPUQueueWorkDoneStatus p_status, WGPUStri
 	fence->signaled = true;
 }
 
+// Submit-to-done latency sample (WGSubmitLatency): pairs with the oldest outstanding submit.
+static void _submit_latency_callback(WGPUQueueWorkDoneStatus p_status, WGPUStringView p_message, void *p_userdata1, void *p_userdata2) {
+	WGSubmitLatency *tracker = (WGSubmitLatency *)p_userdata1;
+	if (!tracker || tracker->tail == tracker->head) {
+		return;
+	}
+	const uint64_t submitted = tracker->submit_usec[tracker->tail % WGSubmitLatency::RING];
+	tracker->tail++;
+	if (tracker->orphaned) {
+		if (tracker->tail == tracker->head) {
+			memdelete(tracker);
+		}
+		return;
+	}
+	if (p_status == WGPUQueueWorkDoneStatus_Success) {
+		const uint64_t latency = OS::get_singleton()->get_ticks_usec() - submitted;
+		tracker->average_usec = tracker->average_usec == 0 ? latency : (tracker->average_usec * 3 + latency) / 4;
+	}
+}
+
 // Replaces the malloc'd WGSL text with p_text (the in-place rewrites own and free it).
 static void _set_wgsl_text(char *&r_wgsl_str, const std::string &p_text) {
 	free(r_wgsl_str);
@@ -851,6 +871,14 @@ RenderingDeviceDriverWebGPU::RenderingDeviceDriverWebGPU(RenderingContextDriverW
 }
 
 RenderingDeviceDriverWebGPU::~RenderingDeviceDriverWebGPU() {
+	if (submit_latency != nullptr) {
+		if (submit_latency->tail == submit_latency->head) {
+			memdelete(submit_latency);
+		} else {
+			submit_latency->orphaned = true; // The last pending callback deletes it.
+		}
+		submit_latency = nullptr;
+	}
 	// Release push constant resources.
 	if (push_constant_bind_group) {
 		wgpuBindGroupRelease(push_constant_bind_group);
@@ -974,6 +1002,9 @@ RenderingDeviceDriverWebGPU::~RenderingDeviceDriverWebGPU() {
 // =============================================================================
 
 Error RenderingDeviceDriverWebGPU::initialize(uint32_t p_device_index, uint32_t p_frame_count) {
+	if (submit_latency == nullptr) {
+		submit_latency = memnew(WGSubmitLatency);
+	}
 	device = context_driver->get_device();
 	queue = context_driver->get_queue();
 	ERR_FAIL_COND_V(device == nullptr, ERR_CANT_CREATE);
@@ -3998,6 +4029,18 @@ Error RenderingDeviceDriverWebGPU::command_queue_execute_and_present(CommandQueu
 			_submit_log++;
 		}
 #endif // WEBGPU_VERBOSE
+	}
+
+	// One latency sample per frame (the submit that carries the frame fence), unless the FIFO is full, which only a
+	// stalled queue does: then the samples resume when it drains.
+	if (p_cmd_fence && wgpu_cmd_buffers.size() > 0 && submit_latency != nullptr && submit_latency->wanted && submit_latency->head - submit_latency->tail < WGSubmitLatency::RING) {
+		submit_latency->submit_usec[submit_latency->head % WGSubmitLatency::RING] = OS::get_singleton()->get_ticks_usec();
+		submit_latency->head++;
+		WGPUQueueWorkDoneCallbackInfo latency_cb = {};
+		latency_cb.mode = WGPUCallbackMode_AllowSpontaneous;
+		latency_cb.callback = _submit_latency_callback;
+		latency_cb.userdata1 = submit_latency;
+		wgpuQueueOnSubmittedWorkDone(queue, latency_cb);
 	}
 
 	// Signal fence when GPU work completes via async callback.
@@ -10935,6 +10978,14 @@ void RenderingDeviceDriverWebGPU::timestamp_query_pool_get_results(QueryPoolID p
 
 uint64_t RenderingDeviceDriverWebGPU::timestamp_query_result_to_time(uint64_t p_result) {
 	return p_result; // WebGPU timestamps are already in nanoseconds.
+}
+
+uint64_t RenderingDeviceDriverWebGPU::get_submit_to_done_latency_usec() {
+	if (submit_latency == nullptr) {
+		return 0;
+	}
+	submit_latency->wanted = true; // Measured from now on (nothing asks while dynamic 3D resolution is off).
+	return submit_latency->average_usec;
 }
 
 void RenderingDeviceDriverWebGPU::command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) {
