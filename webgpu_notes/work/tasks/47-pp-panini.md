@@ -1,6 +1,6 @@
 # 47-pp-panini
 
-State: claimed
+State: ready-for-integration
 Owner: worker-47
 Claimed: 2026-10-28
 Needs: build, gpu

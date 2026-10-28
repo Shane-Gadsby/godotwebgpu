@@ -1,0 +1,41 @@
+# Task 47 numbers (native: xvfb, RTX 4080 SUPER; 1600x900, 120 deg horizontal FOV)
+
+== native/forward_plus
+off       fit 1.000000 (closed form 1.000000) dots 111 err max 0.270 mean 0.115 | unproject-vs-blob max 0.270 | poles 10 ptp max 0.000 std max 0.000 | rod err max 0.050 sag 0.0
+          shape w/h (measured/expected, rectilinear): az0 0.989/0.996 (1.000) c0.04 az28 1.129/1.127 (1.133) c0.08 az44 1.378/1.381 (1.390) c0.08 az56 1.764/1.769 (1.788) c0.02
+d1s1      fit 0.666667 (closed form 0.666667) dots  89 err max 0.294 mean 0.143 | unproject-vs-blob max 0.294 | poles 10 ptp max 0.386 std max 0.029 | rod err max 0.466 sag -94.0
+          shape w/h (measured/expected, rectilinear): az0 0.984/0.996 (1.000) c0.09 az28 1.000/0.996 (1.133) c0.09 az44 0.979/0.995 (1.390) c0.04 az56 0.987/0.995 (1.788) c0.02
+d1s0      fit 0.666667 (closed form 0.666667) dots  81 err max 0.342 mean 0.136 | unproject-vs-blob max 0.342 | poles 10 ptp max 0.386 std max 0.036 | rod err max 0.386 sag -0.4
+          shape w/h (measured/expected, rectilinear): az0 0.984/0.996 (1.000) c0.08 az28 0.945/0.933 (1.133) c0.09 az44 0.825/0.830 (1.390) c0.14 az56 0.705/0.708 (1.788) c0.05
+d0.5s0.5  fit 0.750000 (closed form 0.750000) dots  89 err max 0.370 mean 0.190 | unproject-vs-blob max 0.370 | poles 10 ptp max 0.383 std max 0.034 | rod err max 0.430 sag -31.5
+          shape w/h (measured/expected, rectilinear): az0 1.005/0.996 (1.000) c0.06 az28 1.018/1.015 (1.133) c0.13 az44 1.028/1.040 (1.390) c0.13 az56 1.049/1.058 (1.788) c0.02
+== native/mobile
+off       fit 1.000000 (closed form 1.000000) dots 111 err max 0.270 mean 0.115 | unproject-vs-blob max 0.270 | poles 10 ptp max 0.000 std max 0.000 | rod err max 0.050 sag 0.0
+          shape w/h (measured/expected, rectilinear): az0 0.989/0.996 (1.000) c0.04 az28 1.129/1.127 (1.133) c0.08 az44 1.378/1.381 (1.390) c0.08 az56 1.764/1.769 (1.788) c0.02
+d1s1      fit 0.666667 (closed form 0.666667) dots  89 err max 0.294 mean 0.143 | unproject-vs-blob max 0.294 | poles 10 ptp max 0.386 std max 0.029 | rod err max 0.466 sag -94.0
+          shape w/h (measured/expected, rectilinear): az0 0.984/0.996 (1.000) c0.09 az28 1.000/0.996 (1.133) c0.09 az44 0.979/0.995 (1.390) c0.04 az56 0.987/0.995 (1.788) c0.02
+d1s0      fit 0.666667 (closed form 0.666667) dots  81 err max 0.342 mean 0.136 | unproject-vs-blob max 0.342 | poles 10 ptp max 0.386 std max 0.036 | rod err max 0.386 sag -0.4
+          shape w/h (measured/expected, rectilinear): az0 0.984/0.996 (1.000) c0.08 az28 0.945/0.933 (1.133) c0.09 az44 0.825/0.830 (1.390) c0.14 az56 0.705/0.708 (1.788) c0.05
+d0.5s0.5  fit 0.750000 (closed form 0.750000) dots  89 err max 0.370 mean 0.190 | unproject-vs-blob max 0.370 | poles 10 ptp max 0.383 std max 0.034 | rod err max 0.430 sag -31.5
+          shape w/h (measured/expected, rectilinear): az0 1.005/0.996 (1.000) c0.06 az28 1.018/1.015 (1.133) c0.13 az44 1.028/1.040 (1.390) c0.13 az56 1.049/1.058 (1.788) c0.02
+== native/gl_compatibility
+off       fit 1.000000 (closed form 1.000000) dots 111 err max 0.270 mean 0.115 | unproject-vs-blob max 0.270 | poles 10 ptp max 0.000 std max 0.000 | rod err max 0.050 sag 0.0
+          shape w/h (measured/expected, rectilinear): az0 0.989/0.996 (1.000) c0.04 az28 1.129/1.127 (1.133) c0.08 az44 1.378/1.381 (1.390) c0.08 az56 1.764/1.769 (1.788) c0.02
+d1s1      fit 0.666667 (closed form 0.666667) dots  89 err max 0.365 mean 0.185 | unproject-vs-blob max 0.365 | poles 10 ptp max 0.000 std max 0.000 | rod err max 0.230 sag -94.3
+          shape w/h (measured/expected, rectilinear): az0 0.977/0.996 (1.000) c0.10 az28 0.998/0.996 (1.133) c0.20 az44 0.998/0.995 (1.390) c0.14 az56 0.994/0.995 (1.788) c0.09
+d1s0      fit 0.666667 (closed form 0.666667) dots  81 err max 0.350 mean 0.184 | unproject-vs-blob max 0.350 | poles 10 ptp max 0.000 std max 0.000 | rod err max 0.168 sag -0.3
+          shape w/h (measured/expected, rectilinear): az0 0.976/0.996 (1.000) c0.11 az28 0.931/0.933 (1.133) c0.22 az44 0.824/0.830 (1.390) c0.16 az56 0.704/0.708 (1.788) c0.12
+d0.5s0.5  fit 0.750000 (closed form 0.750000) dots  89 err max 0.386 mean 0.158 | unproject-vs-blob max 0.386 | poles 10 ptp max 0.000 std max 0.000 | rod err max 0.201 sag -31.5
+          shape w/h (measured/expected, rectilinear): az0 0.975/0.996 (1.000) c0.06 az28 1.021/1.015 (1.133) c0.05 az44 1.048/1.040 (1.390) c0.14 az56 1.055/1.058 (1.788) c0.09
+
+# Web (system Chrome headed, Vulkan, nvidia/lovelace, 48 textures; WebGPU Forward+) at 1280x720, against the reference with the native run's camera
+web vs native Forward+ off       size (720, 1280) max 223, pixels >0: 10504, >2: 10504 of 921600
+web vs native Forward+ d1s1      size (720, 1280) max 205, pixels >0: 32016, >2: 30731 of 921600
+web vs native Forward+ d0.5s0.5  size (720, 1280) max 230, pixels >0: 30107, >2: 27342 of 921600
+== webana
+off       fit 1.000000 (closed form 1.000000) dots 111 err max 0.392 mean 0.167 | unproject-vs-blob max 0.392 | poles 10 ptp max 0.207 std max 0.015 | rod err max 0.040 sag 0.0
+          shape w/h (measured/expected, rectilinear): az0 0.988/0.996 (1.000) c0.03 az28 1.136/1.127 (1.133) c0.17 az44 1.375/1.381 (1.390) c0.07 az56 1.748/1.769 (1.788) c0.03
+d1s1      fit 0.666667 (closed form 0.666667) dots  89 err max 0.263 mean 0.119 | unproject-vs-blob max 0.263 | poles 10 ptp max 0.000 std max 0.000 | rod err max 0.244 sag -74.9
+          shape w/h (measured/expected, rectilinear): az0 0.962/0.996 (1.000) c0.02 az28 1.004/0.996 (1.133) c0.19 az44 0.984/0.995 (1.390) c0.12 az56 0.982/0.995 (1.788) c0.04
+d0.5s0.5  fit 0.750000 (closed form 0.750000) dots  89 err max 0.356 mean 0.161 | unproject-vs-blob max 0.356 | poles 10 ptp max 0.344 std max 0.029 | rod err max 0.329 sag -25.2
+          shape w/h (measured/expected, rectilinear): az0 0.967/0.996 (1.000) c0.11 az28 1.012/1.015 (1.133) c0.07 az44 1.033/1.040 (1.390) c0.12 az56 1.054/1.058 (1.788) c0.06
