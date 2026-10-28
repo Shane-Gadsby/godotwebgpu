@@ -7,7 +7,7 @@ pipeline constants are built from, so a mismatch is a real incompatibility, not 
 The reference is either a directory of WGSL files (two converter builds side by side) or a manifest written by
 --write. interface_reference.json beside this script is such a manifest: the interface of every engine variant
 wgsl_precompile.py builds, as Tint (the converter before SPIRV-Cross) produced it when SPIRV-Cross was accepted
-as its replacement (webgpu_notes/TASKS.md §2.35). webgpu_notes/work/smoke.sh compares against it. Against a
+as its replacement (webgpu_notes/TASKS.md §2.35). webgpu_tests/converter_smoke/run.sh compares against it. Against a
 manifest, a reference module missing from the candidate fails too (a renamed or removed variant must be a
 deliberate manifest update, or the check would silently cover less); a candidate module the manifest does not
 know is listed, not failed. After a deliberate interface change (a pass that moves bindings, a new variant),
