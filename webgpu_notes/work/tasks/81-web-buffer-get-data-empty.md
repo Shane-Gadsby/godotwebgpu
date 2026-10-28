@@ -1,6 +1,6 @@
 # 81-web-buffer-get-data-empty
 
-State: claimed
+State: ready-for-integration
 Owner: worker-81
 Claimed: 2026-10-29
 Needs: build, browser
