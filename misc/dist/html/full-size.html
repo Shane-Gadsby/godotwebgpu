@@ -173,7 +173,10 @@ body {
 }
 
 /* Under the button while the game downloads behind the start screen
-   (html/start_button/preload_progress): "Downloading 48%", then "Ready". */
+   (html/start_button/preload_progress): "Downloading 48%", then "Ready". The
+   messages and the color come from html/start_button/preload_text/*; this color
+   is that option's default. A message switched off leaves the line empty, and
+   min-height keeps its space so nothing moves. */
 #status-preload {
 	display: none;
 	flex: none;
@@ -413,6 +416,17 @@ const engine = new Engine(GODOT_CONFIG);
 	const preload = !!(startButton['enabled'] && startButton['preload']) && !(connection && connection.saveData);
 	const preloadProgress = preload && !!startButton['preloadProgress'];
 	const statusPreload = document.getElementById('status-preload');
+	// The line's messages and color (html/start_button/preload_text/*). A config without them
+	// (a custom shell's, or one written before they existed) gets the defaults; an empty
+	// message is one switched off, and leaves the line empty in that state.
+	const preloadText = startButton['preloadText'] || {};
+	const preloadMessage = (key, fallback) => (typeof preloadText[key] === 'string' ? preloadText[key] : fallback);
+	const preloadDownloadingText = preloadMessage('downloading', 'Downloading...');
+	const preloadProgressText = preloadMessage('progress', 'Downloading {percent}%');
+	const preloadReadyText = preloadMessage('ready', 'Ready');
+	if (preloadText['color']) {
+		statusPreload.style.color = preloadText['color'];
+	}
 	if (startButton['enabled']) {
 		statusStart.textContent = startButton['text'] || 'Start';
 		const startStyle = {
@@ -817,17 +831,18 @@ const engine = new Engine(GODOT_CONFIG);
 				// A press before this finishes carries on with the same downloads.
 				let shownPercent = 0;
 				let preloadFinished = false;
-				statusPreload.textContent = 'Downloading...';
+				statusPreload.textContent = preloadDownloadingText;
 				engine.prefetch((loaded, total) => {
 					if (total > 0 && !preloadFinished) {
 						// Never backwards: the texture pack joins the total once the adapter is known.
 						shownPercent = Math.max(shownPercent, Math.min(99, Math.floor((loaded / total) * 100)));
-						statusPreload.textContent = `Downloading ${shownPercent}%`;
+						// Every {percent} becomes the number; a text without one is shown as it is.
+						statusPreload.textContent = preloadProgressText.split('{percent}').join(String(shownPercent));
 					}
 				}).then((complete) => {
 					preloadFinished = true;
 					// A file that failed is downloaded again on the press, so there is nothing to report.
-					statusPreload.textContent = complete ? 'Ready' : '';
+					statusPreload.textContent = complete ? preloadReadyText : '';
 				});
 			}
 		} else {

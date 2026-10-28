@@ -166,6 +166,16 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 * browser's Save-Data mode). ``preloadProgress`` (boolean): show that download's
 		 * progress under the button. Both are ``false`` unless ``enabled`` is.
 		 *
+		 * ``preloadText`` (object): that progress line's messages and color, from
+		 * ``html/start_button/preload_text/*``. ``downloading`` is shown before the download's
+		 * size is known (default ``"Downloading..."``), ``progress`` while it runs (default
+		 * ``"Downloading {percent}%"``; every ``{percent}`` is replaced by the whole percentage,
+		 * and a text without it is shown as it is), ``ready`` once every file has arrived
+		 * (default ``"Ready"``). An empty string is a message switched off: the line stays
+		 * empty in that state. ``color`` is a CSS hex color (default ``#e0e0e0``). The default
+		 * shell inserts the messages as text, never as HTML, and uses the defaults for any key
+		 * that is missing.
+		 *
 		 * Keys: ``enabled`` (boolean), ``text``, ``backgroundColor``, ``hoverColor``,
 		 * ``pressedColor``, ``textColor``, ``borderColor`` (CSS hex colors, ``#rrggbbaa``
 		 * with transparency), ``borderWidth``, ``borderRadius``, ``fontSize``,
