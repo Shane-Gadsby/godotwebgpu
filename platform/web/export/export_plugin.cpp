@@ -174,6 +174,24 @@ static const WebLoadingScreenStage web_loading_screen_stages[] = {
 	{ "compiling_shaders", "Compiling shaders...", true, true },
 };
 
+// The loading screen's progress bar colors: export option
+// `loading_screen/progress_bar/<option>`, `$GODOT_PROGRESS_BAR` key `key`. The
+// defaults are the colors Chrome draws an unstyled <progress> with. While all
+// three stay at their defaults the shell leaves the bar unstyled, so each
+// browser keeps its native look and existing exports do not change; changing
+// any of them draws the bar with all three.
+struct WebProgressBarColor {
+	const char *option;
+	const char *key;
+	uint32_t default_rgba;
+};
+
+static const WebProgressBarColor web_progress_bar_colors[] = {
+	{ "border_color", "borderColor", 0xb2b2b2ff },
+	{ "background_color", "backgroundColor", 0xefefefff },
+	{ "fill_color", "fillColor", 0x0075ffff },
+};
+
 void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<EditorExportPreset> &p_preset, const String &p_name, bool p_debug, BitField<EditorExportPlatform::DebugFlags> p_flags, const Vector<SharedObject> p_shared_objects, const Dictionary &p_file_sizes, const Dictionary &p_texture_packs) {
 	// Engine.js config
 	Dictionary config;
@@ -251,6 +269,20 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 		loading_screen[stage.key] = stage_config;
 	}
 
+	// The progress bar, in a placeholder of its own so that custom shells which
+	// walk $GODOT_LOADING_SCREEN as a list of stages are unaffected.
+	Dictionary progress_bar;
+	progress_bar["enabled"] = p_preset->get("loading_screen/progress_bar/enabled");
+	bool custom_colors = false;
+	for (const WebProgressBarColor &color_option : web_progress_bar_colors) {
+		const Color color = p_preset->get(String("loading_screen/progress_bar/") + color_option.option);
+		// Compared as HTML strings: the preset file stores rounded floats.
+		const String html = color.to_html(color.a < 1.0);
+		custom_colors = custom_colors || html != Color::hex(color_option.default_rgba).to_html(false);
+		progress_bar[color_option.key] = "#" + html;
+	}
+	progress_bar["customColors"] = custom_colors;
+
 	// Replaces HTML string
 	const String str_config = Variant(config).to_json_string();
 	const String str_loading_screen = Variant(loading_screen).to_json_string();
@@ -261,6 +293,7 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	replaces["$GODOT_HEAD_INCLUDE"] = head_include + custom_head_include;
 	replaces["$GODOT_CONFIG"] = str_config;
 	replaces["$GODOT_LOADING_SCREEN"] = str_loading_screen;
+	replaces["$GODOT_PROGRESS_BAR"] = Variant(progress_bar).to_json_string();
 	replaces["$GODOT_SPLASH_COLOR"] = "#" + Color(get_project_setting(p_preset, "application/boot_splash/bg_color")).to_html(false);
 
 	Vector<String> godot_splash_classes;
@@ -499,6 +532,13 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/orientation", PROPERTY_HINT_ENUM, "Project Setting,Landscape,Portrait,Reverse Landscape,Reverse Portrait,Sensor Landscape,Sensor Portrait,Sensor"), 0));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/experimental_virtual_keyboard"), false));
 
+	// The progress bar's toggle and colors (see web_progress_bar_colors above);
+	// the colors are shown only while the bar is.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "loading_screen/progress_bar/enabled"), true, true));
+	for (const WebProgressBarColor &color_option : web_progress_bar_colors) {
+		r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, String("loading_screen/progress_bar/") + color_option.option), Color::hex(color_option.default_rgba)));
+	}
+
 	// One text field and two tickboxes per loading-screen stage; the inspector
 	// shows them as a "Loading Screen" section with a subsection per stage.
 	for (const WebLoadingScreenStage &stage : web_loading_screen_stages) {
@@ -579,6 +619,10 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 
 	if (p_option == "shader_baker/separate_pack" || p_option == "shader_baker/variant_pruning") {
 		return p_preset->get("shader_baker/enabled").operator bool();
+	}
+
+	if (p_option.begins_with("loading_screen/progress_bar/") && p_option != "loading_screen/progress_bar/enabled") {
+		return p_preset->get("loading_screen/progress_bar/enabled").operator bool();
 	}
 
 	if (p_option == "progressive_web_app/orientation") {

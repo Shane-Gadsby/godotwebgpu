@@ -138,6 +138,18 @@
 		<member name="loading_screen/loading_translations/text" type="String" setter="" getter="">
 			The text the loading screen shows while translations and resource remaps load. Defaults to [code]Loading translations...[/code]. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_LOADING_SCREEN[/code] placeholder.
 		</member>
+		<member name="loading_screen/progress_bar/background_color" type="Color" setter="" getter="">
+			The color of the loading screen progress bar's unfilled part. Only used while [member loading_screen/progress_bar/enabled] is [code]true[/code]. While all three progress bar colors are left at their defaults (the colors Chrome draws an unstyled bar with), the default HTML shell leaves the bar unstyled, so every browser keeps its own look; changing any of them draws the bar with all three. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_PROGRESS_BAR[/code] placeholder.
+		</member>
+		<member name="loading_screen/progress_bar/border_color" type="Color" setter="" getter="">
+			The color of the loading screen progress bar's 1-pixel border. Only used while [member loading_screen/progress_bar/enabled] is [code]true[/code]. While all three progress bar colors are left at their defaults (the colors Chrome draws an unstyled bar with), the default HTML shell leaves the bar unstyled, so every browser keeps its own look; changing any of them draws the bar with all three. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_PROGRESS_BAR[/code] placeholder.
+		</member>
+		<member name="loading_screen/progress_bar/enabled" type="bool" setter="" getter="">
+			If [code]true[/code], the loading screen shows a progress bar that fills while the project downloads and the engine starts. If [code]false[/code], the bar is left out and the rest of the loading screen closes up around it. A [member html/custom_html_shell] receives this and the three colors as the [code]$GODOT_PROGRESS_BAR[/code] placeholder, a JSON object with [code]enabled[/code], [code]borderColor[/code], [code]backgroundColor[/code], [code]fillColor[/code] (CSS hex colors) and [code]customColors[/code] ([code]true[/code] when any color differs from its default).
+		</member>
+		<member name="loading_screen/progress_bar/fill_color" type="Color" setter="" getter="">
+			The color of the loading screen progress bar's filled part. Only used while [member loading_screen/progress_bar/enabled] is [code]true[/code]. While all three progress bar colors are left at their defaults (the colors Chrome draws an unstyled bar with), the default HTML shell leaves the bar unstyled, so every browser keeps its own look; changing any of them draws the bar with all three. Only used by the default HTML shell, or a [member html/custom_html_shell] that reads the [code]$GODOT_PROGRESS_BAR[/code] placeholder.
+		</member>
 		<member name="loading_screen/registering_types/show_spinner" type="bool" setter="" getter="">
 			If [code]true[/code], the loading screen shows the spinner while the scene types register. Default: [code]true[/code].
 		</member>
