@@ -36,6 +36,30 @@
 #include "scene/resources/camera_attributes.h"
 #include "scene/resources/compositor.h"
 #include "scene/resources/environment.h"
+#include "scene/resources/texture.h"
+
+// What Camera3D.get_monitoring_clean_texture() returns: a server texture the renderer copies the camera's image into
+// before the monitoring overlays are drawn. Internal: scripts see a Texture2D.
+class CameraMonitoringCleanTexture : public Texture2D {
+	GDCLASS(CameraMonitoringCleanTexture, Texture2D);
+
+	friend class Camera3D;
+	RID texture;
+	ObjectID camera;
+
+	void _release();
+
+public:
+	virtual int get_width() const override;
+	virtual int get_height() const override;
+	virtual Size2 get_size() const override;
+	virtual RID get_rid() const override;
+	virtual bool has_alpha() const override;
+	virtual Ref<Image> get_image() const override;
+	virtual void get_image_async(const Callable &p_callback) const override;
+
+	~CameraMonitoringCleanTexture();
+};
 
 class Camera3D : public Node3D {
 	GDCLASS(Camera3D, Node3D);
@@ -157,6 +181,9 @@ private:
 	bool _monitoring_histogram_readback_wanted() const;
 	void _monitoring_histogram_process();
 	void _update_monitoring();
+	// The clean frame (the image before the overlays), copied by the renderer every frame while enabled.
+	bool monitoring_clean_texture_enabled = false;
+	Ref<CameraMonitoringCleanTexture> monitoring_clean_texture;
 	DopplerTracking doppler_tracking = DOPPLER_TRACKING_DISABLED;
 	Ref<VelocityTracker3D> velocity_tracker;
 
@@ -369,6 +396,9 @@ public:
 	void set_monitoring_histogram_update_interval(float p_interval);
 	float get_monitoring_histogram_update_interval() const;
 	PackedInt32Array get_monitoring_histogram(MonitoringHistogramChannel p_channel = MONITORING_HISTOGRAM_CHANNEL_LUMA);
+	void set_monitoring_clean_texture_enabled(bool p_enabled);
+	bool is_monitoring_clean_texture_enabled() const;
+	Ref<Texture2D> get_monitoring_clean_texture() const;
 
 	void set_keep_aspect_mode(KeepAspect p_aspect);
 	KeepAspect get_keep_aspect_mode() const;

@@ -356,6 +356,7 @@ public:
 
 	virtual bool free(RID p_rid) override;
 	virtual void camera_monitoring_free(RID p_camera) override;
+	virtual void camera_monitoring_clean_texture_free(RID p_camera) override;
 
 	virtual void update() override;
 

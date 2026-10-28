@@ -862,6 +862,93 @@ PackedInt32Array Camera3D::get_monitoring_histogram(MonitoringHistogramChannel p
 	return RenderingServer::get_singleton()->camera_get_monitoring_histogram(camera, RSE::CameraMonitoringHistogramChannel(p_channel));
 }
 
+/* Clean frame
+ *
+ * A camera's image without its monitoring overlays (zebras, false color, focus peaking, the drawn histogram), for a
+ * script that saves or shows the picture the camera records while its monitor shows the overlays. While enabled, the
+ * renderer copies the image into a texture of the camera's every frame the camera renders, after noise reduction and
+ * sharpening and before the overlays and the viewport's 2D; while disabled nothing is allocated or copied. The server
+ * texture is created here (so a script has its RID at once) and pointed by the renderer at its copy.
+ */
+
+void CameraMonitoringCleanTexture::_release() {
+	if (texture.is_valid()) {
+		ERR_FAIL_NULL(RenderingServer::get_singleton());
+		RenderingServer::get_singleton()->free_rid(texture);
+		texture = RID();
+	}
+}
+
+Size2 CameraMonitoringCleanTexture::get_size() const {
+	// The camera's render target is its viewport's, at the viewport's size.
+	const Camera3D *cam = ObjectDB::get_instance<Camera3D>(camera);
+	if (!cam || !cam->is_inside_tree()) {
+		return Size2();
+	}
+	Ref<ViewportTexture> viewport_texture = cam->get_viewport()->get_texture();
+	return viewport_texture.is_valid() ? viewport_texture->get_size() : Size2();
+}
+
+int CameraMonitoringCleanTexture::get_width() const {
+	return int(get_size().width);
+}
+
+int CameraMonitoringCleanTexture::get_height() const {
+	return int(get_size().height);
+}
+
+RID CameraMonitoringCleanTexture::get_rid() const {
+	return texture;
+}
+
+bool CameraMonitoringCleanTexture::has_alpha() const {
+	return false;
+}
+
+Ref<Image> CameraMonitoringCleanTexture::get_image() const {
+	if (texture.is_null()) {
+		return Ref<Image>();
+	}
+	return RenderingServer::get_singleton()->texture_2d_get(texture);
+}
+
+void CameraMonitoringCleanTexture::get_image_async(const Callable &p_callback) const {
+	// A texture released by its camera reads back as null, like any freed texture.
+	RenderingServer::get_singleton()->texture_2d_get_async(texture, p_callback);
+}
+
+CameraMonitoringCleanTexture::~CameraMonitoringCleanTexture() {
+	_release();
+}
+
+void Camera3D::set_monitoring_clean_texture_enabled(bool p_enabled) {
+	if (p_enabled == monitoring_clean_texture_enabled) {
+		return;
+	}
+	monitoring_clean_texture_enabled = p_enabled;
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (p_enabled) {
+		monitoring_clean_texture.instantiate();
+		monitoring_clean_texture->camera = get_instance_id();
+		monitoring_clean_texture->texture = rs->texture_2d_placeholder_create(); // Until the first frame is copied.
+		rs->camera_set_monitoring_clean_texture(camera, monitoring_clean_texture->texture);
+	} else {
+		// The renderer frees its copy first (queued in this order), then the server texture goes. A script that kept
+		// the texture now reads null from it.
+		rs->camera_set_monitoring_clean_texture(camera, RID());
+		monitoring_clean_texture->_release();
+		monitoring_clean_texture.unref();
+	}
+}
+
+bool Camera3D::is_monitoring_clean_texture_enabled() const {
+	return monitoring_clean_texture_enabled;
+}
+
+Ref<Texture2D> Camera3D::get_monitoring_clean_texture() const {
+	return monitoring_clean_texture;
+}
+
 #define MONITORING_ACCESSORS(m_type, m_set, m_get, m_member, m_list_changed, m_value) \
 	void Camera3D::m_set(m_type p_value) { \
 		m_member = m_value; \
@@ -1012,6 +1099,9 @@ void Camera3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_monitoring_histogram_update_interval", "interval"), &Camera3D::set_monitoring_histogram_update_interval);
 	ClassDB::bind_method(D_METHOD("get_monitoring_histogram_update_interval"), &Camera3D::get_monitoring_histogram_update_interval);
 	ClassDB::bind_method(D_METHOD("get_monitoring_histogram", "channel"), &Camera3D::get_monitoring_histogram, DEFVAL(MONITORING_HISTOGRAM_CHANNEL_LUMA));
+	ClassDB::bind_method(D_METHOD("set_monitoring_clean_texture_enabled", "enabled"), &Camera3D::set_monitoring_clean_texture_enabled);
+	ClassDB::bind_method(D_METHOD("is_monitoring_clean_texture_enabled"), &Camera3D::is_monitoring_clean_texture_enabled);
+	ClassDB::bind_method(D_METHOD("get_monitoring_clean_texture"), &Camera3D::get_monitoring_clean_texture);
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "keep_aspect", PROPERTY_HINT_ENUM, "Keep Width,Keep Height"), "set_keep_aspect_mode", "get_keep_aspect_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "cull_mask", PROPERTY_HINT_LAYERS_3D_RENDER), "set_cull_mask", "get_cull_mask");
@@ -1031,6 +1121,7 @@ void Camera3D::_bind_methods() {
 
 	ADD_GROUP("Monitoring", "monitoring_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_visible_in_output"), "set_monitoring_visible_in_output", "is_monitoring_visible_in_output");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_clean_texture_enabled"), "set_monitoring_clean_texture_enabled", "is_monitoring_clean_texture_enabled");
 	ADD_SUBGROUP("Zebras", "monitoring_zebras_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_zebras_enabled"), "set_monitoring_zebras_enabled", "is_monitoring_zebras_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_zebras_level", PROPERTY_HINT_RANGE, "0,109,0.5,suffix:IRE"), "set_monitoring_zebras_level", "get_monitoring_zebras_level");
@@ -2027,6 +2118,7 @@ Camera3D::Camera3D() {
 
 Camera3D::~Camera3D() {
 	ERR_FAIL_NULL(RenderingServer::get_singleton());
+	set_monitoring_clean_texture_enabled(false);
 	RenderingServer::get_singleton()->free_rid(camera);
 #ifndef PHYSICS_3D_DISABLED
 	if (pyramid_shape.is_valid()) {

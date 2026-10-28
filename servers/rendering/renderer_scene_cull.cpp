@@ -233,6 +233,20 @@ void RendererSceneCull::camera_set_monitoring_histogram_readback(RID p_camera, b
 	camera->monitoring.histogram_readback_interval = MAX(p_interval, 0.0f);
 }
 
+// The renderer copies the camera's image into the texture before the overlays are drawn (and before 2D), every frame
+// the camera renders, while it is set. Stopping it frees the renderer's copy at once.
+void RendererSceneCull::camera_set_monitoring_clean_texture(RID p_camera, RID p_texture) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	if (camera->monitoring.clean_texture == p_texture) {
+		return;
+	}
+	if (camera->monitoring.clean_texture.is_valid()) {
+		scene_render->camera_monitoring_clean_texture_free(p_camera);
+	}
+	camera->monitoring.clean_texture = p_texture;
+}
+
 // Any thread: the result store has its own lock, and an unknown camera just has no result.
 PackedInt32Array RendererSceneCull::camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const {
 	return scene_render->camera_monitoring_histogram_get(p_camera, p_channel);

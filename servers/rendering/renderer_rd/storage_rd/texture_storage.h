@@ -942,6 +942,9 @@ public:
 	RID render_target_get_rd_texture_msaa(RID p_render_target);
 	RID render_target_get_rd_backbuffer(RID p_render_target);
 	RID render_target_get_rd_backbuffer_framebuffer(RID p_render_target);
+	// Makes p_texture (a server texture) show p_rd_texture, a copy of the render target's color texture with its size
+	// and format, and read back as the render target's own texture does. p_rd_texture stays the caller's.
+	void render_target_copy_texture_set(RID p_texture, RID p_rd_texture, RID p_render_target);
 
 	RID render_target_get_framebuffer_uniform_set(RID p_render_target);
 	RID render_target_get_backbuffer_uniform_set(RID p_render_target);

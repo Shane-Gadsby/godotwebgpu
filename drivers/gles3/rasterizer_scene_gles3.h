@@ -1019,6 +1019,9 @@ public:
 	void screen_space_roughness_limiter_set_active(bool p_enable, float p_amount, float p_curve) override;
 	bool screen_space_roughness_limiter_is_active() const override;
 
+	virtual void camera_monitoring_free(RID p_camera) override;
+	virtual void camera_monitoring_clean_texture_free(RID p_camera) override;
+
 	void sub_surface_scattering_set_quality(RSE::SubSurfaceScatteringQuality p_quality) override;
 	void sub_surface_scattering_set_scale(float p_scale, float p_depth_scale) override;
 

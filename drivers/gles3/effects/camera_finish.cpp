@@ -33,6 +33,7 @@
 #ifdef GLES3_ENABLED
 
 #include "drivers/gles3/storage/texture_storage.h"
+#include "drivers/gles3/storage/utilities.h"
 
 using namespace GLES3;
 
@@ -54,6 +55,9 @@ CameraFinish::CameraFinish() {
 
 CameraFinish::~CameraFinish() {
 	_free_scratch();
+	for (KeyValue<RID, CameraCleanFrame> &E : camera_clean_frames) {
+		_free_clean_frame(E.value);
+	}
 	glDeleteBuffers(1, &screen_triangle);
 	glDeleteVertexArrays(1, &screen_triangle_array);
 	shader.version_free(shader_version);
@@ -69,6 +73,70 @@ void CameraFinish::_free_scratch() {
 	scratch_size = Size2i();
 }
 
+void CameraFinish::_free_clean_frame(CameraCleanFrame &p_clean) {
+	if (p_clean.fbo != 0) {
+		glDeleteFramebuffers(1, &p_clean.fbo);
+		p_clean.fbo = 0;
+	}
+	if (p_clean.tex != 0) {
+		GLES3::Utilities::get_singleton()->texture_free_data(p_clean.tex);
+		p_clean.tex = 0;
+	}
+}
+
+void CameraFinish::free_camera_clean_frame(RID p_camera) {
+	CameraCleanFrame *clean = camera_clean_frames.getptr(p_camera);
+	if (clean) {
+		// The server texture still names the GL texture; it is its owner's (Camera3D's) to free, right after this.
+		_free_clean_frame(*clean);
+		camera_clean_frames.erase(p_camera);
+	}
+}
+
+void CameraFinish::_copy_clean_frame(const RendererSceneRender::CameraMonitoring &p_monitoring, GLuint p_source_fbo, RID p_render_target) {
+	TextureStorage *texture_storage = TextureStorage::get_singleton();
+	if (!p_monitoring.camera.is_valid() || !texture_storage->owns_texture(p_monitoring.clean_texture)) {
+		return;
+	}
+	RenderTarget *rt = texture_storage->get_render_target(p_render_target);
+	ERR_FAIL_NULL(rt);
+	const Size2i size = rt->size;
+
+	CameraCleanFrame *clean = camera_clean_frames.getptr(p_monitoring.camera);
+	if (!clean) {
+		clean = &camera_clean_frames.insert(p_monitoring.camera, CameraCleanFrame())->value;
+	}
+	if (clean->size != size || clean->internal_format != rt->color_internal_format || clean->render_target != p_render_target || clean->texture != p_monitoring.clean_texture || clean->tex == 0) {
+		// First frame, a resize, HDR toggled, or another viewport: a new copy target with the render target's format.
+		GLuint tex = 0;
+		GLuint fbo = 0;
+		glGenTextures(1, &tex);
+		glBindTexture(GL_TEXTURE_2D, tex);
+		glTexImage2D(GL_TEXTURE_2D, 0, rt->color_internal_format, size.x, size.y, 0, rt->color_format, rt->color_type, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		GLES3::Utilities::get_singleton()->texture_allocated_data(tex, size.x * size.y * rt->color_format_size, "Camera monitoring clean frame");
+		glGenFramebuffers(1, &fbo);
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+		texture_storage->render_target_copy_texture_set(p_monitoring.clean_texture, tex, p_render_target);
+		_free_clean_frame(*clean);
+		clean->tex = tex;
+		clean->fbo = fbo;
+		clean->texture = p_monitoring.clean_texture;
+		clean->render_target = p_render_target;
+		clean->size = size;
+		clean->internal_format = rt->color_internal_format;
+	}
+	glDisable(GL_SCISSOR_TEST); // Blits are scissored.
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, p_source_fbo);
+	glReadBuffer(GL_COLOR_ATTACHMENT0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, clean->fbo);
+	glBlitFramebuffer(0, 0, size.x, size.y, 0, 0, size.x, size.y, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+}
+
 void CameraFinish::process(RID p_render_target, const Settings &p_settings) {
 	if (!is_active(p_settings)) {
 		return;
@@ -81,6 +149,30 @@ void CameraFinish::process(RID p_render_target, const Settings &p_settings) {
 	}
 	const Size2i size = rt->size;
 	const bool linear_input = texture_storage->render_target_is_using_hdr(p_render_target);
+
+	const RendererCameraAttributes::CameraFinishSettings &camera = p_settings.camera;
+	const RendererSceneRender::CameraMonitoring &monitoring = p_settings.monitoring;
+
+	LocalVector<CameraFinishShaderGLES3::ShaderVariant> passes;
+	if (camera.noise_reduction) {
+		passes.push_back(CameraFinishShaderGLES3::MODE_NOISE_REDUCTION);
+	}
+	if (camera.sharpening) {
+		passes.push_back(CameraFinishShaderGLES3::MODE_SHARPEN);
+	}
+	const bool overlay = monitoring.zebras || monitoring.zebras_second || monitoring.focus_peaking || monitoring.false_color;
+	if (overlay) {
+		passes.push_back(CameraFinishShaderGLES3::MODE_OVERLAY);
+	}
+	const bool clean_frame = monitoring.clean_texture.is_valid();
+	if (passes.is_empty()) {
+		// Only the clean frame: the render target is it, no scratch copies.
+		if (clean_frame) {
+			_copy_clean_frame(monitoring, rt->fbo, p_render_target);
+			glBindFramebuffer(GL_FRAMEBUFFER, GLES3::TextureStorage::system_fbo);
+		}
+		return;
+	}
 
 	if (scratch_size != size || scratch_internal_format != rt->color_internal_format) {
 		_free_scratch();
@@ -114,20 +206,6 @@ void CameraFinish::process(RID p_render_target, const Settings &p_settings) {
 	glBlitFramebuffer(0, 0, size.x, size.y, 0, 0, size.x, size.y, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
-	const RendererCameraAttributes::CameraFinishSettings &camera = p_settings.camera;
-	const RendererSceneRender::CameraMonitoring &monitoring = p_settings.monitoring;
-
-	LocalVector<CameraFinishShaderGLES3::ShaderVariant> passes;
-	if (camera.noise_reduction) {
-		passes.push_back(CameraFinishShaderGLES3::MODE_NOISE_REDUCTION);
-	}
-	if (camera.sharpening) {
-		passes.push_back(CameraFinishShaderGLES3::MODE_SHARPEN);
-	}
-	if (monitoring.zebras || monitoring.zebras_second || monitoring.focus_peaking || monitoring.false_color) {
-		passes.push_back(CameraFinishShaderGLES3::MODE_OVERLAY);
-	}
-
 	int flags = 0;
 	if (camera.nr_chroma_only) {
 		flags |= 2;
@@ -150,6 +228,10 @@ void CameraFinish::process(RID p_render_target, const Settings &p_settings) {
 	for (uint32_t i = 0; i < passes.size(); i++) {
 		const CameraFinishShaderGLES3::ShaderVariant mode = passes[i];
 		const bool last = i == passes.size() - 1;
+		if (clean_frame && mode == CameraFinishShaderGLES3::MODE_OVERLAY) {
+			// The overlays are the last pass: what it reads is the finished image without them.
+			_copy_clean_frame(monitoring, scratch_fbos[current], p_render_target);
+		}
 		glBindFramebuffer(GL_FRAMEBUFFER, last ? rt->fbo : scratch_fbos[current ^ 1]);
 		glViewport(0, 0, size.x, size.y);
 
@@ -187,6 +269,10 @@ void CameraFinish::process(RID p_render_target, const Settings &p_settings) {
 		glDrawArrays(GL_TRIANGLES, 0, 3);
 		glBindVertexArray(0);
 		current ^= 1;
+	}
+
+	if (clean_frame && !overlay) {
+		_copy_clean_frame(monitoring, rt->fbo, p_render_target); // After noise reduction and sharpening.
 	}
 
 	glBindTexture(GL_TEXTURE_2D, 0);

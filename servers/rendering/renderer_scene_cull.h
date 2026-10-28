@@ -127,6 +127,7 @@ public:
 	virtual void camera_set_monitoring_false_color(RID p_camera, bool p_enable);
 	virtual void camera_set_monitoring_histogram(RID p_camera, bool p_enable, RSE::CameraMonitoringHistogramMode p_mode, RSE::CameraMonitoringHistogramPosition p_position, float p_size, float p_opacity);
 	virtual void camera_set_monitoring_histogram_readback(RID p_camera, bool p_enable, float p_interval);
+	virtual void camera_set_monitoring_clean_texture(RID p_camera, RID p_texture);
 	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const;
 	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const;
 	virtual bool is_camera(RID p_camera) const;

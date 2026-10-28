@@ -137,6 +137,23 @@ private:
 	void _request_histogram_readback(RID p_camera, RID p_buffer, Size2i p_size);
 	static void _histogram_readback_done(const PackedByteArray &p_data, RID p_camera, int64_t p_pixel_count);
 
+	/* Clean frame
+	 *
+	 * Camera3D.get_monitoring_clean_texture(): while a camera asks for it, its image before the overlays (after noise
+	 * reduction and sharpening) is copied into a texture of its own, which the server texture the camera holds shows.
+	 * One per camera, like the histograms. Nothing is allocated or copied for a camera that does not ask.
+	 */
+	struct CameraCleanFrame {
+		RID texture; // The server texture (Camera3D's), pointed at rd_texture.
+		RID rd_texture; // Owned here.
+		RID render_target; // The one rd_texture was made for: its formats are the readback's.
+		Size2i size;
+		RD::DataFormat format = RD::DATA_FORMAT_MAX;
+	};
+	HashMap<RID, CameraCleanFrame> camera_clean_frames; // Render thread only.
+
+	void _copy_clean_frame(const RendererSceneRender::CameraMonitoring &p_monitoring, RID p_source, RID p_render_target, Size2i p_size, RD::DataFormat p_format);
+
 	void _draw(RID p_source, RID p_dest_framebuffer, RID p_histogram_buffer, const FinishPushConstant &p_push_constant);
 	void _compute_histogram(RID p_source, Size2i p_size, bool p_linear_input, RID p_histogram_buffer, bool p_for_drawing);
 
@@ -153,8 +170,10 @@ public:
 
 	// Runs the pass on the render buffers' render target (single view only).
 	void process(Ref<RenderSceneBuffersRD> p_render_buffers, const Settings &p_settings);
-	// Frees a camera's histogram buffer (the camera was freed). Its pending readbacks are then discarded.
+	// Frees a camera's histogram buffer and clean frame (the camera was freed). Its pending readbacks are then discarded.
 	void free_camera(RID p_camera);
+	// Frees a camera's clean frame (it stopped asking for one).
+	void free_camera_clean_frame(RID p_camera);
 
 	CameraFinish();
 	~CameraFinish();

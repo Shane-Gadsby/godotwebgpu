@@ -557,6 +557,7 @@ public:
 	// Histogram readback for scripts: counted on the GPU, read back asynchronously (never stalls), at most once per
 	// interval. The getters are thread-safe and do not go through the command queue: they return the latest result.
 	virtual void camera_set_monitoring_histogram_readback(RID p_camera, bool p_enable, float p_interval) = 0;
+	virtual void camera_set_monitoring_clean_texture(RID p_camera, RID p_texture) = 0;
 	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const = 0;
 	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const = 0;
 

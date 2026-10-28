@@ -60,6 +60,31 @@
 				Returns the camera's frustum planes in world space units as an array of [Plane]s in the following order: near, far, left, top, right, bottom. Not to be confused with [member frustum_offset].
 			</description>
 		</method>
+		<method name="get_monitoring_clean_texture" qualifiers="const">
+			<return type="Texture2D" />
+			<description>
+				Returns the camera's image without its monitoring overlays while [member monitoring_clean_texture_enabled] is [code]true[/code], or [code]null[/code] otherwise. It is the same [Texture2D] for as long as the property stays enabled; read it with [method Texture2D.get_image_async], or draw it like any other texture (in a [TextureRect], for example).
+				[codeblock]
+				# "Download Image": the photo without the zebras or false color the monitor shows.
+				func save_photo():
+					$Camera3D.monitoring_clean_texture_enabled = true
+					$Camera3D.get_monitoring_clean_texture().get_image_async(func(image: Image):
+						$Camera3D.monitoring_clean_texture_enabled = false
+						if image:
+							image.save_png("user://photo.png"))
+				[/codeblock]
+				Or, with [code]await[/code] ([code]Texture2D.get_image_awaitable()[/code] returns a signal that fires once with the [Image] or [code]null[/code]):
+				[codeblock]
+				func save_photo():
+					$Camera3D.monitoring_clean_texture_enabled = true
+					var image: Image = await $Camera3D.get_monitoring_clean_texture().get_image_awaitable()
+					$Camera3D.monitoring_clean_texture_enabled = false
+					if image:
+						image.save_png("user://photo.png")
+				[/codeblock]
+				The read is of the frame drawn at the end of the current frame, so enabling the property and reading the texture in the same function works. The image has the size and format of the viewport's own texture ([method Viewport.get_texture]).
+			</description>
+		</method>
 		<method name="get_monitoring_histogram">
 			<return type="PackedInt32Array" />
 			<param index="0" name="channel" type="int" enum="Camera3D.MonitoringHistogramChannel" default="0" />
@@ -272,6 +297,12 @@
 		</member>
 		<member name="keep_aspect" type="int" setter="set_keep_aspect_mode" getter="get_keep_aspect_mode" enum="Camera3D.KeepAspect" default="1">
 			The axis to lock during [member fov]/[member size] adjustments. Can be either [constant KEEP_WIDTH] or [constant KEEP_HEIGHT].
+		</member>
+		<member name="monitoring_clean_texture_enabled" type="bool" setter="set_monitoring_clean_texture_enabled" getter="is_monitoring_clean_texture_enabled" default="false">
+			If [code]true[/code], every frame this camera renders is also copied, without its monitoring overlays, into the texture [method get_monitoring_clean_texture] returns: the 3D image after tonemapping and [CameraAttributes]' noise reduction and sharpening, before the zebras, false color, focus peaking and drawn histogram, and before any 2D drawn over the viewport. It is what the viewport's own texture would show with the overlays off, so a script can save or show the picture the camera records while its monitor shows the overlays, without rendering the scene a second time.
+			This costs one texture the size of the viewport and one copy per rendered frame while enabled, whether or not any overlay is on, and nothing while disabled: disabling it frees the texture (a script that kept the [Texture2D] then reads [code]null[/code] from it). Enable it only while needed, as in the example in [method get_monitoring_clean_texture]. It works in the running project whatever [member monitoring_visible_in_output] says (without the overlays, the copy is simply the image).
+			Each camera has its own texture, so two viewports with their own cameras each keep their own. A camera rendered into several viewports keeps the latest one's. Until the camera has rendered a frame (for example, its [SubViewport]'s [member SubViewport.render_target_update_mode] is [constant SubViewport.UPDATE_DISABLED]), the texture is a placeholder, and later it keeps the last frame rendered.
+			[b]Note:[/b] Supported in every rendering method, including Compatibility and the web. Not in XR (multiview) rendering.
 		</member>
 		<member name="monitoring_false_color_enabled" type="bool" setter="set_monitoring_false_color_enabled" getter="is_monitoring_false_color_enabled" default="false">
 			If [code]true[/code], the image is replaced by an exposure map using the ARRI ALEXA false color bands on the video level (IRE): purple below 2.5 (black clipping), blue from 2.5 to 4, green from 38 to 42 (18% middle gray), pink from 52 to 56 (one stop over middle gray, typical light skin), yellow from 97 to 99 and red from 99 (white clipping). Everything else is shown in gray at its own luma. This overlay follows [member monitoring_visible_in_output].
