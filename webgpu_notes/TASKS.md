@@ -3312,6 +3312,13 @@ was a flat wall).
 the system `spirv-val` (v2025.1) accepted an f32-to-f32 FConvert that the vendored SPIRV-Tools validator in
 `run_pipeline()` rejects, so `run_spec_ops.sh`'s probe looked valid by hand and failed in the pipeline.
 
+95. **Every check of a day's work used `DEBUG_ENABLED` builds, and `template_release` broke** (2026-10-28, work task 47,
+reported by the user): `panini_projection.h` was included inside camera_attributes_storage.cpp's `#ifdef DEBUG_ENABLED`
+block, so the dev editor and `template_debug` compiled and every render, smoke and 103-arm matrix run passed, while the
+user's `build-linux.sh` stopped at `PaniniProjection` undeclared in the web release template. Compile one release
+template after merging (the work board's README now says so), and never put a header the code needs into a debug-only
+include block.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
