@@ -53,9 +53,9 @@ void main() {
 	for (int i = 0; i < 4; i++) {
 		vec2 offset = vec2(float(i & 1), float(i >> 1)) * 2.0 - 1.0;
 		vec2 uv = uv_interp + offset * pixel_size;
-		// The sky is at the far plane, depth 1 (cleared, or drawn there); geometry, however far, occludes.
+		// Reverse Z, as the RD renderers: the sky is at depth 0 (cleared, or drawn there); geometry, however far, occludes.
 		float depth = textureLod(depth_buffer, uv, 0.0).r;
-		if (depth < 1.0) {
+		if (depth > 0.0) {
 			continue;
 		}
 		vec3 color = srgb_to_linear(max(textureLod(source_color, uv, 0.0).rgb / luminance_multiplier, vec3(0.0)));

@@ -50,7 +50,7 @@ layout(push_constant, std430) uniform Params {
 	float threshold; // Scene-linear luminance.
 	float decay; // Per frame height.
 	float max_length; // Cutoff of the march, in frame heights.
-	float luminance_multiplier; // The color buffer holds scene light times this (Mobile's RGB10A2 range).
+	float luminance_multiplier; // Scene light is the color buffer times this (2 for Mobile's RGB10A2 range).
 	uint sample_count;
 	uint pad0;
 	uint pad1;
@@ -85,7 +85,7 @@ void main() {
 		if (depth > 0.0) {
 			continue;
 		}
-		vec3 color = finite_or_zero3(textureLod(source_color, uv, 0.0).rgb) / params.luminance_multiplier;
+		vec3 color = finite_or_zero3(textureLod(source_color, uv, 0.0).rgb) * params.luminance_multiplier;
 		// A soft knee on luminance keeps the hue: what is above the threshold scatters, scaled as the pixel's color.
 		float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722)); // ITU-R BT.709 luma of linear light.
 		mask += color * (max(luminance - params.threshold, 0.0) / max(luminance, 1e-4));

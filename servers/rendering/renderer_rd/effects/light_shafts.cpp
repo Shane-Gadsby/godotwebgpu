@@ -98,7 +98,8 @@ void LightShafts::process(Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p
 	for (int i = 0; i < 4; i++) {
 		push_constant.sun[i] = p_params.sun.position[i];
 	}
-	const float scale = p_params.intensity * p_params.sun.fade * p_params.luminance_multiplier;
+	// The color buffer holds scene light divided by the luminance multiplier (RenderSceneBuffersRD).
+	const float scale = p_params.intensity * p_params.sun.fade / p_params.luminance_multiplier;
 	push_constant.scale[0] = p_params.tint.r * scale;
 	push_constant.scale[1] = p_params.tint.g * scale;
 	push_constant.scale[2] = p_params.tint.b * scale;
