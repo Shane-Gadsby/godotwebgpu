@@ -14,3 +14,4 @@ autofocus_mode = 2
 autofocus_target = NodePath("../Subject")
 autofocus_time_constant = 0.1
 shake_enabled = true
+shake_visible_in_editor = true
