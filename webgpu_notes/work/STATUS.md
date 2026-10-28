@@ -18,6 +18,13 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 42 | web loading bar toggle + colors (TASKS §2.49) | 4 | worker-42 (retired); **merged**, TASKS §4.56, §3 trap 79 |
 | 43 | wiki audit: pages for additions that have none | 4 | worker-43 (retired); **merged** (results); wiki 823092f (Exporting with WebGPU page, WebRTC notable fixes, shader baking, building, Home) |
 | 44 | longitudinal CA; Forward+ matrix arms for camera features; Mobile physical DOF (`mobile-dof-physical`) | 4 | worker-44 (retired); **merged**, TASKS §4.57, matrix now 97 arms |
+| 45 | post-processing: color grading on Environment (`pp-grading`) | 5 | worker-45 |
+| 46 | post-processing: screen-space light shafts (`pp-light-shafts`) | 5 | worker-46 |
+| 47 | post-processing: Panini projection (`pp-panini`) | 5 | worker-47 |
+| 48 | post-processing: GTAO (`pp-gtao`) | 5 | worker-48 |
+| 49 | post-processing: micro shadows (`pp-micro-shadows`) | 5 | worker-49 |
+| 50 | build scripts: no-threads non-dlink web templates first (TASKS §2.50) | 5 | worker-50 |
+| — | next after 45-49 merge: custom tonemap curve (`pp-custom-tonemap`), local exposure (`pp-local-exposure`) (both change the tonemap core) | 6 | — |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 
