@@ -160,6 +160,8 @@ public:
 
 		virtual void configure(RenderSceneBuffersRD *p_render_buffers) override;
 		virtual void free_data() override;
+		// Keeps FSR 2's context, and with it its history: see configure() and ensure_fsr2().
+		virtual void free_data_for_reconfigure() override;
 
 		static RD::DataFormat get_specular_format();
 		static uint32_t get_specular_usage_bits(bool p_resolve, bool p_msaa, bool p_storage);

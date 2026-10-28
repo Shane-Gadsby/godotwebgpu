@@ -91,8 +91,23 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_voxelgi() 
 }
 
 void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_fsr2(RendererRD::FSR2Effect *p_effect) {
+	const Size2i internal_size = render_buffers->get_internal_size();
+	if (fsr2_context != nullptr) {
+		// The context was kept over a reconfigure (configure()). It renders any size up to the one it was made with;
+		// past that it needs a larger one, which takes over its history so the change does not restart accumulation.
+		// It keeps the largest size the viewport has used, so this happens at most once per new largest size.
+		const Size2i max_render_size = p_effect->get_max_render_size(fsr2_context);
+		if (internal_size.x > max_render_size.x || internal_size.y > max_render_size.y) {
+			RendererRD::FSR2Context *grown = p_effect->create_context(internal_size.max(max_render_size), render_buffers->get_target_size());
+			if (grown != nullptr) {
+				p_effect->transfer_history(fsr2_context, grown);
+			}
+			memdelete(fsr2_context);
+			fsr2_context = grown;
+		}
+	}
 	if (fsr2_context == nullptr) {
-		fsr2_context = p_effect->create_context(render_buffers->get_internal_size(), render_buffers->get_target_size());
+		fsr2_context = p_effect->create_context(internal_size, render_buffers->get_target_size());
 	}
 }
 
@@ -149,14 +164,29 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::free_data() {
 	}
 }
 
+void RenderForwardClustered::RenderBufferDataForwardClustered::free_data_for_reconfigure() {
+	RendererRD::FSR2Context *kept_fsr2_context = fsr2_context;
+	fsr2_context = nullptr;
+	free_data();
+	fsr2_context = kept_fsr2_context;
+}
+
 void RenderForwardClustered::RenderBufferDataForwardClustered::configure(RenderSceneBuffersRD *p_render_buffers) {
 	if (render_buffers) {
 		// JIC
-		free_data();
+		free_data_for_reconfigure();
 	}
 
 	render_buffers = p_render_buffers;
 	ERR_FAIL_NULL(render_buffers);
+
+	// FSR 2's history is at the target size and its context accepts any render size up to the one it was made with
+	// (ensure_fsr2() grows it), so a new 3D scale keeps it: a scale change no longer restarts accumulation. A new
+	// target size, or no FSR 2 any more, ends it.
+	if (fsr2_context != nullptr && (render_buffers->get_scaling_3d_mode() != RSE::VIEWPORT_SCALING_3D_MODE_FSR2 || RendererRD::FSR2Effect::get_display_size(fsr2_context) != render_buffers->get_target_size())) {
+		memdelete(fsr2_context);
+		fsr2_context = nullptr;
+	}
 
 	if (cluster_builder == nullptr) {
 		cluster_builder = memnew(ClusterBuilderRD);

@@ -31,6 +31,7 @@
 #include "taa.h"
 
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
+#include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 
@@ -98,12 +99,33 @@ void TAA::process(Ref<RenderSceneBuffersRD> p_render_buffers, RD::DataFormat p_f
 	if (!p_render_buffers->has_texture(SNAME("taa"), SNAME("history"))) {
 		uint32_t usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
 
-		p_render_buffers->create_texture(SNAME("taa"), SNAME("history"), p_format, usage_bits);
+		// A reconfigure (a 3D scale change, for one) carries the old history over (RenderSceneBuffersRD::configure()).
+		// Resampling it into the new size keeps the accumulation going, where starting over shows the jittered,
+		// un-antialiased frame for a frame or two. The resampling draws, so only then are the textures attachments:
+		// a viewport that never reconfigures keeps exactly the textures it always had.
+		bool resample = p_render_buffers->get_carried_texture_layer(SNAME("taa"), SNAME("history"), view_count - 1).is_valid() && p_render_buffers->get_carried_texture_layer(SNAME("taa"), SNAME("prev_velocity"), view_count - 1).is_valid();
+		uint32_t resample_bits = resample ? RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT : 0;
+
+		p_render_buffers->create_texture(SNAME("taa"), SNAME("history"), p_format, usage_bits | resample_bits);
 		p_render_buffers->create_texture(SNAME("taa"), SNAME("temp"), p_format, usage_bits);
 
-		p_render_buffers->create_texture(SNAME("taa"), SNAME("prev_velocity"), RD::DATA_FORMAT_R16G16_SFLOAT, usage_bits);
+		p_render_buffers->create_texture(SNAME("taa"), SNAME("prev_velocity"), RD::DATA_FORMAT_R16G16_SFLOAT, usage_bits | resample_bits);
 
-		just_allocated = true;
+		if (resample) {
+			RD::get_singleton()->draw_command_begin_label("TAA resample history");
+			for (uint32_t v = 0; v < view_count; v++) {
+				// Bilinear: the history is a filtered image. The previous velocity is in UV units, which do not depend
+				// on the size, so it resamples the same way.
+				RID history = p_render_buffers->get_texture_slice(SNAME("taa"), SNAME("history"), v, 0);
+				RID prev_velocity = p_render_buffers->get_texture_slice(SNAME("taa"), SNAME("prev_velocity"), v, 0);
+				copy_effects->copy_to_fb_rect(p_render_buffers->get_carried_texture_layer(SNAME("taa"), SNAME("history"), v), FramebufferCacheRD::get_singleton()->get_cache(history), Rect2i(Point2i(), internal_size), false, false, false, false, RID(), false, false, false, false, Rect2(), 1.0, true);
+				copy_effects->copy_to_fb_rect(p_render_buffers->get_carried_texture_layer(SNAME("taa"), SNAME("prev_velocity"), v), FramebufferCacheRD::get_singleton()->get_cache(prev_velocity), Rect2i(Point2i(), internal_size), false, false, false, false, RID(), false, false, false, false, Rect2(), 1.0, true);
+			}
+			RD::get_singleton()->draw_command_end_label();
+		} else {
+			just_allocated = true;
+		}
+		p_render_buffers->free_carried_textures(SNAME("taa"));
 	}
 
 	RD::get_singleton()->draw_command_begin_label("TAA");

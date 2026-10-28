@@ -105,6 +105,9 @@ public:
 
 		virtual void configure(RenderSceneBuffersRD *p_render_buffers) override;
 		virtual void free_data() override;
+		// Keeps current: the adapted luminance does not depend on the internal size, and starting it over from 0 makes
+		// every reconfigure (a 3D scale change) flash while auto exposure re-adapts.
+		virtual void free_data_for_reconfigure() override;
 
 		void set_prefer_raster_effects(bool p_prefer_raster_effects);
 	};

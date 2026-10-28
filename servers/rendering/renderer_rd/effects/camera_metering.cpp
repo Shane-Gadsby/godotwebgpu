@@ -74,6 +74,9 @@ void CameraMetering::MeteringBuffers::configure(RenderSceneBuffersRD *p_render_b
 	tf.width = 2;
 	tf.height = 1;
 	tf.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+	if (awb_state[0].is_valid()) {
+		return; // Kept over a reconfigure (free_data_for_reconfigure()).
+	}
 	for (int i = 0; i < 2; i++) {
 		awb_state[i] = RD::get_singleton()->texture_create(tf, RD::TextureView());
 		// Texel 1's z = 0 marks the state invalid: the next update starts over.
@@ -82,7 +85,7 @@ void CameraMetering::MeteringBuffers::configure(RenderSceneBuffersRD *p_render_b
 	awb_current = 0;
 }
 
-void CameraMetering::MeteringBuffers::free_data() {
+void CameraMetering::MeteringBuffers::free_data_for_reconfigure() {
 	for (int i = 0; i < sums.size(); i++) {
 		RD::get_singleton()->free_rid(sums[i]);
 	}
@@ -92,6 +95,10 @@ void CameraMetering::MeteringBuffers::free_data() {
 		RD::get_singleton()->free_rid(histogram);
 		histogram = RID();
 	}
+}
+
+void CameraMetering::MeteringBuffers::free_data() {
+	free_data_for_reconfigure();
 	for (int i = 0; i < 2; i++) {
 		if (awb_state[i].is_valid()) {
 			RD::get_singleton()->free_rid(awb_state[i]);
