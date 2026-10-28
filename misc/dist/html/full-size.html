@@ -177,11 +177,13 @@ body {
    messages, color, font and size come from html/start_button/preload_text/*;
    these are those options' defaults. Drawn at full opacity, so the color shows
    as picked: the default color and shadow are what #e0e0e0 and a 0.6 shadow at
-   the old 85% opacity gave over the default splash background. Its own
-   compositing layer (will-change) keeps the grayscale antialiasing that opacity
-   gave it in Chrome, which otherwise draws opaque text with color fringes
-   (subpixel antialiasing). A message switched off leaves the line empty, and
-   min-height keeps its space so nothing moves. */
+   the old 85% opacity gave over the default splash background. The opacity
+   of 0.999 only keeps the grayscale antialiasing the old opacity gave the line
+   in Chrome, which draws fully opaque text with color fringes (subpixel
+   antialiasing); 0.1% of the background is under half a level, so the color
+   still comes out exactly. (A compositing layer would do the same but snaps the
+   line to whole pixels, moving the text.) A message switched off leaves the line
+   empty, and min-height keeps its space so nothing moves. */
 #status-preload {
 	display: none;
 	flex: none;
@@ -192,7 +194,7 @@ body {
 	line-height: 1.3;
 	text-align: center;
 	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.51);
-	will-change: transform;
+	opacity: 0.999;
 }
 
 /* Names the phase the engine is working through. Deliberately styled as neutral

@@ -99,5 +99,5 @@ for browser in ("chrome", "firefox"):
                     f"{f.stem} {state}: layout {s['button']} {s['line']} vs default {ref['button']} {ref['line']}",
                 )
     print(f"{browser}: layout of every direct run checked against its shell's default run")
-print("COMPARE FAIL (%d)" % fails if fails else "COMPARE PASS")
+print(f"COMPARE FAIL ({fails})" if fails else "COMPARE PASS")
 sys.exit(1 if fails else 0)
