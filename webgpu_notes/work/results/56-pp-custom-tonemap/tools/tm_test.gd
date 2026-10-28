@@ -31,6 +31,9 @@ func _init() -> void:
 		if args.has("white"): env.set("tonemap_custom_white_clip", float(args["white"]))
 	if args.has("twhite"):
 		env.tonemap_white = float(args["twhite"])
+	if args.get("glow", "0") == "1":
+		env.glow_enabled = true
+		env.glow_intensity = 0.0
 	var we := WorldEnvironment.new()
 	we.environment = env
 	root3d.add_child(we)

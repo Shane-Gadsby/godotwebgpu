@@ -1,0 +1,4 @@
+
+g_filmic tm=filmic&glow=1&twhite=6.0
+g_linear tm=linear&glow=1
+g_custom tm=custom&glow=1

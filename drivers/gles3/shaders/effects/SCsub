@@ -10,8 +10,10 @@ if "GLES3_GLSL" in env["BUILDERS"]:
     # find all shader code(all glsl files excluding our include files)
     glsl_files = [str(f) for f in Glob("*.glsl") if str(f) not in gl_include_files]
 
-    # make sure we recompile shaders if include files change
-    env.Depends([f + ".gen.h" for f in glsl_files], gl_include_files + ["#gles3_builders.py"])
+    # make sure we recompile shaders if include files change, the parent folder's too: post.glsl includes
+    # ../tonemap_inc.glsl, which a change to would otherwise leave compiled in its old form.
+    parent_include_files = [str(f) for f in Glob("../*_inc.glsl")]
+    env.Depends([f + ".gen.h" for f in glsl_files], gl_include_files + parent_include_files + ["#gles3_builders.py"])
 
     # compile shaders
     for glsl_file in glsl_files:
