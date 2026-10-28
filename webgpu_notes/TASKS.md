@@ -2583,7 +2583,7 @@ Effort <0.5 session once the user has answered.
 
 ### 2.48 Survey: post-processing effects Godot lacks `SURVEYED 2026-10-28` *(user request; work task 41)*
 
-**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46), color grading §4.65 (task 45), Panini §4.66 (task 47), GTAO §4.68 (task 48), custom tonemap §4.70 (task 56); custom tonemap curve and local exposure next.
+**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46), color grading §4.65 (task 45), Panini §4.66 (task 47), GTAO §4.68 (task 48), custom tonemap §4.70 (task 56), local exposure §4.71 (task 57). **All `pp-*` "Build it now" picks are built**; color vision (§2.48 entry 8) and web HDR output (entry 7) are "Later". custom tonemap curve and local exposure next.
 
 Investigate which post-processing effects Godot's renderers (Forward+, Mobile, Compatibility; web included) do not
 have, the way the camera survey of 2026-10-28 found the camera attributes that became work tasks 33–38. **Exclude what
@@ -3290,6 +3290,12 @@ below the blur.
 after editing `tonemap_inc.glsl` the scene and sky shaders rebuilt but `post.glsl.gen.h` kept the old text, and the
 Custom tonemapper rendered pure white whenever Compatibility ran its post pass. A build that "compiled fine" but
 renders an old shader: check the `.gen.h` dates.
+
+93. **An HDR 2D viewport's `get_image()` returns null on the web** (WebGPU, template_debug, no error), and natively
+it is RGBH (3 channels, format 14), not RGBAH (2026-10-28, work task 57). A web test cannot read HDR values back that
+way; compare WebGPU with native in 8 bits and let native carry the HDR comparison. Also: look at one frame of a new
+test scene before trusting numbers from it (task 57's camera first sat behind its room's back wall, and the "match"
+was a flat wall).
 
 ---
 
@@ -5224,6 +5230,25 @@ no model for any tonemapper, pre-existing); existing tonemappers 0 px in 42 rend
 (delta 29.6). Lead (merged tree with 57): the same numbers reproduce; existing tonemappers 0 px against the pre-merge
 editor in all three renderers; web identical to native on all 13 charts (lit scenes max 1/255); `tonemap_custom` passes
 `--parity`. §3 trap 92 (gles3 includes, fixed).
+
+### 4.71 Local exposure (October 2026) *(work task 57; survey §2.48, `pp-local-exposure`)*
+
+A **Local Exposure** group on `CameraAttributes` (both kinds, off by default): Unreal's Bilateral method (highlight
+contrast 0.6, shadow contrast 0.8, detail strength 1.0, middle gray bias, blurred luminance blend 0.6, kernel size 50%
+of the frame width; `middle_gray`, not "grey", because codespell rewrites the docs) and two RS setters. A bilateral
+grid (Chen, Paris and Durand 2007) of 16 square cells down the frame x 32 bins of 1 EV, so the result is the same at
+every resolution: `RendererRD::CameraLocalExposure` (build + blur compute) and the Forward+ tonemapper samples it at
+set 1 binding 3 right after exposure. CameraEffects `header.w` bit 0 and `local_exposure[2]` (the former
+`reserved[0..1]`). Forward+ desktop and web only: Mobile (RGB10A2 caps at 2.0), Compatibility (no pre-tonemap post)
+and XR do not apply it (class-doc notes, one-time editor warning). Worker: within p99 0.0015 EV of an independent
+numpy model at 720p/1080p/1440p, 11 controls plus auto exposure and physical units within p99 0.0032 EV; edge halos
+equal the model's; 12/12 defaults 0 px; WebGPU 0.17 ms at 1080p (build 0.04, blur 0.12, tonemap +0.013); matrix arm
+`local_exposure` (delta 11.39). Lead (merged tree with 56): defaults 0 px against the pre-merge editor in all three
+renderers, and on = off in Mobile and Compatibility; model within p99 0.0015 EV, max 0.0027 EV at all three
+resolutions; WebGPU's effect (on minus off) equals native's (mean |delta| 11.899 vs 11.898 at the defaults, 35.306 vs
+35.303 strong; away from edges p99 1/255). Questions `local-exposure-defaults`, `local-exposure-blend`,
+`look-local-exposure`. Follow-ups, optional: a separable blur (0.12 ms → ~0.03), Exposure Fusion as a second method in
+the grid's last slice. §3 trap 93.
 
 ## 5. References — retired docs
 

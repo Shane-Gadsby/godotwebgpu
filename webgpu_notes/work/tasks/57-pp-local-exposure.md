@@ -1,6 +1,6 @@
 # 57-pp-local-exposure
 
-State: ready-for-integration
+State: integrated (TASKS §4.71)
 Owner: worker-57
 Claimed: 2026-10-28 15:05
 Needs: build, gpu
