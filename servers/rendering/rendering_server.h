@@ -589,6 +589,7 @@ public:
 	virtual void viewport_set_scaling_3d_dynamic_target_fps(RID p_viewport, float p_fps) = 0;
 	virtual void viewport_set_scaling_3d_dynamic_min_scale(RID p_viewport, float p_scale) = 0;
 	virtual void viewport_set_scaling_3d_dynamic_max_scale(RID p_viewport, float p_scale) = 0;
+	virtual void viewport_set_scaling_3d_dynamic_step(RID p_viewport, float p_step) = 0;
 	// Read without a round trip to the render thread: a Viewport polls them once per frame while dynamic is on.
 	virtual float viewport_get_scaling_3d_effective_scale(RID p_viewport) const = 0;
 	virtual RSE::ViewportScaling3DDynamicState viewport_get_scaling_3d_dynamic_state(RID p_viewport) const = 0;

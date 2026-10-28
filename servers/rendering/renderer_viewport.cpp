@@ -343,7 +343,6 @@ constexpr uint32_t DYNAMIC_STARTUP_FRAMES = 60;
 constexpr uint64_t DYNAMIC_SETTLE_USEC = 250000;
 constexpr uint32_t DYNAMIC_SETTLE_FRAMES = 8;
 constexpr uint32_t DYNAMIC_WINDOW = 30; // Samples per decision (median).
-constexpr float DYNAMIC_STEP = 0.05;
 constexpr float DYNAMIC_HITCH = 4.0; // Frames over 4x the budget (or 4x the recent average) are hitches, not load.
 constexpr float DYNAMIC_DOWN_AT = 0.95; // GPU path: lower when over 95 % of the budget...
 constexpr float DYNAMIC_DOWN_AIM = 0.85; // ...to the scale the model puts at 85 %.
@@ -363,12 +362,13 @@ float _dynamic_median(LocalVector<float> &p_values) {
 	return p_values[p_values.size() / 2];
 }
 
-float _dynamic_quantize_down(float p_scale) {
-	return Math::floor(p_scale / DYNAMIC_STEP + 0.001f) * DYNAMIC_STEP;
+// Scales sit on a grid of the viewport's step (scaling_3d_dynamic_step, 0.05 by default).
+float _dynamic_quantize_down(float p_scale, float p_step) {
+	return Math::floor(p_scale / p_step + 0.001f) * p_step;
 }
 
-int _dynamic_scale_key(float p_scale) {
-	return int(Math::round(p_scale / DYNAMIC_STEP));
+int _dynamic_scale_key(float p_scale, float p_step) {
+	return int(Math::round(p_scale / p_step));
 }
 } // namespace
 
@@ -561,11 +561,11 @@ float RendererViewport::_dynamic_scale_update(Viewport *p_viewport, uint64_t p_n
 			if (at_min) {
 				state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_AT_MIN_SCALE;
 			} else {
-				new_scale = MAX(MIN(_dynamic_quantize_down(scale_for(DYNAMIC_DOWN_AIM * budget)), s - DYNAMIC_STEP), d.min_scale);
+				new_scale = MAX(MIN(_dynamic_quantize_down(scale_for(DYNAMIC_DOWN_AIM * budget), d.step), s - d.step), d.min_scale);
 			}
-		} else if (!at_max && predict(MIN(s + DYNAMIC_STEP, max_scale)) < DYNAMIC_UP_AT * budget) {
+		} else if (!at_max && predict(MIN(s + d.step, max_scale)) < DYNAMIC_UP_AT * budget) {
 			// Raised even when CPU-bound: resolution is free while the CPU sets the pace.
-			new_scale = MIN(_dynamic_quantize_down(s + DYNAMIC_STEP + 0.001f), max_scale);
+			new_scale = MIN(_dynamic_quantize_down(s + d.step + 0.001f, d.step), max_scale);
 		} else if (misses && measured < DYNAMIC_CPU_GPU_ROOM * budget) {
 			state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_CPU_LIMITED;
 		}
@@ -597,7 +597,7 @@ float RendererViewport::_dynamic_scale_update(Viewport *p_viewport, uint64_t p_n
 		}
 		if (dir > 0 && misses) {
 			// The step up missed: back down, and do not try this scale again for a while (longer each time).
-			Viewport::DynamicScale::FailedScale &failed = d.failed_up[_dynamic_scale_key(s)];
+			Viewport::DynamicScale::FailedScale &failed = d.failed_up[_dynamic_scale_key(s, d.step)];
 			failed.until_usec = p_now + uint64_t(failed.backoff_s * 1000000.0f);
 			failed.backoff_s = MIN(failed.backoff_s * 2.0f, 120.0f);
 			failed.frame_ms = d.probe_before_ms;
@@ -622,14 +622,14 @@ float RendererViewport::_dynamic_scale_update(Viewport *p_viewport, uint64_t p_n
 				print_verbose(vformat("Dynamic 3D resolution: viewport %d CPU-bound (frame %.1f ms, %.1f frames in flight).", p_viewport->self.get_id(), frame_med, queue_frames));
 			} else {
 				const bool verify = !(queue_frames >= DYNAMIC_QUEUE_GPU_CLEAR);
-				float target = MIN(_dynamic_quantize_down(scale_for(DYNAMIC_DOWN_AIM_FRAME * budget)), s - DYNAMIC_STEP);
+				float target = MIN(_dynamic_quantize_down(scale_for(DYNAMIC_DOWN_AIM_FRAME * budget), d.step), s - d.step);
 				if (verify) {
 					// Big enough that its predicted gain shows through vsync quantization and noise. The refresh estimate
 					// (the fastest recent frame) is two vsyncs on a GPU-bound page, so it is capped at a quarter frame.
 					const float gain_needed = MAX(MIN(dynamic_refresh_ms, 0.25f * frame_med), 0.15f * frame_med);
-					target = MIN(target, _dynamic_quantize_down(s - DYNAMIC_VERIFY_STEP + 0.001f));
-					while (target - DYNAMIC_STEP >= d.min_scale - 0.001f && frame_med - predict(target) < gain_needed) {
-						target -= DYNAMIC_STEP;
+					target = MIN(target, _dynamic_quantize_down(s - DYNAMIC_VERIFY_STEP + 0.001f, d.step));
+					while (target - d.step >= d.min_scale - 0.001f && frame_med - predict(target) < gain_needed) {
+						target -= d.step;
 					}
 				}
 				target = MAX(target, d.min_scale);
@@ -643,8 +643,8 @@ float RendererViewport::_dynamic_scale_update(Viewport *p_viewport, uint64_t p_n
 	} else if (!at_max && frame_med < DYNAMIC_UP_AT * budget && missed == 0) {
 		// Probed only when the model also says the step fits: under vsync the frame time is quantized (165 Hz: 12.1
 		// or 18.2 ms), and a frame that "fits" one step below often cannot take the next.
-		const float target = MIN(_dynamic_quantize_down(s + DYNAMIC_STEP + 0.001f), max_scale);
-		const Viewport::DynamicScale::FailedScale *failed = d.failed_up.getptr(_dynamic_scale_key(target));
+		const float target = MIN(_dynamic_quantize_down(s + d.step + 0.001f, d.step), max_scale);
+		const Viewport::DynamicScale::FailedScale *failed = d.failed_up.getptr(_dynamic_scale_key(target, d.step));
 		// A failure stands until its back-off ends, or until the load got clearly lighter than when it failed.
 		const bool blocked = failed != nullptr && p_now < failed->until_usec && frame_med > 0.75f * failed->frame_ms;
 		if (!blocked && predict(target) < DYNAMIC_UP_AT * budget) {
@@ -1581,6 +1581,17 @@ void RendererViewport::viewport_set_scaling_3d_dynamic_max_scale(RID p_viewport,
 		// Also when the scale holds: FSR 2's context is sized from the maximum.
 		viewport->dynamic.scale = clamped;
 		_configure_3d_render_buffers(viewport);
+	}
+}
+
+void RendererViewport::viewport_set_scaling_3d_dynamic_step(RID p_viewport, float p_step) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+	viewport->dynamic.step = CLAMP(p_step, 0.01f, 0.25f);
+	// Failed up-steps are keyed by grid position, which a new step size moves.
+	viewport->dynamic.failed_up.clear();
+	if (viewport->dynamic.enabled) {
+		_dynamic_scale_restart(viewport, false);
 	}
 }
 

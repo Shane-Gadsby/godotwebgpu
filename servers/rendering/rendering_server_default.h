@@ -800,6 +800,7 @@ public:
 	FUNC2(viewport_set_scaling_3d_dynamic_target_fps, RID, float)
 	FUNC2(viewport_set_scaling_3d_dynamic_min_scale, RID, float)
 	FUNC2(viewport_set_scaling_3d_dynamic_max_scale, RID, float)
+	FUNC2(viewport_set_scaling_3d_dynamic_step, RID, float)
 	// Not through the command queue: RendererViewport publishes these as atomics, and a Viewport polls them every
 	// frame while dynamic scaling is on, which a synced call would turn into a stall on the render thread.
 	virtual float viewport_get_scaling_3d_effective_scale(RID p_viewport) const override { return RSG::viewport->viewport_get_scaling_3d_effective_scale(p_viewport); }

@@ -166,6 +166,7 @@ public:
 			float target_fps = 60.0;
 			float min_scale = 0.5;
 			float max_scale = 1.0;
+			float step = 0.05; // Every change is a multiple of it, on a grid of it.
 			float scale = 1.0; // The scale in use.
 
 			RSE::ViewportScaling3DDynamicState state = RSE::VIEWPORT_SCALING_3D_DYNAMIC_STATE_OFF;
@@ -315,6 +316,7 @@ public:
 	void viewport_set_scaling_3d_dynamic_target_fps(RID p_viewport, float p_fps);
 	void viewport_set_scaling_3d_dynamic_min_scale(RID p_viewport, float p_scale);
 	void viewport_set_scaling_3d_dynamic_max_scale(RID p_viewport, float p_scale);
+	void viewport_set_scaling_3d_dynamic_step(RID p_viewport, float p_step);
 	float viewport_get_scaling_3d_effective_scale(RID p_viewport) const;
 	RSE::ViewportScaling3DDynamicState viewport_get_scaling_3d_dynamic_state(RID p_viewport) const;
 	RSE::ViewportScaling3DDynamicSource viewport_get_scaling_3d_dynamic_source(RID p_viewport) const;

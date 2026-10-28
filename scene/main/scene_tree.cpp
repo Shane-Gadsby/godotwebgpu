@@ -2138,6 +2138,7 @@ SceneTree::SceneTree() {
 		root->set_scaling_3d_dynamic_target_fps(GLOBAL_GET("rendering/scaling_3d/dynamic_target_fps"));
 		root->set_scaling_3d_dynamic_min_scale(GLOBAL_GET("rendering/scaling_3d/dynamic_min_scale"));
 		root->set_scaling_3d_dynamic_max_scale(GLOBAL_GET("rendering/scaling_3d/dynamic_max_scale"));
+		root->set_scaling_3d_dynamic_step(GLOBAL_GET("rendering/scaling_3d/dynamic_step"));
 		root->set_scaling_3d_dynamic_remember(GLOBAL_GET("rendering/scaling_3d/dynamic_remember"));
 		root->set_scaling_3d_dynamic(GLOBAL_GET("rendering/scaling_3d/dynamic"));
 	}

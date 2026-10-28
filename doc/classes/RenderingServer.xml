@@ -4997,6 +4997,14 @@
 				Sets the smallest 3D resolution scale dynamic 3D resolution may pick for [param viewport]. See [member Viewport.scaling_3d_dynamic_min_scale].
 			</description>
 		</method>
+		<method name="viewport_set_scaling_3d_dynamic_step">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="step" type="float" />
+			<description>
+				Sets the size of each change dynamic 3D resolution makes to [param viewport]'s scale. See [member Viewport.scaling_3d_dynamic_step].
+			</description>
+		</method>
 		<method name="viewport_set_scaling_3d_dynamic_target_fps">
 			<return type="void" />
 			<param index="0" name="viewport" type="RID" />

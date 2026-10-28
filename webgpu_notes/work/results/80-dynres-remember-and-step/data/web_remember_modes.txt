@@ -1,0 +1,20 @@
+#1 [drjs] adapter nvidia/lovelace fallback=false maxSampledTexturesPerShaderStage=48 timestamp-query=true
+#1 [dr] {"adapter":"WebGPU Device","kind":"start","params":{"ae":"0","change_at":"10","cpu2":"-1","cpu_ms":"0","dur":"10","dyn":"1","frames":"40","hdr":"1","iters":"64","iters2":"0","load2_at":"0","ma
+#1  eng: Dynamic 3D resolution: remembered scale 0.70 for /root (windowed).
+#2 [drjs] adapter nvidia/lovelace fallback=false maxSampledTexturesPerShaderStage=48 timestamp-query=true
+#2  eng: Dynamic 3D resolution: /root starts from its remembered scale 0.70 (windowed).
+#2 [dr] {"adapter":"WebGPU Device","kind":"start","params":{"ae":"0","change_at":"10","cpu2":"-1","cpu_ms":"0","dur":"12","dyn":"1","frames":"40","hdr":"1","iters":"64","iters2":"0","load2_at":"0","ma
+#2 canvas.requestFullscreen(): ok
+#2  eng: Dynamic 3D resolution: remembered scale 0.60 for /root (fullscreen).
+#3 [drjs] adapter nvidia/lovelace fallback=false maxSampledTexturesPerShaderStage=48 timestamp-query=true
+#3  eng: Dynamic 3D resolution: /root starts from its remembered scale 0.70 (windowed).
+#3 [dr] {"adapter":"WebGPU Device","kind":"start","params":{"ae":"0","change_at":"10","cpu2":"-1","cpu_ms":"0","dur":"2","dyn":"1","frames":"40","hdr":"1","iters":"64","iters2":"0","load2_at":"0","max
+#4 [drjs] adapter nvidia/lovelace fallback=false maxSampledTexturesPerShaderStage=48 timestamp-query=true
+#4  eng: Dynamic 3D resolution: /root starts from its remembered scale 0.70 (windowed).
+#4 [dr] {"adapter":"WebGPU Device","kind":"start","params":{"ae":"0","change_at":"10","cpu2":"-1","cpu_ms":"0","dur":"4","dyn":"1","frames":"40","hdr":"1","iters":"64","iters2":"0","load2_at":"0","max
+#4 canvas.requestFullscreen(): ok
+#4  eng: Dynamic 3D resolution: /root starts from its remembered scale 0.60 (fullscreen).
+#1 canvas=1920,1080 completed=true console errors: 0
+#2 canvas=1920,1080 completed=true console errors: 0
+#3 canvas=1920,1080 completed=true console errors: 0
+#4 canvas=1920,1080 completed=true console errors: 0
