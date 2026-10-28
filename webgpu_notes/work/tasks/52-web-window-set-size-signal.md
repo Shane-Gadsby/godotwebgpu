@@ -1,6 +1,6 @@
 # 52-web-window-set-size-signal: `DisplayServer.window_set_size()` on web never emits `size_changed`
 
-State: ready-for-integration
+State: integrated (merged ab4cf70927, TASKS §4.62)
 Owner: worker-52
 Claimed: 2026-10-28 12:40
 Needs: build (web template), browser (one short Playwright run)

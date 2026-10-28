@@ -428,7 +428,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.48 | Survey: post-processing effects Godot lacks (new, 2026-10-28, user request) | SURVEYED (task 41) — waiting on the `pp-*` answers | gap list against Unreal / Unity HDRP / Blender, excluding the camera batch (work tasks 33–38); ranked with effort and web cost, for the user to pick from |
 | 2.49 | Web loading screen: progress bar toggle and colors (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.56** |
 | 2.51 | Web export: a Start button and "preload before run" (new, 2026-10-28, user request) | OPEN — work tasks 51, 53 | export options; the Start button's look customizable (border color/radius, font family/color, cursor, hover/press darkening) |
-| 2.52 | Web: `DisplayServer.window_set_size()` never emits `size_changed` (new, 2026-10-28, camera-sim) | OPEN — work task 52 | canvas resized synchronously in `godot_js_display_desired_size_set()`, so `process_events()` sees no change and the viewport/surface keep the old size |
+| 2.52 | Web: `DisplayServer.window_set_size()` never emits `size_changed` (new, 2026-10-28, camera-sim) | DONE 2026-10-28 → §4.62 | canvas resized synchronously in `godot_js_display_desired_size_set()`, so `process_events()` sees no change and the viewport/surface keep the old size |
 | 2.53 | Web: fullscreen driven by the embedding page (new, 2026-10-28, camera-sim) | OPEN — work task 54 (after 52) | `postMessage` protocol (`godot:fullscreen` / `ready` / `exit-fullscreen`), export options, allowed origins |
 | 2.50 | Build scripts: the no-threads, no-dlink web templates first (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.60** | build and install `template_debug` + `template_release` with `threads=no dlink_enabled=no` right after the editor, before every other template | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
 | 2.15 ✔ | `generate_lods()` returns 0 on web | CLOSED 2026-10-15 (GPU readback returns zeros, §2.13; not LOD code) | — |
@@ -533,7 +533,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.49 | ~~Web loading screen: progress bar toggle + colors~~ | **`DONE` 2026-10-28 → §4.56** | — |
 | 2.50 | ~~Build scripts: no-threads non-dlink web templates first~~ | **`DONE` 2026-10-28 → §4.60** | — |
 | 2.51 | Web export: Start button + preload before run, customizable button | `OPEN` (tasks 51, 53) | ~1-1.5 sessions |
-| 2.52 | Web: `window_set_size()` never emits `size_changed` | `OPEN` (task 52) | <0.5 session |
+| 2.52 | Web: `window_set_size()` never emits `size_changed` | `DONE` → §4.62 | — |
 | 2.53 | Web: fullscreen driven by the embedding page | `OPEN` (task 54) | ~1 session |
 
 ### 2.1 Bind-group layout mismatch — rare residual `CLOSED 2026-10-14`
@@ -3232,6 +3232,12 @@ last, under whatever name it was given** (2026-10-28, work task 50): `build.sh`,
 used a GDExtension template whether or not the preset asked for one. Spell the scons output name out
 (`.wasm32[.nothreads][.dlink].zip`).
 
+82. **A web JS function that both stores and applies a size starves the per-frame "did it change?" check** (2026-10-28,
+work task 52). `godot_js_display_desired_size_set()` resized the canvas itself, so `process_events()` saw no change and
+nothing that hangs off that check ran: no `size_changed`, the viewport and the WebGPU surface kept the old size. Return
+whether it changed and run the same path a browser resize does. Under the render thread the transferred `<canvas>`
+element's `width` is stale; read `DisplayServer.window_get_size()` or `GodotDisplayScreen.transferred_size`.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5018,6 +5024,17 @@ before the press `engine.rtenv` unset, no canvas width, only index.html / index.
 in 5-10 s after; styles, focus, keys OK; the one miss is Firefox not showing `:active` while Space is held. Lead (merged
 tree): dev_mode editor and web template clean, smoke OK, launches audited. Not done: a windowed-editor check of the
 dialog; Safari. Questions `start-button-*` on the hand-offs page. Preload is task 53.
+
+### 4.62 Web `DisplayServer.window_set_size()` resizes the game (October 2026) *(work task 52; §2.52, camera-sim)*
+
+`godot_js_display_desired_size_set()` resized the canvas synchronously, so the next `process_events()` size check saw
+no change: the root `Window` never emitted `size_changed`, the viewport kept the old size and the WebGPU surface was
+never reconfigured ("surface texture differs from configured"); under the render thread the OffscreenCanvas was not
+resized at all. It now returns whether the canvas changed, and `DisplayServerWeb::window_set_size()` then runs the
+browser-resize path (`_canvas_size_changed()`). Canvas resize policy 0 (None) no longer consumes a pending page resize.
+Worker: `results/52-web-window-set-size-signal/resize_test.mjs` under policies 0/1/2, nothreads and threads. Lead
+(merged tree): dev_mode editor and web template clean, the test passes under all three policies (nothreads), 0
+warnings. The shell's `fitCanvasToViewport()` refit after an engine-driven resize went to task 54. §3 trap 82.
 
 ## 5. References — retired docs
 
