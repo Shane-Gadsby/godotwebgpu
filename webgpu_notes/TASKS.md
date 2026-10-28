@@ -3333,6 +3333,12 @@ before trusting a size measured on the hexagon.
 the canvas stayed 1152x648 at `--size 1920x1080` and `2560x1440`, so both runs measured the same thing. Set the
 project's viewport size and check `canvas.width` before reading resolution-dependent costs.
 
+99. **An FBX from Unreal names its root joint `Root`; MetaHuman DNA calls it `root`** (2026-10-28, work task 67).
+`Skeleton3D` resolves named skin binds exactly, so clothing attached to a DNA skeleton by hand logs `Skin bind #0
+contains named bind 'Root'` on every load (harmless: no vertex is weighted to it, and an unmatched bind falls back to
+bone 0). Import the FBX with `metahuman/bind_to_dna`, or let the DNA import bring the clothing (`include_clothing`).
+And an import-time skin fix never reaches a `Skin` already copied into a `.tscn` (a variant of trap 71): copy it again.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5376,6 +5382,26 @@ Forward+ and Mobile); opt-in on 5.69 px (Forward+) / 5.64 (Mobile) at 720p and 1
 Not run (user: related tests only): the Forward+ dof arms, Firefox. `sensor_fit` not done (needs its own task).
 Questions `dof-physical-max-blur`, `camera-sim-hexagon`; camera-sim hand-back in `results/63-physical-dof-blur-size/for-tasks.md`.
 §3 traps 97, 98.
+
+### 4.79 MetaHuman clothing binds match the DNA skeleton (`Root` vs `root`) (October 2026) *(work task 67; camera-sim spec)*
+
+camera-sim logged `Skin bind #0 contains named bind 'Root'` on every load. Unreal's FBX export writes the root joint as
+a `Null` named `Root`; the DNA calls it `root`; `Skeleton3D` resolves binds exactly. Harmless (0 of 13,894 clothing
+vertices weighted to it; the unmatched bind already fell back to bone 0 = `root`), but noisy. The importer's own
+clothing path (`include_clothing`) already matched ignoring case and never had it; it now warns only for an unmatched
+bind with weighted vertices (once per bone, with the count), `print_verbose` otherwise. New scene import option
+**`metahuman/bind_to_dna`** (`modules/metahuman/editor/metahuman_clothing_binds.{h,cpp}`; every scene import except
+`.dna`, empty by default so nothing reimports): each skin bind is matched to the DNA skeleton (head DNA plus the body
+DNA beside it) exactly, then ignoring case (renaming the bind, the scene's own bone and its animation tracks); an
+unmatched unweighted bind is dropped with the bone indices remapped; an unmatched weighted one is kept and warned by
+name. Worker (scratch copy of camera-sim): 1 bind renamed, mesh arrays and all 342 bind poses identical; the copied
+skin in `ava.tscn` renamed the same way gives 0 `Skin bind` errors (1 before); against `head.dna` alone, 36 weighted
+missing bones warned by name, 279 unweighted binds dropped, every vertex's weights unchanged. Lead (merged tree): dev_mode
+editor and web template_release 0 warnings; outfits.fbx reimported with the merged editor gives the worker's skin dump
+exactly; camera-sim's main scene with the renamed skin: `Skin bind` errors 1 → 0 and the four seeded screenshots 0 px
+different from the original skin's. Not done: the animation-track rename on real data (the FBX's only animation has no
+tracks). Question `skeleton-bind-case`; camera-sim must still re-copy or rename the skin saved in `prefabs/ava.tscn`
+(steps in `results/67-metahuman-clothing-root-bind/for-tasks.md`). §3 trap 99.
 
 ## 5. References — retired docs
 

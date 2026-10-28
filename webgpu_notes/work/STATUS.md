@@ -40,7 +40,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 64 | Color.from_temperature() and one shared colour-temperature helper (camera-sim) | 8 | worker-64 |
 | 65 | Light3D.light_temperature without physical light units, constant luminance (camera-sim; with 64, work/64) | 8 | worker-64 |
 | 66 | async texture readback that says when pixels are real, natively and on the web (camera-sim) | 8 | worker-66 |
-| 67 | MetaHuman clothing: "Root" bind vs the "root" bone, case-insensitive match, report real missing bones (camera-sim) | 8 | worker-67 |
+| 67 | MetaHuman clothing: "Root" bind vs the "root" bone, case-insensitive match, report real missing bones (camera-sim) | 8 | worker-67 (retired); **merged `1f942ca9f2`**, verified, TASKS §4.79, trap 99 |
 | 68 | dynamic 3D resolution: design first (camera-sim) | 8 | worker-68 paused (no gpu lease); code findings + bench on work/68 (0b983227da); resume with a fresh worker once the gpu frees up |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
