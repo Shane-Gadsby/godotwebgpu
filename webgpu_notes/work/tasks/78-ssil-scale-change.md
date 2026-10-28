@@ -1,6 +1,6 @@
 # 78-ssil-scale-change
 
-State: ready-for-integration
+State: done (merged `d10c65a1a3`, verified on the merged tree, TASKS §4.94)
 Owner: worker-78
 Claimed: 2026-10-29 07:00
 Needs: build, gpu

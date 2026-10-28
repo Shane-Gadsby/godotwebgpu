@@ -3396,6 +3396,14 @@ lost (each stash commit is still reachable by hash), but one worker's build ran 
 never `git stash` (`work/README.md`); to build a pre-change binary, build before editing or use a detached
 `git worktree add`.
 
+109. **Window-mode tests: Xvfb cannot hold fullscreen, and a Playwright click does not grant it** (2026-10-29, work task
+80): with no window manager to confirm `_NET_WM_STATE`, X11 fullscreen under Xvfb reports windowed again on the next
+frames and the size never changes (none is installed, Xephyr has none either), so a check that depends on the window
+mode needs the real display. On the web, a mouse click on the canvas did not reach `_input` in the bench, and
+`window_set_mode(FULLSCREEN)` needs a gesture inside an input callback; `page.evaluate(() =>
+document.querySelector('canvas').requestFullscreen())` works (Chromium counts it as a gesture), and the canvas must be
+the fullscreen element, because Godot's `fullscreenchange` listener checks `evt.target === canvas`.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5557,7 +5565,7 @@ adapted 1x1 value and CameraMetering its auto white balance state; Forward+ keep
 size holds and, when the render size outgrows it, grows it once and copies its history (`FSR2Effect::transfer_history()`,
 which depends on FSR 2's private context layout `ffx_fsr2_private.h`: a missed resource after a vendored update costs a
 one-time reset); TAA's history and previous velocity are carried and resampled bilinearly (user Q3). Volumetric fog
-left as today (Q4); still resetting: SSIL's last-frame buffer, FSR 2 on a target size change, MetalFX temporal.
+left as today (Q4); still resetting: SSIL's last-frame buffer (carried since §4.94), FSR 2 on a target size change, MetalFX temporal.
 Worker (HDR float captures, scale 1.0 ↔ 0.6): auto exposure flash +285% → 0.2% natively, +396-418% → ≤ 0.1% in
 Chrome; FSR 2 pulse 0.0080 → 0.0010 down, 0.0079 → 0.0029 up; TAA 0.0044 → 0.0005; no change 12/12 frames identical
 in 10 configs; matrix arms taa, scaling_3d, fsr2, auto_exposure pass `--parity`. Lead (merged tree): dev_mode editor
@@ -5678,6 +5686,40 @@ Merged `eecd0e08e8`; lead on the merged tree against the pre-merge editor: edito
 equal to the pre-merge editor at maxblur 3; custom 6-blade aperture 72.32 → 42.76; Box, Hexagon Very Low/Medium,
 Circle at maxblur 2 and 3, legacy Circle and Hexagon unchanged (maxdiff 0, both renderers); defaults and opt-in off
 14/14 maxdiff 0. Wiki Camera Bokeh and Glare updated. §3 trap 108.
+
+### 4.94 A 3D scale change keeps SSIL's and SSR's last frame (October 2026) *(work task 78; user answer `ssil-scale-change`)*
+
+`RenderSceneBuffersRD::configure()` also carries `rb_sslf/last_frame` (the previous frame's color that SSIL and SSR
+sample, with SSIL's 6 mips), and `SSEffects::allocate_last_frame_buffer()` resamples it bilinearly into the new size
+(`copy_to_fb_rect()`, as TAA's history in §4.86) and rebuilds the mip chain, instead of clearing it to black. The
+texture gets `COLOR_ATTACHMENT` only when it is resampled, so a viewport that never reconfigures is unchanged; a carried
+frame that SSIL/SSR no longer want is freed on the next frame (`free_carried_textures(RB_SCOPE_SSLF)`). SSR alone
+benefits too (same buffer). `_carry_texture()` names it by string (`"rb_sslf"` / `"last_frame"`): renaming
+`RB_SCOPE_SSLF` / `RB_LAST_FRAME` must update it, or the one-frame reset silently returns. Merged `d10c65a1a3`; lead on
+the merged tree against the pre-merge editor (task 74's bench, HDR float, Xvfb, `--fixed-fps 60`): with SSIL the change
+frame's difference drops 0.00389 → 0.00372, exactly the bare resolution change (SSIL and SSR off: 0.00372), and the
+next frame's 0.00038 is gone (both directions); SSIL + SSR 0.00400/0.00055 → 0.00372/0; SSR alone 0.00380/0.00018 →
+0.00372/0; TAA and FSR 2 within their noise. No-change renders identical, 7 configs 12/12 frames, and the new build
+twice; matrix `--parity` `ssil` (delta 1.744, native 0.005) and `scaling_3d` (1.388, 0.002) PASS. Editor (dev_mode),
+web template_debug and template_release 0 warnings.
+
+### 4.95 Dynamic resolution: remember per window mode, the step exposed (October 2026) *(work task 80; user answers `dynres-remember-key`, `dynres-step-size`, `dynres-remember-subviewport-mode`)*
+
+`scaling_3d_dynamic_remember` keys `user://scaling_3d_dynamic.cfg` by `<viewport path>@<window mode>` within the
+renderer + GPU section: windowed (also maximized), fullscreen, exclusive fullscreen, taken from the window on the
+display that shows the viewport (a SubViewport in an embedded Window uses the real window: user answer, the default).
+A task 75 key without the mode seeds the first mode that loads, once, and is rewritten; a mode change while running
+loads that mode's scale (the mode is asked of the display server only when the window's size changed, or every 30
+polls). The step is exposed as `Viewport.scaling_3d_dynamic_step`, `RenderingServer.viewport_set_scaling_3d_dynamic_step`
+and `rendering/scaling_3d/dynamic_step` (default 0.05, 0.01-0.25), used by both the GPU-time and frame-time paths.
+Merged `595ce19103`; lead on the merged tree: editor (dev_mode), web template_debug and template_release 0 warnings;
+off identical to the pre-merge editor 9/9; steps 0.05 / 0.10 / 0.25 climb in exactly those increments (Xvfb); Chrome
+defaults as task 75 (0.80 at 4.4 s, 0 changes/min while settled, back to 1.0 within 1.4 s of the load drop; CPU-bound
+`CPU_LIMITED` 94%, 0 changes), back to 1.0 in 4 / 2 / 1 changes at steps 0.05 / 0.10 / 0.20; remember across four
+loads in one profile: windowed 0.70 and fullscreen 0.60 saved and restored separately, the fullscreen scale picked up
+when the canvas went fullscreen, 0 console errors. Not run: Firefox, `timestamp-query` withheld, the real-display
+native remember runs (the worker ran them: windowed 0.70 / fullscreen 0.60, a switch loads 0.60, an old `/root=0.65`
+moved to windowed only). §3 trap 109.
 
 ## 5. References — retired docs
 

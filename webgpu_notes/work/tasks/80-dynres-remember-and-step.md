@@ -1,6 +1,6 @@
 # 80-dynres-remember-and-step
 
-State: ready-for-integration
+State: done (merged `595ce19103`, verified on the merged tree, TASKS §4.95)
 Owner: worker-80
 Claimed: 2026-10-29 06:58
 Needs: build, gpu, browser
