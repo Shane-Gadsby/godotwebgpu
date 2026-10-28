@@ -597,6 +597,56 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		using_dof = false;
 	}
 
+	// Light shafts: scattered sunlight is part of the scene's light, so it goes in first, before the lens (DOF), the
+	// shutter (motion blur) and the metering see the frame. The first directional light that opts in is the sun.
+	const RendererEnvironmentStorage::LightShafts light_shafts_settings = environment_get_light_shafts(p_render_data->environment);
+	if (can_use_effects && light_shafts_settings.enabled && light_shafts_settings.intensity > 0.0f && p_render_data->lights) {
+		RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
+		bool found = false;
+		Vector3 sun_direction;
+		for (uint32_t i = 0; i < p_render_data->lights->size(); i++) {
+			RID base = light_storage->light_instance_get_base_light((*p_render_data->lights)[i]);
+			if (light_storage->light_get_type(base) == RSE::LIGHT_DIRECTIONAL && light_storage->light_directional_get_light_shafts(base)) {
+				// A directional light shines along its -Z axis, so the sun is toward +Z.
+				sun_direction = light_storage->light_instance_get_base_transform((*p_render_data->lights)[i]).basis.get_column(2).normalized();
+				found = true;
+				break;
+			}
+		}
+		if (found) {
+			RENDER_TIMESTAMP("Light Shafts");
+			if (!light_shafts) {
+				light_shafts = memnew(RendererRD::LightShafts);
+			}
+			RendererRD::LightShafts::Parameters params;
+			params.color_size = color_size;
+			params.luminance_multiplier = rb->get_luminance_multiplier();
+			params.intensity = light_shafts_settings.intensity;
+			params.threshold = light_shafts_settings.threshold;
+			params.decay = light_shafts_settings.decay;
+			params.tint = light_shafts_settings.tint;
+			params.sample_count = light_shafts_settings.sample_count;
+			const float aspect = float(color_size.x) / float(color_size.y);
+			for (uint32_t i = 0; i < rb->get_view_count(); i++) {
+				params.sun = RendererEnvironmentStorage::light_shafts_compute_sun(sun_direction, p_render_data->scene_data->cam_transform, p_render_data->scene_data->view_projection[i], p_render_data->scene_data->cam_orthogonal, aspect);
+				if (params.sun.fade <= 0.0f) {
+					continue;
+				}
+				params.color = use_upscaled_texture ? rb->get_upscaled_texture(i) : rb->get_internal_texture(i);
+				if (can_use_storage) {
+					// Forward+: with MSAA the depth texture is the resolve target (an R32F texture).
+					params.depth = rb->get_depth_texture(i);
+					params.depth_is_resolved = rb->get_msaa_3d() != RSE::VIEWPORT_MSAA_DISABLED;
+				} else {
+					// Mobile: as the raster DOF, the resolved copy with MSAA (render_forward_mobile.cpp requests it).
+					params.depth = p_use_msaa ? rb->get_texture_slice(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH, i, 0) : rb->get_depth_texture(i);
+					params.depth_is_resolved = p_use_msaa;
+				}
+				light_shafts->process(rb, i, params);
+			}
+		}
+	}
+
 	if (can_use_effects && using_dof) {
 		RENDER_TIMESTAMP("Depth of Field");
 		RD::get_singleton()->draw_command_begin_label("DOF");
@@ -2077,6 +2127,7 @@ void RendererSceneRenderRD::init() {
 	RSG::camera_attributes->camera_attributes_set_dof_blur_bokeh_shape(RSE::DOFBokehShape(int(GLOBAL_GET("rendering/camera/depth_of_field/depth_of_field_bokeh_shape"))));
 	RSG::camera_attributes->camera_attributes_set_dof_blur_quality(RSE::DOFBlurQuality(int(GLOBAL_GET("rendering/camera/depth_of_field/depth_of_field_bokeh_quality"))), GLOBAL_GET("rendering/camera/depth_of_field/depth_of_field_use_jitter"));
 	RSG::camera_attributes->camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality(int(GLOBAL_GET("rendering/camera/motion_blur/motion_blur_quality"))));
+	environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality(int(GLOBAL_GET("rendering/environment/light_shafts/quality"))));
 	use_physical_light_units = GLOBAL_GET("rendering/lights_and_shadows/use_physical_light_units");
 
 	screen_space_roughness_limiter = GLOBAL_GET("rendering/anti_aliasing/screen_space_roughness_limiter/enabled");
@@ -2163,6 +2214,9 @@ RendererSceneRenderRD::~RendererSceneRenderRD() {
 	}
 	if (camera_metering) {
 		memdelete(camera_metering);
+	}
+	if (light_shafts) {
+		memdelete(light_shafts);
 	}
 	memdelete(copy_effects);
 	memdelete(debug_effects);

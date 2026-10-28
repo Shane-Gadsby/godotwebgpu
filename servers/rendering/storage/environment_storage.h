@@ -30,12 +30,25 @@
 
 #pragma once
 
+#include "core/math/projection.h"
+#include "core/math/transform_3d.h"
 #include "core/templates/rid_owner.h"
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/storage/camera_attributes_storage.h"
 
 class RendererEnvironmentStorage {
 public:
+	// Screen-space light shafts (Environment.light_shafts_*): what the renderers need of them, with the sample count
+	// already resolved from the project's quality. See environment_storage.cpp for the model.
+	struct LightShafts {
+		bool enabled = false;
+		float intensity = 1.0;
+		float threshold = 1.0; // Scene-linear luminance a sky pixel must exceed to scatter, as glow's HDR threshold.
+		float decay = 2.0; // Extinction per frame height along the shaft: weight exp(-decay * distance).
+		Color tint = Color(1, 1, 1);
+		uint32_t sample_count = 32;
+	};
+
 	union TonemapParameters {
 		// Shader vec4:
 		float tonemapper_params[4];
@@ -61,6 +74,8 @@ public:
 
 private:
 	static RendererEnvironmentStorage *singleton;
+
+	uint32_t light_shafts_sample_count = 32; // From ProjectSettings rendering/environment/light_shafts/quality.
 
 	// Environment
 	struct Environment {
@@ -138,6 +153,9 @@ private:
 
 		// Glare (lens flare, veiling glare, diffusion filter): applied by the tonemap pass from the glare chain.
 		CameraGlareEnvironment glare;
+
+		// Light shafts (sample_count is the storage's, from the project quality).
+		LightShafts light_shafts;
 
 		// SSR
 		bool ssr_enabled = false;
@@ -292,6 +310,20 @@ public:
 	void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength);
 	void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black);
 	CameraGlareEnvironment environment_get_camera_glare(RID p_env) const;
+
+	// Light shafts
+	void environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint);
+	void environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality);
+	LightShafts environment_get_light_shafts(RID p_env) const;
+
+	// Where the sun is on screen for one view, as the shaders' sun parameter (xy: the sun in uv, z = 1; or, for an
+	// orthogonal camera, z = 0 and xy the direction toward it in frame-height units; w: the aspect), and how much of
+	// the shafts to show. p_sun_direction points from the scene toward the sun. p_flip_y: uv y runs down the image.
+	struct LightShaftsSun {
+		float position[4] = {};
+		float fade = 0.0; // 0 behind the camera, falling to 0 as the sun leaves the frame.
+	};
+	static LightShaftsSun light_shafts_compute_sun(const Vector3 &p_sun_direction, const Transform3D &p_camera_transform, const Projection &p_projection, bool p_orthogonal, float p_aspect, bool p_flip_y = true);
 
 	// SSR
 	void environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_int, float p_fade_out, float p_depth_tolerance);

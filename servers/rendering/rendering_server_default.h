@@ -511,6 +511,7 @@ public:
 	FUNC2(light_directional_set_shadow_mode, RID, RSE::LightDirectionalShadowMode)
 	FUNC2(light_directional_set_blend_splits, RID, bool)
 	FUNC2(light_directional_set_sky_mode, RID, RSE::LightDirectionalSkyMode)
+	FUNC2(light_directional_set_light_shafts, RID, bool)
 
 	FUNC2(light_area_set_size, RID, const Vector2 &)
 	FUNC2(light_area_set_normalize_energy, RID, bool)
@@ -890,6 +891,9 @@ public:
 	FUNC7(environment_set_lens_flare, RID, bool, float, float, int, float, float)
 	FUNC3(environment_set_veiling_glare, RID, bool, float)
 	FUNC4(environment_set_diffusion_filter, RID, bool, float, bool)
+
+	FUNC6(environment_set_light_shafts, RID, bool, float, float, float, const Color &)
+	FUNC1(environment_set_light_shafts_quality, RSE::EnvironmentLightShaftsQuality)
 
 	FUNC4(environment_set_tonemap, RID, RSE::EnvironmentToneMapper, float, float)
 	FUNC2(environment_set_tonemap_agx_contrast, RID, float)

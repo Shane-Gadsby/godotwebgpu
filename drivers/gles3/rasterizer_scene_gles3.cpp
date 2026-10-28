@@ -2477,6 +2477,13 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		}
 	}
 
+	// Light shafts are added by the post pass, in linear light before the tone curve, so they need it to run; like
+	// glow, they read the frame's highlights, so a 10-bit frame keeps a range of 4 for them (luminance multiplier).
+	const bool light_shafts_enabled = !is_reflection_probe && environment_get_light_shafts(p_environment).enabled;
+	if (light_shafts_enabled) {
+		apply_environment_effects_in_post = true;
+	}
+
 	// Grain is drawn by the post pass, at the output resolution, and the camera LUT is applied there.
 	const bool use_camera_effects = !is_reflection_probe && get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_DISABLED;
 	const bool use_grain = use_camera_effects && RSG::camera_attributes->camera_attributes_uses_grain(p_camera_attributes);
@@ -2527,7 +2534,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		// this should be the same for all cameras..
 		render_data.lod_distance_multiplier = p_camera_data->main_projection.get_lod_multiplier();
 
-		if (rt != nullptr && rt->color_type == GL_UNSIGNED_INT_2_10_10_10_REV && glow_enabled) {
+		if (rt != nullptr && rt->color_type == GL_UNSIGNED_INT_2_10_10_10_REV && (glow_enabled || light_shafts_enabled)) {
 			// As our output is in sRGB and we're using 10bit color space, we can fake a little HDR to do glow...
 			render_data.luminance_multiplier = 0.25;
 		} else {
@@ -3065,6 +3072,47 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 	glActiveTexture(GL_TEXTURE0);
 }
 
+void RasterizerSceneGLES3::_render_light_shafts(const RenderDataGLES3 *p_render_data, GLuint p_color, GLuint p_depth) {
+	// Single view only: the post pass's multiview path has no shafts (Environment.xml says so).
+	const RendererEnvironmentStorage::LightShafts settings = environment_get_light_shafts(p_render_data->environment);
+	if (!settings.enabled || settings.intensity <= 0.0f || p_render_data->lights == nullptr || get_debug_draw_mode() != RSE::VIEWPORT_DEBUG_DRAW_DISABLED) {
+		return;
+	}
+	GLES3::LightStorage *light_storage = GLES3::LightStorage::get_singleton();
+	for (uint32_t i = 0; i < p_render_data->lights->size(); i++) {
+		RID base = light_storage->light_instance_get_base_light((*p_render_data->lights)[i]);
+		if (light_storage->light_get_type(base) != RSE::LIGHT_DIRECTIONAL || !light_storage->light_directional_get_light_shafts(base)) {
+			continue;
+		}
+		// The first directional light that opts in is the sun. It shines along its -Z axis, so the sun is toward +Z.
+		const Vector3 sun_direction = light_storage->light_instance_get_base_transform((*p_render_data->lights)[i]).basis.get_column(2).normalized();
+		Ref<RenderSceneBuffersGLES3> rb = p_render_data->render_buffers;
+		const Size2i internal_size = rb->get_internal_size();
+		GLES3::LightShafts::Parameters params;
+		params.color = p_color;
+		params.depth = p_depth;
+		params.color_size = internal_size;
+		params.luminance_multiplier = p_render_data->luminance_multiplier;
+		params.settings = settings;
+		// The 3D image is stored upside down unless the render target's color is overridden (see render_scene()).
+		GLES3::RenderTarget *rt = GLES3::TextureStorage::get_singleton()->get_render_target(rb->get_render_target());
+		const bool flip_y = !(rt && rt->overridden.color.is_valid());
+		params.sun = RendererEnvironmentStorage::light_shafts_compute_sun(sun_direction, p_render_data->cam_transform, p_render_data->cam_projection, p_render_data->cam_orthogonal, float(internal_size.x) / float(internal_size.y), flip_y);
+		if (params.sun.fade <= 0.0f) {
+			return;
+		}
+		if (!light_shafts) {
+			light_shafts = memnew(GLES3::LightShafts);
+		}
+		GLuint shafts = light_shafts->process(params);
+		if (shafts != 0) {
+			const float scale = settings.intensity * params.sun.fade / light_shafts->get_encode_scale();
+			GLES3::PostEffects::get_singleton()->set_light_shafts(shafts, Color(settings.tint.r * scale, settings.tint.g * scale, settings.tint.b * scale));
+		}
+		return;
+	}
+}
+
 void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_render_data) {
 	GLES3::TextureStorage *texture_storage = GLES3::TextureStorage::get_singleton();
 	GLES3::Glow *glow = GLES3::Glow::get_singleton();
@@ -3221,6 +3269,8 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 
 				glow->process_glow(color, internal_size, glow_buffers);
 			}
+
+			_render_light_shafts(p_render_data, color, depth_buffer);
 
 			// Copy color buffer
 			post_effects->post_copy(fbo_rt, target_size, color,
@@ -4755,6 +4805,7 @@ RasterizerSceneGLES3::RasterizerSceneGLES3() {
 	positional_soft_shadow_filter_set_quality((RSE::ShadowQuality)(int)GLOBAL_GET("rendering/lights_and_shadows/positional_shadow/soft_shadow_filter_quality"));
 	directional_soft_shadow_filter_set_quality((RSE::ShadowQuality)(int)GLOBAL_GET("rendering/lights_and_shadows/directional_shadow/soft_shadow_filter_quality"));
 	lightmaps_set_bicubic_filter(GLOBAL_GET("rendering/lightmapping/lightmap_gi/use_bicubic_filter"));
+	environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality(int(GLOBAL_GET("rendering/environment/light_shafts/quality"))));
 
 	{ //decals
 		config->max_decals = MIN(config->max_decals, config->max_uniform_buffer_size / (int)sizeof(GLES3::DecalData));
@@ -4973,6 +5024,9 @@ void sky() {
 
 RasterizerSceneGLES3::~RasterizerSceneGLES3() {
 	memdelete(camera_finish);
+	if (light_shafts) {
+		memdelete(light_shafts);
+	}
 	if (ltc.lut1_texture.is_valid()) {
 		RS::get_singleton()->free_rid(ltc.lut1_texture);
 	}

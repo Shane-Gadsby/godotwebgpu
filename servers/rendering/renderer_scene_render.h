@@ -205,6 +205,11 @@ public:
 	void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black);
 	CameraGlareEnvironment environment_get_camera_glare(RID p_env) const;
 
+	// Light shafts
+	void environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint);
+	void environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality);
+	RendererEnvironmentStorage::LightShafts environment_get_light_shafts(RID p_env) const;
+
 	virtual void environment_glow_set_use_bicubic_upscale(bool p_enable) = 0;
 
 	// SSR

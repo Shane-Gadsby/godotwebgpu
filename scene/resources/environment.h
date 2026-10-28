@@ -194,6 +194,14 @@ private:
 	bool diffusion_filter_black = false;
 	void _update_diffusion_filter();
 
+	// Light shafts
+	bool light_shafts_enabled = false;
+	float light_shafts_intensity = 1.0;
+	float light_shafts_threshold = 1.0;
+	float light_shafts_decay = 2.0;
+	Color light_shafts_tint = Color(1, 1, 1);
+	void _update_light_shafts();
+
 	// Fog
 	bool fog_enabled = false;
 	FogMode fog_mode = FOG_MODE_EXPONENTIAL;
@@ -416,6 +424,18 @@ public:
 	float get_diffusion_filter_strength() const;
 	void set_diffusion_filter_black(bool p_value);
 	bool is_diffusion_filter_black() const;
+
+	// Light shafts
+	void set_light_shafts_enabled(bool p_enabled);
+	bool is_light_shafts_enabled() const;
+	void set_light_shafts_intensity(float p_intensity);
+	float get_light_shafts_intensity() const;
+	void set_light_shafts_threshold(float p_threshold);
+	float get_light_shafts_threshold() const;
+	void set_light_shafts_decay(float p_decay);
+	float get_light_shafts_decay() const;
+	void set_light_shafts_tint(const Color &p_tint);
+	Color get_light_shafts_tint() const;
 
 	// Fog
 

@@ -253,6 +253,10 @@ public:
 	virtual void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) = 0;
 	virtual void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) = 0;
 	virtual void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) = 0;
+
+	// Light shafts (RendererEnvironmentStorage::LightShafts)
+	virtual void environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint) = 0;
+	virtual void environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality) = 0;
 	virtual Vector<float> environment_get_glow_levels(RID p_env) const = 0;
 	virtual float environment_get_glow_intensity(RID p_env) const = 0;
 	virtual float environment_get_glow_strength(RID p_env) const = 0;

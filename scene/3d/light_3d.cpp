@@ -580,6 +580,15 @@ DirectionalLight3D::SkyMode DirectionalLight3D::get_sky_mode() const {
 	return sky_mode;
 }
 
+void DirectionalLight3D::set_light_shafts_enabled(bool p_enabled) {
+	light_shafts_enabled = p_enabled;
+	RS::get_singleton()->light_directional_set_light_shafts(light, p_enabled);
+}
+
+bool DirectionalLight3D::is_light_shafts_enabled() const {
+	return light_shafts_enabled;
+}
+
 void DirectionalLight3D::_validate_property(PropertyInfo &p_property) const {
 	if (Engine::get_singleton()->is_editor_hint()) {
 		if (shadow_mode == SHADOW_ORTHOGONAL && (p_property.name == "directional_shadow_split_1" || p_property.name == "directional_shadow_blend_splits")) {
@@ -613,6 +622,11 @@ void DirectionalLight3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_sky_mode"), &DirectionalLight3D::get_sky_mode);
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "sky_mode", PROPERTY_HINT_ENUM, "Light and Sky,Light Only,Sky Only"), "set_sky_mode", "get_sky_mode");
+
+	ClassDB::bind_method(D_METHOD("set_light_shafts_enabled", "enabled"), &DirectionalLight3D::set_light_shafts_enabled);
+	ClassDB::bind_method(D_METHOD("is_light_shafts_enabled"), &DirectionalLight3D::is_light_shafts_enabled);
+
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "light_shafts_enabled"), "set_light_shafts_enabled", "is_light_shafts_enabled");
 
 	ADD_GROUP("Directional Shadow", "directional_shadow_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "directional_shadow_mode", PROPERTY_HINT_ENUM, "Orthogonal (Fast),PSSM 2 Splits (Average),PSSM 4 Splits (Slow)"), "set_shadow_mode", "get_shadow_mode");

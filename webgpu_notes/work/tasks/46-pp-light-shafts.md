@@ -1,8 +1,8 @@
 # 46-pp-light-shafts
 
-State: open
+State: claimed
 Owner: worker-46
-Claimed:
+Claimed: 2026-10-28 12:13
 Needs: build, gpu
 Branch: work/46
 Results: webgpu_notes/work/results/46-pp-light-shafts/

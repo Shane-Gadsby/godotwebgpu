@@ -1696,6 +1696,25 @@
 				Sets the lens flare of the environment: whether it is enabled, the ghosts' [param intensity], the [param threshold] above which light makes flare, the [param ghost_count], the [param halo_intensity] and the ghosts' [param chromatic_aberration]. See [member Environment.lens_flare_enabled].
 			</description>
 		</method>
+		<method name="environment_set_light_shafts">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="intensity" type="float" />
+			<param index="3" name="threshold" type="float" />
+			<param index="4" name="decay" type="float" />
+			<param index="5" name="tint" type="Color" />
+			<description>
+				Sets the screen-space light shafts of the environment. See [member Environment.light_shafts_enabled] for details.
+			</description>
+		</method>
+		<method name="environment_set_light_shafts_quality">
+			<return type="void" />
+			<param index="0" name="quality" type="int" enum="RenderingServer.EnvironmentLightShaftsQuality" />
+			<description>
+				Sets the number of samples each light shaft takes. See [member ProjectSettings.rendering/environment/light_shafts/quality].
+			</description>
+		</method>
 		<method name="environment_set_sdfgi">
 			<return type="void" />
 			<param index="0" name="env" type="RID" />
@@ -2441,6 +2460,14 @@
 			<param index="1" name="enable" type="bool" />
 			<description>
 				If [code]true[/code], this directional light will blend between shadow map splits resulting in a smoother transition between them. Equivalent to [member DirectionalLight3D.directional_shadow_blend_splits].
+			</description>
+		</method>
+		<method name="light_directional_set_light_shafts">
+			<return type="void" />
+			<param index="0" name="light" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<description>
+				If [code]true[/code], this directional light is the sun of the environment's screen-space light shafts. See [member DirectionalLight3D.light_shafts_enabled].
 			</description>
 		</method>
 		<method name="light_directional_set_shadow_mode">
@@ -6197,6 +6224,15 @@
 		</constant>
 		<constant name="ENV_SSIL_QUALITY_ULTRA" value="4" enum="EnvironmentSSILQuality">
 			Highest quality screen-space indirect lighting. Uses the adaptive target setting which can be dynamically adjusted to smoothly balance performance and visual quality.
+		</constant>
+		<constant name="ENV_LIGHT_SHAFTS_QUALITY_LOW" value="0" enum="EnvironmentLightShaftsQuality">
+			16 samples per light shaft.
+		</constant>
+		<constant name="ENV_LIGHT_SHAFTS_QUALITY_MEDIUM" value="1" enum="EnvironmentLightShaftsQuality">
+			32 samples per light shaft.
+		</constant>
+		<constant name="ENV_LIGHT_SHAFTS_QUALITY_HIGH" value="2" enum="EnvironmentLightShaftsQuality">
+			64 samples per light shaft.
 		</constant>
 		<constant name="ENV_SDFGI_Y_SCALE_50_PERCENT" value="0" enum="EnvironmentSDFGIYScale">
 			Use 50% scale for SDFGI on the Y (vertical) axis. SDFGI cells will be twice as short as they are wide. This allows providing increased GI detail and reduced light leaking with thin floors and ceilings. This is usually the best choice for scenes that don't feature much verticality.

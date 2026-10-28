@@ -37,6 +37,7 @@
 #include "core/templates/rid_owner.h"
 #include "core/templates/self_list.h"
 #include "drivers/gles3/effects/camera_finish.h"
+#include "drivers/gles3/effects/light_shafts.h"
 #include "drivers/gles3/storage/light_storage.h"
 #include "drivers/gles3/storage/material_storage.h"
 #include "servers/rendering/renderer_scene_render.h"
@@ -772,6 +773,7 @@ private:
 	void _render_shadows(const RenderDataGLES3 *p_render_data, const Size2i &p_viewport_size = Size2i(1, 1));
 	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D());
 	void _render_post_processing(const RenderDataGLES3 *p_render_data);
+	void _render_light_shafts(const RenderDataGLES3 *p_render_data, GLuint p_color, GLuint p_depth);
 	GLuint _get_camera_lut_texture(RID p_camera_attributes) const;
 
 	template <PassMode p_pass_mode>
@@ -784,6 +786,7 @@ protected:
 	double time_step = 0;
 
 	GLES3::CameraFinish *camera_finish = nullptr; // CameraAttributes NR/sharpening, Camera3D monitoring overlays.
+	GLES3::LightShafts *light_shafts = nullptr; // Environment.light_shafts_*; created on first use.
 
 	bool screen_space_roughness_limiter = false;
 	float screen_space_roughness_limiter_amount = 0.25;

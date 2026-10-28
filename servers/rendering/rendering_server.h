@@ -339,6 +339,7 @@ public:
 	virtual void light_directional_set_shadow_mode(RID p_light, RSE::LightDirectionalShadowMode p_mode) = 0;
 	virtual void light_directional_set_blend_splits(RID p_light, bool p_enable) = 0;
 	virtual void light_directional_set_sky_mode(RID p_light, RSE::LightDirectionalSkyMode p_mode) = 0;
+	virtual void light_directional_set_light_shafts(RID p_light, bool p_enable) = 0;
 
 	virtual void light_area_set_size(RID p_light, const Vector2 &p_size) = 0;
 	virtual void light_area_set_normalize_energy(RID p_light, bool p_enabled) = 0;
@@ -683,6 +684,10 @@ public:
 	virtual void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) = 0;
 	virtual void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) = 0;
 	virtual void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) = 0;
+
+	// Light shafts (screen-space god rays from the DirectionalLight3D that opts in).
+	virtual void environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint) = 0;
+	virtual void environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality) = 0;
 
 	virtual void environment_set_tonemap(RID p_env, RSE::EnvironmentToneMapper p_tone_mapper, float p_exposure, float p_white) = 0;
 	virtual void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) = 0;
@@ -1212,6 +1217,7 @@ VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramPosition, RenderingServer::C
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesGrainType, RenderingServer::CameraAttributesGrainType);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesLUTInput, RenderingServer::CameraAttributesLUTInput);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesMotionBlurQuality, RenderingServer::CameraAttributesMotionBlurQuality);
+VARIANT_ENUM_CAST_EXT(RSE::EnvironmentLightShaftsQuality, RenderingServer::EnvironmentLightShaftsQuality);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesMeteringMode, RenderingServer::CameraAttributesMeteringMode);
 VARIANT_ENUM_CAST_EXT(RSE::ShadowQuality, RenderingServer::ShadowQuality);
 VARIANT_ENUM_CAST_EXT(RSE::InstanceType, RenderingServer::InstanceType);

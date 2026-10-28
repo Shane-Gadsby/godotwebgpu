@@ -587,6 +587,104 @@ CameraGlareEnvironment RendererEnvironmentStorage::environment_get_camera_glare(
 	return env->glare;
 }
 
+// LIGHT SHAFTS
+
+void RendererEnvironmentStorage::environment_set_light_shafts(RID p_env, bool p_enable, float p_intensity, float p_threshold, float p_decay, const Color &p_tint) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->light_shafts.enabled = p_enable;
+	env->light_shafts.intensity = MAX(p_intensity, 0.0f);
+	env->light_shafts.threshold = MAX(p_threshold, 0.0f);
+	// Without extinction a shaft would reach across the whole frame; a floor keeps the march finite (see below).
+	env->light_shafts.decay = MAX(p_decay, 0.01f);
+	env->light_shafts.tint = p_tint;
+}
+
+void RendererEnvironmentStorage::environment_set_light_shafts_quality(RSE::EnvironmentLightShaftsQuality p_quality) {
+	// Samples along each shaft. GPU Gems 3 ch. 13 (Mitchell) takes 100 at full resolution without jitter; with the
+	// per-pixel jitter the blur pass applies, a quarter-resolution buffer needs far fewer (measured in
+	// webgpu_notes/work/results/46-pp-light-shafts).
+	switch (p_quality) {
+		case RSE::ENV_LIGHT_SHAFTS_QUALITY_LOW:
+			light_shafts_sample_count = 16;
+			break;
+		case RSE::ENV_LIGHT_SHAFTS_QUALITY_HIGH:
+			light_shafts_sample_count = 64;
+			break;
+		default:
+			light_shafts_sample_count = 32;
+			break;
+	}
+}
+
+/* Light shafts
+ *
+ * Mitchell's radial blur (GPU Gems 3 ch. 13, 2007) sums N mask samples spaced along the segment to the sun, weighted by
+ * decay^i. Its look therefore changes with the sample count and with the sun's distance on screen. Here the same idea
+ * is a fixed integral over screen distance t, in frame heights so it is the same at every resolution:
+ *
+ *   S(p) = decay * integral_0^L exp(-decay t) M(p + t u) dt + exp(-decay L) M(p + L u)
+ *
+ * M is the sky above the threshold, u the direction toward the sun and L the distance to it. The weights integrate to
+ * 1: a uniform sky gives S = M, a pixel on the sun keeps the sun's brightness, and sky an occluder hides from the ray
+ * darkens it in proportion to its weight. decay is an extinction coefficient (Beer-Lambert): the share of a shaft that
+ * reaches distance t is exp(-decay t), so 1 / decay is the shafts' mean length in frame heights. The march stops where
+ * the weight falls below 1/1000 (L <= ln(1000) / decay). The shader evaluates the integral by importance sampling, which
+ * converges to the same value at every sample count; the quality setting only changes the noise.
+ */
+
+// The fade as the sun leaves the frame, in frame heights outside its edge: a look choice. Shafts from an off-screen
+// sun come only from the sky in the frame, so without the fade they would end abruptly where that sky does.
+static constexpr float LIGHT_SHAFTS_EDGE_FADE = 0.5f;
+
+RendererEnvironmentStorage::LightShaftsSun RendererEnvironmentStorage::light_shafts_compute_sun(const Vector3 &p_sun_direction, const Transform3D &p_camera_transform, const Projection &p_projection, bool p_orthogonal, float p_aspect, bool p_flip_y) {
+	LightShaftsSun sun;
+	// The sun is a direction, a point at infinity: w = 0, so the camera's position does not matter.
+	const Vector3 view_dir = p_camera_transform.basis.xform_inv(p_sun_direction).normalized();
+	const Vector4 clip = p_projection.xform(Vector4(view_dir.x, view_dir.y, view_dir.z, 0.0));
+
+	if (p_orthogonal) {
+		// Every view ray is parallel, so the sun has no point on screen: the shafts are parallel too, along the sun's
+		// direction projected onto the frame (NDC is y up, uv y down; x in frame heights).
+		Vector2 dir = Vector2(clip.x * 0.5f * p_aspect, (p_flip_y ? -0.5f : 0.5f) * clip.y);
+		if (view_dir.z >= 0.0f || dir.length() < 1e-5f) {
+			return sun; // Behind the camera, or straight down the view axis: no direction to blur along.
+		}
+		dir.normalize();
+		sun.position[0] = dir.x;
+		sun.position[1] = dir.y;
+		sun.position[2] = 0.0f;
+		sun.position[3] = p_aspect;
+		// Fade in over the first ~15 degrees in front of the camera (a look choice, as the edge fade).
+		sun.fade = CLAMP(-view_dir.z * 4.0f, 0.0f, 1.0f);
+		return sun;
+	}
+
+	if (clip.w <= 1e-6f) {
+		return sun; // Behind the camera (or level with it): its projection is meaningless.
+	}
+	const float ndc_y = clip.y / clip.w;
+	const Vector2 uv = Vector2(clip.x / clip.w * 0.5f + 0.5f, p_flip_y ? 0.5f - ndc_y * 0.5f : 0.5f + ndc_y * 0.5f);
+	sun.position[0] = uv.x;
+	sun.position[1] = uv.y;
+	sun.position[2] = 1.0f;
+	sun.position[3] = p_aspect;
+	const Vector2 outside = Vector2(MAX(MAX(-uv.x, uv.x - 1.0f), 0.0f) * p_aspect, MAX(MAX(-uv.y, uv.y - 1.0f), 0.0f));
+	const float t = CLAMP(outside.length() / LIGHT_SHAFTS_EDGE_FADE, 0.0f, 1.0f);
+	sun.fade = 1.0f - t * t * (3.0f - 2.0f * t); // 1 - smoothstep.
+	return sun;
+}
+
+RendererEnvironmentStorage::LightShafts RendererEnvironmentStorage::environment_get_light_shafts(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	if (!env) {
+		return LightShafts(); // No Environment: no light shafts.
+	}
+	LightShafts shafts = env->light_shafts;
+	shafts.sample_count = light_shafts_sample_count;
+	return shafts;
+}
+
 // GLOW
 
 void RendererEnvironmentStorage::environment_set_glow(RID p_env, bool p_enable, Vector<float> p_levels, float p_intensity, float p_strength, float p_mix, float p_bloom_threshold, RSE::EnvironmentGlowBlendMode p_blend_mode, float p_hdr_bleed_threshold, float p_hdr_bleed_scale, float p_hdr_luminance_cap, float p_glow_map_strength, RID p_glow_map) {
