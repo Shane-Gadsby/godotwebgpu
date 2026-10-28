@@ -147,7 +147,7 @@ layout(push_constant, std430) uniform Params {
 	uint grain; // CameraAttributes grain, packed (camera_grain_inc.glsl); 0 when off.
 	uint camera_lut; // CameraAttributes LUT, packed (camera_lut_inc.glsl); 0 when off.
 	uint color_correction_lattice; // 1: the 3D color correction LUT is the Environment's color grading LUT.
-	float pad;
+	uint opaque_alpha; // 1: write alpha 1 (an opaque render target whose texture cannot show it through a view swizzle).
 }
 params;
 
@@ -961,6 +961,10 @@ void main() {
 	} else if (deband_10_bit) {
 		// Divide by 1023 to align to 10-bit quantization.
 		color.rgb += screen_space_dither(gl_FragCoord.xy, 1023.0);
+	}
+
+	if (params.opaque_alpha != 0u) {
+		color.a = 1.0;
 	}
 
 	frag_color = color;

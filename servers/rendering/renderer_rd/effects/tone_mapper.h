@@ -112,6 +112,8 @@ private:
 		TONEMAP_FLAG_CAMERA_LUT_SHIFT = 8,
 		// The 3D color correction LUT holds lattice points (the Environment's color grading LUT), not texel centers.
 		TONEMAP_FLAG_COLOR_CORRECTION_LATTICE = (1 << 24),
+		// Write alpha 1 (TonemapSettings::opaque_alpha).
+		TONEMAP_FLAG_OPAQUE_ALPHA = (1 << 25),
 	};
 
 	enum FlagsMobile {
@@ -189,7 +191,7 @@ private:
 		uint32_t grain; //  4 - 84 (packed, 0 when off)
 		uint32_t camera_lut; //  4 - 88 (packed, 0 when off)
 		uint32_t color_correction_lattice; //  4 - 92 (1: the 3D color correction LUT holds lattice points)
-		float pad; //  4 - 96
+		uint32_t opaque_alpha; //  4 - 96 (1: write alpha 1, TonemapSettings::opaque_alpha)
 	};
 
 	/* tonemap actually writes to a framebuffer, which is
@@ -280,6 +282,11 @@ public:
 		bool bilinear_filtering = true;
 
 		bool convert_to_srgb = false;
+
+		// Write alpha 1 instead of the scene's alpha: the destination is an opaque render target whose texture
+		// cannot show alpha 1 through a view swizzle (TextureStorage::render_target_needs_opaque_alpha(), WebGPU).
+		// Everything after this pass (SMAA, scaling, FSR 1) keeps an alpha of 1.
+		bool opaque_alpha = false;
 	};
 
 	// The CameraEffects uniform buffer for a tonemap pass of these render buffers: their own, updated to the camera

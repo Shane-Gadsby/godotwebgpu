@@ -1106,6 +1106,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		tonemap.use_1d_color_correction = false;
 		tonemap.color_correction_texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
 		tonemap.convert_to_srgb = !using_hdr;
+		tonemap.opaque_alpha = texture_storage->render_target_needs_opaque_alpha(render_target);
 
 		if (can_use_effects && p_render_data->environment.is_valid()) {
 			tonemap.use_bcs = environment_get_adjustments_enabled(p_render_data->environment);
@@ -1363,6 +1364,7 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 	tonemap.use_1d_color_correction = false;
 	tonemap.color_correction_texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
 	tonemap.convert_to_srgb = !using_hdr;
+	tonemap.opaque_alpha = texture_storage->render_target_needs_opaque_alpha(rb->get_render_target());
 
 	if (can_use_effects && p_render_data->environment.is_valid()) {
 		tonemap.use_bcs = environment_get_adjustments_enabled(p_render_data->environment);

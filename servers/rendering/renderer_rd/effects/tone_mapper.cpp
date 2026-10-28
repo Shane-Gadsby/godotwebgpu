@@ -286,6 +286,7 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.pixel_size[1] = 1.0 / p_settings.texture_size.y;
 
 	tonemap.push_constant.flags |= p_settings.convert_to_srgb ? TONEMAP_FLAG_CONVERT_TO_SRGB : 0;
+	tonemap.push_constant.flags |= p_settings.opaque_alpha ? TONEMAP_FLAG_OPAQUE_ALPHA : 0;
 
 	if (p_settings.view_count > 1) {
 		// Use USE_MULTIVIEW versions
@@ -377,6 +378,7 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.grain = p_settings.grain;
 	tonemap_mobile.push_constant.camera_lut = p_settings.camera_lut;
 	tonemap_mobile.push_constant.color_correction_lattice = p_settings.color_correction_lattice ? 1 : 0;
+	tonemap_mobile.push_constant.opaque_alpha = p_settings.opaque_alpha ? 1 : 0;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
@@ -482,6 +484,7 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.grain = p_settings.grain;
 	tonemap_mobile.push_constant.camera_lut = p_settings.camera_lut;
 	tonemap_mobile.push_constant.color_correction_lattice = p_settings.color_correction_lattice ? 1 : 0;
+	tonemap_mobile.push_constant.opaque_alpha = p_settings.opaque_alpha ? 1 : 0;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
