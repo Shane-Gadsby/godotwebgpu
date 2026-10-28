@@ -1,0 +1,298 @@
+143a144,174
+> /* The start screen's button (html/start_button/*). Its look comes from the
+>    export preset as custom properties set by the script below; hover and
+>    pressed are darker shades of the background unless the preset sets its own. */
+> #status-start {
+> 	display: none;
+> 	flex: none;
+> 	box-sizing: border-box;
+> 	cursor: pointer;
+> 	background-color: var(--start-background-color);
+> 	color: var(--start-text-color);
+> 	border: var(--start-border-width) solid var(--start-border-color);
+> 	border-radius: var(--start-border-radius);
+> 	font-family: var(--start-font-family);
+> 	font-size: var(--start-font-size);
+> 	line-height: 1.2;
+> 	padding: var(--start-padding-vertical) var(--start-padding-horizontal);
+> }
+> 
+> #status-start:hover {
+> 	background-color: var(--start-hover-color);
+> }
+> 
+> #status-start:active {
+> 	background-color: var(--start-pressed-color);
+> }
+> 
+> #status-start:focus-visible {
+> 	outline: 2px solid var(--start-text-color);
+> 	outline-offset: 3px;
+> }
+> 
+260a292
+> 			<button id="status-start" type="button"></button>
+273c305
+< const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":5352,"index.wasm":52427740},"focusCanvas":true,"fullscreenOnFirstTap":true,"gdextensionLibs":[],"godotPoolSize":4,"renderingDriver":"webgpu"};
+---
+> const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":5352,"index.wasm":44598677},"focusCanvas":true,"fullscreenOnFirstTap":true,"gdextensionLibs":[],"godotPoolSize":4,"renderingDriver":"webgpu","startButton":{"backgroundColor":"#3a3a3a","borderColor":"#ffffff","borderRadius":8,"borderWidth":0,"enabled":false,"fontFamily":"'Noto Sans', 'Droid Sans', Arial, sans-serif","fontSize":24,"hoverColor":"#313131","paddingHorizontal":48,"paddingVertical":12,"pressedColor":"#292929","text":"Start","textColor":"#ffffff"}};
+347a380,403
+> 	// The start screen (html/start_button/*, GODOT_CONFIG.startButton): the page
+> 	// waits on this button, and nothing of the engine runs until it is pressed.
+> 	const statusStart = document.getElementById('status-start');
+> 	const startButton = GODOT_CONFIG['startButton'] || {};
+> 	if (startButton['enabled']) {
+> 		statusStart.textContent = startButton['text'] || 'Start';
+> 		const startStyle = {
+> 			'--start-background-color': startButton['backgroundColor'],
+> 			'--start-hover-color': startButton['hoverColor'],
+> 			'--start-pressed-color': startButton['pressedColor'],
+> 			'--start-text-color': startButton['textColor'],
+> 			'--start-border-color': startButton['borderColor'],
+> 			'--start-border-width': `${startButton['borderWidth']}px`,
+> 			'--start-border-radius': `${startButton['borderRadius']}px`,
+> 			'--start-font-family': startButton['fontFamily'],
+> 			'--start-font-size': `${startButton['fontSize']}px`,
+> 			'--start-padding-horizontal': `${startButton['paddingHorizontal']}px`,
+> 			'--start-padding-vertical': `${startButton['paddingVertical']}px`,
+> 		};
+> 		Object.entries(startStyle).forEach(([name, value]) => {
+> 			statusStart.style.setProperty(name, value);
+> 		});
+> 	}
+> 
+492a549
+> 		statusStart.style.display = mode === 'start' ? 'block' : 'none';
+604,662c661,667
+< 		setStatusMode('progress');
+< 		// Show WebGPU initialization status if applicable.
+< 		if (GODOT_RENDERING_DRIVER === 'webgpu') {
+< 			showStage('initializing_webgpu');
+< 		}
+< 
+< 		// IMPORTANT (found the hard way): on WebGPU, the engine's first rendered
+< 		// frame runs *synchronously inside* the WASM callMain() call -- after
+< 		// `engine.startGame()`'s download/init work is done, but before its
+< 		// promise resolves, before control ever returns to JS, and therefore
+< 		// before the browser gets a chance to paint anything. On a cold shader
+< 		// cache this single call can block the main thread for many seconds
+< 		// (SPIR-V -> WGSL conversion for every specialized pipeline variant the
+< 		// first frame needs; see webgpu_notes/TASKS.md §4.21 and Section 10
+< 		// of webgpu_notes/TASKS.md §4.21). No JS-side progress text
+< 		// or event listener can update the screen during that window -- the JS
+< 		// thread that would run them is the same one that's blocked. Two
+< 		// consequences, both handled below:
+< 		//
+< 		// 1. `engine.js`'s start() dispatches 'godot-before-callmain' right
+< 		//    before that call and yields two animation frames first -- we use
+< 		//    that instant (not, e.g., before startGame() is even called, which
+< 		//    would show this notice before the download has even started) to
+< 		//    show a "please wait, this can take a while" notice, so it's
+< 		//    actually painted before the long synchronous call begins. Without
+< 		//    that yield, DOM changes made here would be queued but never
+< 		//    painted until *after* the block -- defeating the point.
+< 		// 2. That notice needs a spinner driven by CSS animation only (see the
+< 		//    #webgpu-spinner rule above), since a compositor-thread animation on
+< 		//    `transform` keeps running even while the main JS thread is blocked
+< 		//    -- it's the only feedback that can actually be seen during the
+< 		//    stall itself, as opposed to before or after it.
+< 		//
+< 		// Separately, later frames (after the first) run one-per-requestAnimationFrame,
+< 		// so the browser *does* get control back between them even if any one of
+< 		// them individually blocks for a while recompiling further shaders --
+< 		// hence still listening for the driver's per-compile signal and waiting
+< 		// for a quiet period below, to keep the notice accurate for that tail.
+< 		let firstFramePresented = false;
+< 		let shaderCompileCount = 0;
+< 		let lastShaderCompileTime = 0;
+< 		// Set once the engine is about to run. The preloader can still report a
+< 		// final progress callback after that point, and it must not pull the
+< 		// text back to the download stage once "Starting engine" is on screen.
+< 		let engineStarting = false;
+< 		if (GODOT_RENDERING_DRIVER === 'webgpu') {
+< 			window.addEventListener('godot-before-callmain', () => {
+< 				engineStarting = true;
+< 				showBusyStage('starting_engine');
+< 			});
+< 			window.addEventListener('godot-webgpu-first-frame', () => {
+< 				firstFramePresented = true;
+< 			});
+< 			window.addEventListener('godot-webgpu-shader-compile', (event) => {
+< 				shaderCompileCount = event.detail.misses;
+< 				lastShaderCompileTime = performance.now();
+< 				showBusyStage('compiling_shaders', ` (${shaderCompileCount})`);
+< 			});
+< 		}
+---
+> 		// The startup, run at once or when the start screen's button is pressed.
+> 		function startEngine() {
+> 			setStatusMode('progress');
+> 			// Show WebGPU initialization status if applicable.
+> 			if (GODOT_RENDERING_DRIVER === 'webgpu') {
+> 				showStage('initializing_webgpu');
+> 			}
+664,675c669,736
+< 		function waitForWebGPUReady() {
+< 			return new Promise((resolve) => {
+< 				const QUIET_PERIOD_MS = 800;
+< 				const SAFETY_TIMEOUT_MS = 30000;
+< 				const startTime = performance.now();
+< 				function check() {
+< 					const now = performance.now();
+< 					const quiet = lastShaderCompileTime === 0 || (now - lastShaderCompileTime) > QUIET_PERIOD_MS;
+< 					const timedOut = (now - startTime) > SAFETY_TIMEOUT_MS;
+< 					if ((firstFramePresented && quiet) || timedOut) {
+< 						resolve();
+< 						return;
+---
+> 			// IMPORTANT (found the hard way): on WebGPU, the engine's first rendered
+> 			// frame runs *synchronously inside* the WASM callMain() call -- after
+> 			// `engine.startGame()`'s download/init work is done, but before its
+> 			// promise resolves, before control ever returns to JS, and therefore
+> 			// before the browser gets a chance to paint anything. On a cold shader
+> 			// cache this single call can block the main thread for many seconds
+> 			// (SPIR-V -> WGSL conversion for every specialized pipeline variant the
+> 			// first frame needs; see webgpu_notes/TASKS.md §4.21 and Section 10
+> 			// of webgpu_notes/TASKS.md §4.21). No JS-side progress text
+> 			// or event listener can update the screen during that window -- the JS
+> 			// thread that would run them is the same one that's blocked. Two
+> 			// consequences, both handled below:
+> 			//
+> 			// 1. `engine.js`'s start() dispatches 'godot-before-callmain' right
+> 			//    before that call and yields two animation frames first -- we use
+> 			//    that instant (not, e.g., before startGame() is even called, which
+> 			//    would show this notice before the download has even started) to
+> 			//    show a "please wait, this can take a while" notice, so it's
+> 			//    actually painted before the long synchronous call begins. Without
+> 			//    that yield, DOM changes made here would be queued but never
+> 			//    painted until *after* the block -- defeating the point.
+> 			// 2. That notice needs a spinner driven by CSS animation only (see the
+> 			//    #webgpu-spinner rule above), since a compositor-thread animation on
+> 			//    `transform` keeps running even while the main JS thread is blocked
+> 			//    -- it's the only feedback that can actually be seen during the
+> 			//    stall itself, as opposed to before or after it.
+> 			//
+> 			// Separately, later frames (after the first) run one-per-requestAnimationFrame,
+> 			// so the browser *does* get control back between them even if any one of
+> 			// them individually blocks for a while recompiling further shaders --
+> 			// hence still listening for the driver's per-compile signal and waiting
+> 			// for a quiet period below, to keep the notice accurate for that tail.
+> 			let firstFramePresented = false;
+> 			let shaderCompileCount = 0;
+> 			let lastShaderCompileTime = 0;
+> 			// Set once the engine is about to run. The preloader can still report a
+> 			// final progress callback after that point, and it must not pull the
+> 			// text back to the download stage once "Starting engine" is on screen.
+> 			let engineStarting = false;
+> 			if (GODOT_RENDERING_DRIVER === 'webgpu') {
+> 				window.addEventListener('godot-before-callmain', () => {
+> 					engineStarting = true;
+> 					showBusyStage('starting_engine');
+> 				});
+> 				window.addEventListener('godot-webgpu-first-frame', () => {
+> 					firstFramePresented = true;
+> 				});
+> 				window.addEventListener('godot-webgpu-shader-compile', (event) => {
+> 					shaderCompileCount = event.detail.misses;
+> 					lastShaderCompileTime = performance.now();
+> 					showBusyStage('compiling_shaders', ` (${shaderCompileCount})`);
+> 				});
+> 			}
+> 
+> 			function waitForWebGPUReady() {
+> 				return new Promise((resolve) => {
+> 					const QUIET_PERIOD_MS = 800;
+> 					const SAFETY_TIMEOUT_MS = 30000;
+> 					const startTime = performance.now();
+> 					function check() {
+> 						const now = performance.now();
+> 						const quiet = lastShaderCompileTime === 0 || (now - lastShaderCompileTime) > QUIET_PERIOD_MS;
+> 						const timedOut = (now - startTime) > SAFETY_TIMEOUT_MS;
+> 						if ((firstFramePresented && quiet) || timedOut) {
+> 							resolve();
+> 							return;
+> 						}
+> 						requestAnimationFrame(check);
+678,681c739,740
+< 				}
+< 				requestAnimationFrame(check);
+< 			});
+< 		}
+---
+> 				});
+> 			}
+683,697c742,757
+< 		engine.startGame({
+< 			'onProgress': function (current, total) {
+< 				setStatusMode('progress');
+< 				if (current > 0 && total > 0) {
+< 					downloadFraction = current / total;
+< 					downloadIndeterminate = false;
+< 					if (!engineStarting) {
+< 						showStage('downloading', ` ${Math.round(downloadFraction * 100)}%`);
+< 					}
+< 				} else {
+< 					// No usable content-length (chunked or compressed responses, or not
+< 					// every download has started yet) -- see EngineConfig.onProgress.
+< 					downloadIndeterminate = true;
+< 					if (!engineStarting) {
+< 						showStage('downloading');
+---
+> 			engine.startGame({
+> 				'onProgress': function (current, total) {
+> 					setStatusMode('progress');
+> 					if (current > 0 && total > 0) {
+> 						downloadFraction = current / total;
+> 						downloadIndeterminate = false;
+> 						if (!engineStarting) {
+> 							showStage('downloading', ` ${Math.round(downloadFraction * 100)}%`);
+> 						}
+> 					} else {
+> 						// No usable content-length (chunked or compressed responses, or not
+> 						// every download has started yet) -- see EngineConfig.onProgress.
+> 						downloadIndeterminate = true;
+> 						if (!engineStarting) {
+> 							showStage('downloading');
+> 						}
+698a759,766
+> 					updateProgressBar();
+> 				},
+> 				'onStartupProgress': onStartupProgress,
+> 				'onWebGPUDeviceLost': showDeviceLostOverlay,
+> 			}).then(() => {
+> 				if (GODOT_RENDERING_DRIVER !== 'webgpu') {
+> 					setStatusMode('hidden');
+> 					return;
+700,712c768,785
+< 				updateProgressBar();
+< 			},
+< 			'onStartupProgress': onStartupProgress,
+< 			'onWebGPUDeviceLost': showDeviceLostOverlay,
+< 		}).then(() => {
+< 			if (GODOT_RENDERING_DRIVER !== 'webgpu') {
+< 				setStatusMode('hidden');
+< 				return;
+< 			}
+< 			waitForWebGPUReady().then(() => {
+< 				setStatusMode('hidden');
+< 			});
+< 		}, displayFailureNotice);
+---
+> 				waitForWebGPUReady().then(() => {
+> 					setStatusMode('hidden');
+> 				});
+> 			}, displayFailureNotice);
+> 		}
+> 
+> 		// The start screen: wait for the player instead of starting straight away.
+> 		// The button is not focused here: inside an iframe, that would scroll the
+> 		// parent page to the game. A <button> takes Enter and Space once focused.
+> 		if (startButton['enabled']) {
+> 			setStatusMode('start');
+> 			statusStart.addEventListener('click', () => {
+> 				statusStart.disabled = true;
+> 				startEngine();
+> 			}, { once: true });
+> 		} else {
+> 			startEngine();
+> 		}

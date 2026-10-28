@@ -140,6 +140,25 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		fullscreenOnFirstTap: false,
 		/**
+		 * The start screen, from the export preset's ``html/start_button/*`` options. When
+		 * ``enabled``, the default shell opens on the splash with a Start button and runs
+		 * nothing of the engine (no download of the engine, no GPU device, no audio) until
+		 * it is pressed; the press counts as a user gesture inside the page. The engine
+		 * itself does not read this; it is for the HTML shell, default or custom.
+		 *
+		 * Keys: ``enabled`` (boolean), ``text``, ``backgroundColor``, ``hoverColor``,
+		 * ``pressedColor``, ``textColor``, ``borderColor`` (CSS hex colors, ``#rrggbbaa``
+		 * with transparency), ``borderWidth``, ``borderRadius``, ``fontSize``,
+		 * ``paddingHorizontal``, ``paddingVertical`` (CSS pixels) and ``fontFamily`` (a CSS
+		 * ``font-family`` list). ``hoverColor`` and ``pressedColor`` are the background color
+		 * darkened unless the preset sets its own.
+		 *
+		 * @memberof EngineConfig
+		 * @type {?Object}
+		 * @default
+		 */
+		startButton: null,
+		/**
 		 * When enabled, this will turn on experimental virtual keyboard support on mobile.
 		 *
 		 * @memberof EngineConfig
@@ -419,6 +438,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.experimentalVK = parse('experimentalVK', this.experimentalVK);
 		this.focusCanvas = parse('focusCanvas', this.focusCanvas);
 		this.fullscreenOnFirstTap = parse('fullscreenOnFirstTap', this.fullscreenOnFirstTap);
+		this.startButton = parse('startButton', this.startButton);
 		this.serviceWorker = parse('serviceWorker', this.serviceWorker);
 		this.gdextensionLibs = parse('gdextensionLibs', this.gdextensionLibs);
 		this.renderingDriver = parse('renderingDriver', this.renderingDriver);

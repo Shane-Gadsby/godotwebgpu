@@ -48,6 +48,45 @@
 			The screen orientation the exported project runs in on phones and tablets. [b]Project Setting[/b] follows [member ProjectSettings.display/window/handheld/orientation]; any other value overrides that setting in the exported project. The progressive web app manifest uses the same orientation.
 			Browsers only allow the orientation to be locked while the page is in fullscreen (or runs as an installed progressive web app), so the engine requests the lock again every time the page enters fullscreen: on the first tap with [member html/fullscreen_on_first_tap], or through [method DisplayServer.window_set_mode] called from an input event. Desktop browsers do not lock the orientation, and report [constant DisplayServer.FEATURE_ORIENTATION] as unsupported.
 		</member>
+		<member name="html/start_button/background_color" type="Color" setter="" getter="">
+			The Start button's background color. Unless [member html/start_button/custom_state_colors] is [code]true[/code], the button is drawn 15% darker while the pointer is over it and 30% darker while it is pressed. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/border_color" type="Color" setter="" getter="">
+			The color of the Start button's border. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/border_radius" type="int" setter="" getter="">
+			The radius of the Start button's corners, in CSS pixels. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/border_width" type="int" setter="" getter="">
+			The width of the Start button's border, in CSS pixels. [code]0[/code] draws no border. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/custom_state_colors" type="bool" setter="" getter="">
+			If [code]true[/code], the Start button uses [member html/start_button/hover_color] while the pointer is over it and [member html/start_button/pressed_color] while it is pressed. If [code]false[/code], it uses [member html/start_button/background_color] darkened by 15% and 30%. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/enabled" type="bool" setter="" getter="">
+			If [code]true[/code], the exported page opens on a start screen: the boot splash with a Start button under it. Nothing of the engine runs until the button is pressed: the engine is not downloaded or compiled, and no GPU device or audio context is created. Pressing it runs the usual startup, with the same loading screen. The press counts as a user gesture inside the page, so the game's audio can start without waiting for another click. The button is a real HTML button: it shows a focus ring when reached with [kbd]Tab[/kbd] and is pressed with [kbd]Enter[/kbd] or [kbd]Space[/kbd]. It is not focused when the page loads, since inside an iframe that would scroll the parent page to the game. A browser that lacks a required feature (such as WebGPU) shows the error at once instead of the button. A custom HTML shell receives these settings as [code]startButton[/code] in [code]$GODOT_CONFIG[/code]. Default: [code]false[/code].
+		</member>
+		<member name="html/start_button/font_family" type="String" setter="" getter="">
+			The Start button's font, as a CSS [code]font-family[/code] list. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/font_size" type="int" setter="" getter="">
+			The size of the Start button's text, in CSS pixels. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/hover_color" type="Color" setter="" getter="">
+			The Start button's background color while the pointer is over it. Only used while [member html/start_button/custom_state_colors] is [code]true[/code].
+		</member>
+		<member name="html/start_button/padding" type="Vector2i" setter="" getter="">
+			The space between the Start button's border and its text, in CSS pixels: [code]x[/code] on the left and right, [code]y[/code] above and below. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/pressed_color" type="Color" setter="" getter="">
+			The Start button's background color while it is pressed. Only used while [member html/start_button/custom_state_colors] is [code]true[/code].
+		</member>
+		<member name="html/start_button/text" type="String" setter="" getter="">
+			The text on the Start button. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
+		<member name="html/start_button/text_color" type="Color" setter="" getter="">
+			The color of the Start button's text, also used for its keyboard focus ring. Only used while [member html/start_button/enabled] is [code]true[/code].
+		</member>
 		<member name="loading_screen/compiling_shaders/show_spinner" type="bool" setter="" getter="">
 			If [code]true[/code], the loading screen shows the spinner whenever the WebGPU driver compiles a shader that was not baked at export time; the number of shaders compiled so far is appended. Default: [code]true[/code].
 		</member>
