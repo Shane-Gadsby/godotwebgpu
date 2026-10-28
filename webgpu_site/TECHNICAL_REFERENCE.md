@@ -467,6 +467,24 @@ All bone data consolidated into a single GPU storage buffer:
 | Bokeh DOF, glow's first pass, auto exposure's first reduction and the last-frame copy SSR reads pass the scene color through `finite_or_zero*()` (`effects/finite_inc.glsl`, 2026-10-26) | One NaN pixel no longer becomes a black bokeh shape, a glow blob or a blank frame; the test is on the exponent bits because a compiler may fold `isnan()` / `x != x` (WGSL allows it, NVIDIA did); natively too, a divergence from upstream (`webgpu_notes/TASKS.md` §4.41, §4.44) |
 | Tonemap push constant carries three white-balance cone gains (2026-10-26) | Camera white balance (`webgpu_notes/TASKS.md` §4.42); the Forward+ tonemap block is now exactly 128 bytes, Vulkan's guarantee, with a `static_assert`: nothing more fits |
 
+### 7.5 Dynamic 3D Resolution
+
+Dynamic 3D resolution lives in `RendererViewport` (`servers/rendering/renderer_viewport.cpp`, `_dynamic_scale_*`). It
+runs once per frame, before the viewports draw, from each viewport's `vp_begin`/`vp_end` GPU timestamps (the
+`timestampWrites` readback on WebGPU, `webgpu_notes/TASKS.md` §4.89) or, without `timestamp-query`, the frame interval.
+On WebGPU the frame-time fallback also reads `RDD::get_submit_to_done_latency_usec()`: one `onSubmittedWorkDone` per
+frame, started only once the controller asks, kept in its own in-order FIFO rather than on the frame fence, which is
+resubmitted while its previous callback can still be pending and would pair callbacks with the wrong submits (§3 trap
+106). Each change moves by `scaling_3d_dynamic_step`, and the remembered scale is keyed by viewport path and window
+mode (§4.91, §4.95).
+
+A scale change keeps the temporal state upstream resets (§4.86, §4.94): auto exposure's luminance continues; FSR 2
+sizes its context from `RenderSceneBuffersConfiguration::max_internal_size`, so controller changes never recreate it;
+`RenderSceneBuffersRD::configure()` carries TAA's history and previous velocity and SSIL/SSR's `rb_sslf/last_frame`
+(`_carry_texture()`, by name), which are resampled bilinearly into the new size. Volumetric fog still restarts its
+temporal reprojection. The design and measurements are in `webgpu_notes/work/results/68-dynamic-resolution/DESIGN.md`
+and `results/75-dynamic-resolution-controller/`.
+
 ---
 
 ## 8. Build System

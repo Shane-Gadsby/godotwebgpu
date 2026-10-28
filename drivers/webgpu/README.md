@@ -460,7 +460,13 @@ item is a WebGPU spec limit or has a stated reason.
   has had extensive real-project verification too — see
   `webgpu_notes/TASKS.md` Phase 9.
 - **Timestamp queries** — Optional; depend on the `timestamp-query` device
-  feature. Graceful fallback to dummy results when unavailable.
+  feature, which current Chrome and Firefox offer (Safari untested); without it
+  they read 0. Each timestamp is the end-of-pass write of an empty compute
+  pass; the beginning write goes to a spare query, because emdawnwebgpu cannot
+  omit the index (`webgpu_notes/TASKS.md` §3 trap 105). Results come back
+  through a ring of 4 `MAP_READ` buffers per frame slot, never waited for, so
+  `viewport_get_measured_render_time_gpu()`, the Visual Profiler and dynamic
+  resolution see values a few frames old on the web (§4.89).
 - **Synchronous readback** — Not available in WebGPU. Timestamp and buffer
   readbacks use async callbacks with shadow buffers.
 - **`threads=yes`** — all four `threads` × `dlink_enabled` combinations now
