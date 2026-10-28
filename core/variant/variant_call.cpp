@@ -2402,6 +2402,7 @@ static void _register_variant_builtin_methods_math() {
 	bind_static_method(Color, from_ok_hsl, sarray("h", "s", "l", "alpha"), varray(1.0));
 	bind_static_method(Color, from_rgbe9995, sarray("rgbe"), varray());
 	bind_static_method(Color, from_rgba8, sarray("r8", "g8", "b8", "a8"), varray(255));
+	bind_static_method(Color, from_temperature, sarray("kelvin", "normalization"), varray((int64_t)Color::TEMPERATURE_NORMALIZATION_LUMINANCE));
 }
 
 VARIANT_ENUM_CAST(ResourceDeepDuplicateMode);
@@ -3050,6 +3051,9 @@ static void _register_variant_builtin_constants() {
 	for (int i = 0; i < ncc; i++) {
 		_VariantCall::add_variant_constant(Variant::COLOR, Color::get_named_color_name(i), Color::get_named_color(i));
 	}
+
+	_VariantCall::add_enum_constant(Variant::COLOR, "TemperatureNormalization", "TEMPERATURE_NORMALIZATION_LUMINANCE", Color::TEMPERATURE_NORMALIZATION_LUMINANCE);
+	_VariantCall::add_enum_constant(Variant::COLOR, "TemperatureNormalization", "TEMPERATURE_NORMALIZATION_MAX_CHANNEL", Color::TEMPERATURE_NORMALIZATION_MAX_CHANNEL);
 
 	_VariantCall::add_enum_constant(Variant::VECTOR3, "Axis", "AXIS_X", Vector3::AXIS_X);
 	_VariantCall::add_enum_constant(Variant::VECTOR3, "Axis", "AXIS_Y", Vector3::AXIS_Y);

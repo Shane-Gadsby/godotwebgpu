@@ -1,8 +1,8 @@
 # 64-color-from-temperature: expose the engine's colour-temperature formula to scripts
 
-State: open
+State: ready-for-integration
 Owner: worker-64
-Claimed:
+Claimed: 2026-10-28 20:20
 Needs: build (editor), doctool
 Branch: work/64
 Results: webgpu_notes/work/results/64-color-from-temperature/
@@ -15,7 +15,7 @@ swatches, a "colour of this light" readout.
 ## The problem
 
 The engine has one blackbody approximation (the Krystek uv fit of the Planckian locus), written out three times:
-- `_color_from_temperature()` in `scene/3d/light_3d.cpp` (normalised to its brightest channel, clamped, sRGB-encoded);
+- `_color_from_temperature()` in `scene/3d/light_3d.cpp` (normalized to its brightest channel, clamped, sRGB-encoded);
 - `_white_balance_planckian_uv()` in `servers/rendering/storage/camera_attributes_storage.cpp`;
 - `camera_metering.glsl` (auto white balance).
 
@@ -32,12 +32,12 @@ does. A copy can silently drift if the engine's fit ever changes.
     temperature never changes brightness.
   - `MAX_CHANNEL`: brightest channel 1, matching what `Light3D` uses today with physical light units.
   Linear rather than sRGB-encoded, because it's a light or emission value; document `.linear_to_srgb()` for
-  display. If the engine's API conventions prefer encoded colours for `Color` statics, say so in the docs
+  display. If the engine's API conventions prefer encoded colors for `Color` statics, say so in the docs
   and offer both via a parameter.
 - **One shared implementation** (e.g. a small `Math` / `Color` helper in `core/`) that `light_3d.cpp` and the
   white-balance storage call, so the fit lives in one place. The GLSL copy in `camera_metering.glsl` stays (the
   shader needs it), with a comment pointing at the C++ one. Light output must stay bit-identical.
-- Class docs: the formula's source (Krystek 1985, as used by Filament), the range, both normalisations, and
+- Class docs: the formula's source (Krystek 1985, as used by Filament), the range, both normalizations, and
   that it's the same white `CameraAttributes.white_balance_temperature` balances to.
 
 ## Verification

@@ -41,6 +41,12 @@ struct [[nodiscard]] Color {
 	float b = 0.0f;
 	float a = 1.0f;
 
+	// How from_temperature() scales the color of a blackbody.
+	enum TemperatureNormalization {
+		TEMPERATURE_NORMALIZATION_LUMINANCE, // Rec. 709 luminance 1: the brightness never changes with the temperature.
+		TEMPERATURE_NORMALIZATION_MAX_CHANNEL, // Brightest channel 1: Light3D's normalization with physical light units.
+	};
+
 	uint32_t to_rgba32() const;
 	uint32_t to_argb32() const;
 	uint32_t to_abgr32() const;
@@ -224,6 +230,7 @@ struct [[nodiscard]] Color {
 	static Color from_ok_hsv(float p_h, float p_s, float p_l, float p_alpha = 1.0f);
 	static Color from_rgbe9995(uint32_t p_rgbe);
 	static Color from_rgba8(int64_t p_r8, int64_t p_g8, int64_t p_b8, int64_t p_a8 = 255);
+	static Color from_temperature(float p_kelvin, TemperatureNormalization p_normalization = TEMPERATURE_NORMALIZATION_LUMINANCE);
 
 	constexpr bool operator<(const Color &p_color) const; // Used in set keys.
 	explicit operator String() const;
