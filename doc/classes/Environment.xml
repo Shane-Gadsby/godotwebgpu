@@ -294,7 +294,7 @@
 			Tints the shadows toward this color with a soft-light blend, more strongly the darker the pixel. Middle gray ([code]Color(0.5, 0.5, 0.5)[/code]) leaves them unchanged.
 		</member>
 		<member name="grading_vibrance" type="float" setter="set_grading_vibrance" getter="get_grading_vibrance" default="0.0">
-			Raises (positive values) or lowers (negative values) the saturation of the least saturated colors the most, leaving strongly saturated colors mostly unchanged, unlike [member adjustment_saturation]. [code]0.0[/code] leaves the image unchanged.
+			Positive values raise the saturation of muted colors the most and leave strongly saturated colors mostly unchanged, unlike [member adjustment_saturation]. Negative values lower the saturation of the most saturated colors the most; [code]-1.0[/code] removes almost all color. [code]0.0[/code] leaves the image unchanged.
 		</member>
 		<member name="lens_flare_chromatic_aberration" type="float" setter="set_lens_flare_chromatic_aberration" getter="get_lens_flare_chromatic_aberration" default="1.0">
 			How much the ghosts' size differs per color, fringing them red and blue; [code]1.0[/code] is a 2% difference.

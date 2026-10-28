@@ -51,7 +51,8 @@
 //  8. Hue and saturation: hue shift and the hue-vs-hue curve rotate the hue (HSV); the hue-vs-sat, sat-vs-sat and
 //     lum-vs-sat curves scale saturation around luma (URP Color Curves, whose curves are neutral at 0.5 as here: hue
 //     offset = (y - 0.5) turns, saturation multiplier = 2 y; every curve reads the color before this step); then
-//     vibrance raises the saturation of the least saturated colors most (the formula of CeeJay.dk's Vibrance.fx, as
+//     vibrance: positive raises the saturation of the least saturated colors most, negative lowers that of the most
+//     saturated colors most (the formula of CeeJay.dk's Vibrance.fx, as
 //     ReShade ships it).
 //  9. Curves: master on every channel, then red, green and blue (URP's YRGB curves; Photoshop/Resolve curves).
 // 10. Clamp to 0..1.
@@ -226,7 +227,8 @@ static Color _grade(const RendererColorGrading::Params &p_params, const ColorGra
 		// Vibrance.fx: mix(luma, color, 1 + vibrance * (1 - sign(vibrance) * saturation)), saturation = max - min.
 		const float l = _luma(c[0], c[1], c[2]);
 		const float saturation = MAX(c[0], MAX(c[1], c[2])) - MIN(c[0], MIN(c[1], c[2]));
-		const float amount = 1.0f + p.vibrance * (1.0f - SIGN(p.vibrance) * saturation);
+		// Clamped at 0: below -0.5 the formula would push the most saturated colors past gray (a hue inversion).
+		const float amount = MAX(1.0f + p.vibrance * (1.0f - SIGN(p.vibrance) * saturation), 0.0f);
 		for (int i = 0; i < 3; i++) {
 			c[i] = l + amount * (c[i] - l);
 		}
