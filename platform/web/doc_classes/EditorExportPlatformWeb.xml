@@ -28,6 +28,17 @@
 			The custom HTML page that wraps the exported web build. If left empty, the default HTML shell is used.
 			For more information, see the [url=$DOCS_URL/tutorials/platform/web/customizing_html5_shell.html]Customizing HTML5 Shell[/url] tutorial.
 		</member>
+		<member name="html/embed_fullscreen/allowed_origins" type="String" setter="" getter="">
+			The origins of the pages allowed to drive [member html/embed_fullscreen/enabled], separated by commas, for example [code]https://lms.example.edu, https://site.example.com[/code]: scheme, host and port, with no path. Messages from a parent page on any other origin are ignored. Leave it empty to accept any page that embeds the game. Only used while [member html/embed_fullscreen/enabled] is [code]true[/code].
+		</member>
+		<member name="html/embed_fullscreen/enabled" type="bool" setter="" getter="">
+			If [code]true[/code], a page that embeds the game in an [code]&lt;iframe&gt;[/code], including one on another origin, can put it in fullscreen with its own button, and the game sees a normal [constant DisplayServer.WINDOW_MODE_FULLSCREEN] at the screen's full resolution. A click in the parent page does not count as user activation inside a cross-origin iframe, so that page cannot put the game's canvas in fullscreen; it fullscreens the iframe instead and tells the game with [code]postMessage()[/code]:
+			- parent to game, [code]{type: 'godot:fullscreen', on: true}[/code] (or [code]false[/code]): sent on every [code]fullscreenchange[/code] in the parent, and in answer to [code]godot:ready[/code];
+			- game to parent, [code]{type: 'godot:ready'}[/code]: the engine has started and listens, so a fullscreen entered on the start screen or while loading is picked up;
+			- game to parent, [code]{type: 'godot:exit-fullscreen'}[/code]: [method DisplayServer.window_set_mode] was called with [constant DisplayServer.WINDOW_MODE_WINDOWED] while the parent holds the fullscreen. The mode changes once the parent reports that it left;
+			- game to parent, [code]{type: 'godot:request-fullscreen'}[/code]: the game asked for fullscreen. If the parent does not answer within a second, the game requests fullscreen for its canvas instead, as without this option.
+			Only messages from the parent window count, and only from [member html/embed_fullscreen/allowed_origins] when it is set. The parent's [code]&lt;iframe&gt;[/code] needs [code]allow="fullscreen"[/code]. The game's own fullscreen keeps working as before. Without this option, no message listener is added. A custom HTML shell receives these settings as [code]embedFullscreen[/code] in [code]$GODOT_CONFIG[/code]. Default: [code]false[/code].
+		</member>
 		<member name="html/experimental_virtual_keyboard" type="bool" setter="" getter="" experimental="">
 			If [code]true[/code], embeds support for a virtual keyboard into the web page, which is shown when necessary on touchscreen devices.
 		</member>

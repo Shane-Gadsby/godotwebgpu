@@ -1,8 +1,8 @@
 # 54-web-embed-fullscreen-messages: fullscreen driven by the embedding page, via postMessage
 
-State: open
+State: ready-for-integration
 Owner: worker-54
-Claimed:
+Claimed: 2026-10-28 14:20
 Needs: build (web template + editor), browser (Playwright, two origins); best **after 52-web-window-set-size-signal**
 Branch: work/54
 Results: webgpu_notes/work/results/54-web-embed-fullscreen-messages/
@@ -54,7 +54,7 @@ carries no data.
 | game → parent | `{type: 'godot:exit-fullscreen'}` | The game asked to leave fullscreen (`window_set_mode(WINDOWED)`) while the parent holds it. |
 | game → parent | `{type: 'godot:request-fullscreen'}` | Optional, see below. |
 
-### Engine behaviour
+### Engine behavior
 
 - **On `{on: true}`**, treat the window as fullscreen:
   - `window_get_mode()` returns `WINDOW_MODE_FULLSCREEN`;
@@ -130,7 +130,7 @@ Two origins: parent on `localhost:8701`, game on `127.0.0.1:8702`. Adapt `test-s
 5. **Security:** a message from another window (e.g. a second iframe, or a popup with `window.opener`) is
    ignored. With `allowed_origins` set, a parent on an unlisted origin is ignored.
 6. **Option off:** no `message` listener is added (check with DevTools `getEventListeners(window)`), and the
-   behaviour is unchanged.
+   behavior is unchanged.
 7. **Game's own fullscreen button inside the iframe** (`allow="fullscreen"`): works as today, with no double
    handling of the parent's echo.
 8. Optional `godot:request-fullscreen` path, in Chrome and Firefox.

@@ -364,11 +364,17 @@ const engine = new Engine(GODOT_CONFIG);
 	}
 
 	window.addEventListener('resize', fitCanvasToViewport);
+	// The engine also changes the canvas's CSS size on its own: DisplayServer.window_set_size(), and
+	// entering or leaving a fullscreen the embedding page holds (html/embed_fullscreen), where the
+	// browser's resize event comes before the engine has resized the canvas. Refit on every change
+	// of the element's own size; the transform set here does not change it, so this cannot loop.
+	if (typeof ResizeObserver === 'function') {
+		new ResizeObserver(fitCanvasToViewport).observe(canvas);
+	}
 
 	// The engine sets canvas.style.width/height asynchronously during startup
 	// (once ProjectSettings' configured resolution is known); poll briefly
-	// until that first happens, then stop -- canvasResizePolicy "Project"
-	// keeps it constant afterward, so only window resizes need re-fitting.
+	// until that first happens, then stop (later changes reach the observer above).
 	const fitPollId = setInterval(() => {
 		if (canvas.style.width) {
 			fitCanvasToViewport();
