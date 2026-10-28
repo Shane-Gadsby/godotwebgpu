@@ -1792,6 +1792,9 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 
 		if (p_use_ssil || p_use_ssr) {
 			ss_effects->allocate_last_frame_buffer(rb, p_use_ssil, p_use_ssr);
+		} else {
+			// A last frame carried over a reconfigure that no effect wants any more.
+			rb->free_carried_textures(RB_SCOPE_SSLF);
 		}
 
 		// GTAO: replaces ASSAO and prepares its own depth, so the shared downsample only runs for ASSAO or SSIL.
