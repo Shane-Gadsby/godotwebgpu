@@ -31,7 +31,8 @@ func _init() -> void:
 		if args.has("white"): env.set("tonemap_custom_white_clip", float(args["white"]))
 	if args.has("twhite"):
 		env.tonemap_white = float(args["twhite"])
-	if args.get("glow", "0") == "1":
+	# scene=ramp with glow=1: glow on at intensity 0, which only forces the Compatibility post pass.
+	if args.get("glow", "0") == "1" and args.get("scene", "ramp") == "ramp":
 		env.glow_enabled = true
 		env.glow_intensity = 0.0
 	var we := WorldEnvironment.new()

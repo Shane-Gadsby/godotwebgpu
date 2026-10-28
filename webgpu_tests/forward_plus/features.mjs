@@ -225,7 +225,7 @@ export const FEATURES = [
   // GTAO (engine addition): the ssao arm's settings with rendering/environment/ssao/method = GTAO.
   { id: 'gtao', cat: 'environment', label: 'GTAO ambient occlusion (ssao method GTAO)', minDelta: 1.39 },
   // Custom tonemapper (engine addition): non-default slope/toe/shoulder/clips against the fixture's Filmic.
-  { id: 'tonemap_custom', cat: 'environment', label: 'Custom tonemapper (toe, shoulder, slope, clips)', minDelta: 1.0 },
+  { id: 'tonemap_custom', cat: 'environment', label: 'Custom tonemapper (toe, shoulder, slope, clips)', minDelta: 9.8 },
 ];
 
 /**

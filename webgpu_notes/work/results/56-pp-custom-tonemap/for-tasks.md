@@ -22,19 +22,35 @@ per channel in linear Rec.709. Model and derivation: `RendererEnvironmentStorage
   12 floats appended to `TonemapData` (scene/sky/post tonemap, `drivers/gles3/shaders/tonemap_custom_inc.glsl`).
   Per viewport (`EnvironmentEffectsBufferRD`, uploaded only on change); `_update_environment_effects()` fills it before
   the render pass, so the Mobile subpass tonemap (which cannot update buffers) reads it with `p_update = false`.
+- Fixed on the way: `drivers/gles3/shaders/effects/SCsub` makes the effects shaders depend on `../*_inc.glsl` (§3 trap below).
 - Forward+ matrix arm `tonemap_custom` (every parameter off its default, against the fixture's Filmic).
-- Verified: <numbers from SUMMARY.md>.
+- Verified (worker): Forward+ curve readback (16x16 chart, 2^-12..2^6, 768 channel samples, 13 parameter cases) within
+  0.64/255 of an independent float64 numpy model (`results/56-pp-custom-tonemap/tools/curve_ref.py`), 0 samples over
+  1/255; web (Chrome, WebGPU, baked export) pixel-identical to native on all 13 chart cases and within 1/255 on lit
+  scenes; existing tonemappers 0 px different from the pre-change editor in 42 renders (5 tonemappers x chart + lit
+  scene, glow on, x 3 renderers, plus Compatibility post-pass cases); Mobile within 1/255 on 97-99.6% of samples (max 5.4,
+  the same harness gives Linear 6.7 and Filmic 5.3: RGB10A2 input quantization); Compatibility's chart readback does
+  not follow any model for any tonemapper (pre-existing, as task 45 found), so it is checked by consistency (post pass
+  vs scene shader within 3/255; lit scene vs Forward+ mean 7.7/255, Filmic 4.7). Matrix arm `tonemap_custom` with
+  `--parity`: delta 29.6, native diff 0.002/0.002. smoke.sh OK (references regenerated: the buffer in the 6 tonemap
+  fragment variants, override 19 in the 2 Mobile ones).
 
 ## §3 trap candidates
 
-- **The gles3 shader includes are tracked by directory.** `drivers/gles3/shaders/SCsub` makes the shaders in that
-  folder depend on `*_inc.glsl` in the same folder only; an include in `effects/` used by `scene.glsl` would not
-  rebuild `scene.glsl.gen.h` when edited. The Custom curve's Compatibility copy therefore lives in
-  `drivers/gles3/shaders/tonemap_custom_inc.glsl`, not under `effects/` as camera-batch.md suggests for post-pass code.
+- **gles3 effects shaders did not depend on the parent folder's includes** (fixed: `drivers/gles3/shaders/effects/SCsub`
+  now adds `../*_inc.glsl`). `post.glsl` includes `../tonemap_inc.glsl`, so after editing `tonemap_inc.glsl` the
+  scene and sky shaders rebuilt but `post.glsl.gen.h` kept the old text: Custom fell through to AgX's branch with
+  Custom's parameters and rendered pure white whenever Compatibility ran its post pass (glow on), while everything
+  without a post pass looked right. A build that "compiled fine" but renders an old shader: check the `.gen.h` dates.
+  For the same reason the Compatibility copy of the curve is `drivers/gles3/shaders/tonemap_custom_inc.glsl`, beside
+  `tonemap_inc.glsl`, not under `effects/`.
 - **A buffer the Mobile subpass tonemap reads must be uploaded before the render pass begins**
   (`_update_environment_effects()` next to `_update_color_grading()`); inside the pass `buffer_update()` is an error.
   The CameraEffects buffer side-steps this by disabling the subpass; an always-on parameter buffer should not.
-- (Only if it bit us during verification: see SUMMARY.md.)
+- **A worker's test script that changes a shared scene setup between the "pre" and "new" renders fakes a regression.**
+  Adding a glow switch for the chart (intensity 0) also turned the lit scene's glow to intensity 0 for the second
+  batch only, and Compatibility "differed" from the pre-change editor by 100k+ px. Re-render both sides with the same
+  script before reading a bit-identical failure as real.
 
 ## Questions for the user
 
