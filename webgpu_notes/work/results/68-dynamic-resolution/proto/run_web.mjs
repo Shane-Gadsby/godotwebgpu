@@ -72,7 +72,7 @@ await page.addInitScript(() => {
 	const ce = GPUDevice.prototype.createCommandEncoder;
 	GPUDevice.prototype.createCommandEncoder = function (...a) {
 		const e = ce.apply(this, a);
-		if (D.qs && this === D.dev && !D.harvesting) {
+		if (D.qs && this === D.dev && !D.own) {
 			const k = D.used++ % D.cap;
 			D.enc.set(e, k);
 			D.meta[k] = { t: 0, gen: D.used };
@@ -97,7 +97,7 @@ await page.addInitScript(() => {
 		const keys = [];
 		for (let k = 0; k < D.cap; k++) { const m = D.meta[k]; if (m && m.t > 0 && !m.h) { m.h = true; keys.push([k, m.t]); } }
 		const rb = D.dev.createBuffer({ size: D.cap * 256, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-		const e = D.dev.createCommandEncoder();
+		D.own = true; const e = D.dev.createCommandEncoder(); D.own = false; // only the harvest's own encoder goes untimed
 		e.copyBufferToBuffer(D.res, 0, rb, 0, D.cap * 256);
 		D.dev.queue.submit([e.finish()]);
 		await rb.mapAsync(GPUMapMode.READ);
@@ -114,10 +114,10 @@ await page.addInitScript(() => {
 		if (n > D.next_harvest) { D.next_harvest = n + 200; harvest(); }
 		cb(t);
 	});
-	// GPU ms per frame over [now-700, now-200] ms (what had time to come back).
+	// GPU ms per frame over [now-1000, now-500] ms (what had time to come back).
 	D.gpu = () => {
 		if (!D.qs) return -1;
-		const n = performance.now(), a = n - 700, b = n - 200;
+		const n = performance.now(), a = n - 1000, b = n - 500; // results lag submit by queue depth + harvest period
 		let s = 0; for (const [t, ms] of D.harvested) if (t >= a && t < b) s += ms;
 		let f = 0; for (const t of D.raf) if (t >= a && t < b) f++;
 		return f ? s / f : -1;

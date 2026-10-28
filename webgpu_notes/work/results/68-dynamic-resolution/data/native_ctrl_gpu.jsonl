@@ -1,0 +1,85 @@
+{"adapter":"NVIDIA GeForce RTX 4080 SUPER","kind":"start","params":{"ae":"0","cpu2":"-1","cpu_ms":"0","dur":"75","gpu":"1","iters":"4000","iters2":"1600","load2_at":"40","mode":"ctrl","target":"60","up":"bilinear"},"renderer":"forward_plus","size":[1920,1080],"t":0.011,"web":false}
+{"done":-1.0,"draw_cpu":0.0,"frame":34.1056666666667,"gpu":0.0,"kind":"ctrl_tick","scale":1.0,"t":0.015}
+{"done":-1.0,"draw_cpu":12.574,"frame":16.9944444444444,"gpu":16.5790004730225,"kind":"ctrl_tick","scale":1.0,"t":1.018}
+{"done":-1.0,"draw_cpu":13.338,"frame":16.6666666666667,"gpu":16.556999206543,"kind":"ctrl_tick","scale":1.0,"t":2.026}
+{"done":-1.0,"draw_cpu":8.036,"frame":16.6666666666667,"gpu":16.8740005493164,"kind":"ctrl_tick","scale":1.0,"t":3.034}
+{"from":1.0,"kind":"ctrl_change","t":3.627,"to":0.95,"why":"gpu 16.9 ms > 16.7"}
+{"done":-1.0,"draw_cpu":12.833,"frame":15.2777777777778,"gpu":15.4230003356934,"kind":"ctrl_tick","scale":0.95,"t":4.041}
+{"from":0.95,"kind":"ctrl_change","t":4.858,"to":0.8,"why":"gpu 20.6 ms > 16.7"}
+{"done":-1.0,"draw_cpu":7.844,"frame":11.6666666666667,"gpu":12.1750001907349,"kind":"ctrl_tick","scale":0.8,"t":5.042}
+{"done":-1.0,"draw_cpu":14.096,"frame":21.0970740740742,"gpu":14.3850002288818,"kind":"ctrl_tick","scale":0.8,"t":6.069}
+{"done":-1.0,"draw_cpu":6.221,"frame":11.8973703703705,"gpu":10.9099998474121,"kind":"ctrl_tick","scale":0.8,"t":7.076}
+{"done":-1.0,"draw_cpu":7.425,"frame":11.9047619047619,"gpu":11.7779998779297,"kind":"ctrl_tick","scale":0.8,"t":8.076}
+{"done":-1.0,"draw_cpu":10.092,"frame":12.1212121212121,"gpu":12.2779998779297,"kind":"ctrl_tick","scale":0.8,"t":9.078}
+{"done":-1.0,"draw_cpu":11.441,"frame":12.1212121212121,"gpu":12.335000038147,"kind":"ctrl_tick","scale":0.8,"t":10.084}
+{"done":-1.0,"draw_cpu":9.907,"frame":12.8064814814817,"gpu":12.3079996109009,"kind":"ctrl_tick","scale":0.8,"t":11.091}
+{"done":-1.0,"draw_cpu":11.073,"frame":12.5,"gpu":12.4750003814697,"kind":"ctrl_tick","scale":0.8,"t":12.099}
+{"done":-1.0,"draw_cpu":11.694,"frame":12.1212121212121,"gpu":11.9779996871948,"kind":"ctrl_tick","scale":0.8,"t":13.104}
+{"done":-1.0,"draw_cpu":11.758,"frame":11.9047619047619,"gpu":11.8889999389648,"kind":"ctrl_tick","scale":0.8,"t":14.109}
+{"done":-1.0,"draw_cpu":8.007,"frame":12.1212121212121,"gpu":11.8959999084473,"kind":"ctrl_tick","scale":0.8,"t":15.114}
+{"done":-1.0,"draw_cpu":0.987,"frame":13.9874545454543,"gpu":12.4280004501343,"kind":"ctrl_tick","scale":0.8,"t":16.125}
+{"done":-1.0,"draw_cpu":14.236,"frame":14.5833333333333,"gpu":14.3599996566772,"kind":"ctrl_tick","scale":0.8,"t":17.139}
+{"done":-1.0,"draw_cpu":9.779,"frame":12.5,"gpu":11.0600004196167,"kind":"ctrl_tick","scale":0.8,"t":18.146}
+{"from":0.8,"kind":"ctrl_change","t":18.217,"to":0.85,"why":"gpu 11.8 ms, room for 0.85"}
+{"done":-1.0,"draw_cpu":11.651,"frame":12.962962962963,"gpu":13.1499996185303,"kind":"ctrl_tick","scale":0.85,"t":19.156}
+{"done":-1.0,"draw_cpu":7.943,"frame":13.3333333333333,"gpu":12.9090003967285,"kind":"ctrl_tick","scale":0.85,"t":20.158}
+{"done":-1.0,"draw_cpu":12.81,"frame":13.6363636363636,"gpu":12.9540004730225,"kind":"ctrl_tick","scale":0.85,"t":21.17}
+{"done":-1.0,"draw_cpu":11.268,"frame":13.3333333333333,"gpu":12.9790000915527,"kind":"ctrl_tick","scale":0.85,"t":22.185}
+{"done":-1.0,"draw_cpu":7.889,"frame":13.6363636363636,"gpu":13.2740001678467,"kind":"ctrl_tick","scale":0.85,"t":23.186}
+{"done":-1.0,"draw_cpu":9.061,"frame":13.6363636363636,"gpu":13.6400003433228,"kind":"ctrl_tick","scale":0.85,"t":24.192}
+{"done":-1.0,"draw_cpu":12.254,"frame":16.6666666666667,"gpu":12.9659996032715,"kind":"ctrl_tick","scale":0.85,"t":25.204}
+{"done":-1.0,"draw_cpu":8.75,"frame":13.3333333333333,"gpu":13.0719995498657,"kind":"ctrl_tick","scale":0.85,"t":26.215}
+{"done":-1.0,"draw_cpu":10.722,"frame":13.6363636363636,"gpu":13.4980001449585,"kind":"ctrl_tick","scale":0.85,"t":27.222}
+{"done":-1.0,"draw_cpu":11.296,"frame":13.6363636363636,"gpu":14.6700000762939,"kind":"ctrl_tick","scale":0.85,"t":28.231}
+{"done":-1.0,"draw_cpu":9.81,"frame":13.3333333333333,"gpu":15.581000328064,"kind":"ctrl_tick","scale":0.85,"t":29.235}
+{"done":-1.0,"draw_cpu":7.112,"frame":16.6666666666667,"gpu":18.0739994049072,"kind":"ctrl_tick","scale":0.85,"t":30.239}
+{"done":-1.0,"draw_cpu":1.761,"frame":16.8176666666667,"gpu":13.4160003662109,"kind":"ctrl_tick","scale":0.85,"t":31.257}
+{"done":-1.0,"draw_cpu":9.363,"frame":13.3333333333333,"gpu":13.1669998168945,"kind":"ctrl_tick","scale":0.85,"t":32.27}
+{"done":-1.0,"draw_cpu":12.723,"frame":12.962962962963,"gpu":13.168999671936,"kind":"ctrl_tick","scale":0.85,"t":33.274}
+{"done":-1.0,"draw_cpu":13.071,"frame":13.6363636363636,"gpu":13.4300003051758,"kind":"ctrl_tick","scale":0.85,"t":34.283}
+{"done":-1.0,"draw_cpu":11.641,"frame":13.8888888888889,"gpu":13.3009996414185,"kind":"ctrl_tick","scale":0.85,"t":35.297}
+{"done":-1.0,"draw_cpu":12.938,"frame":13.202,"gpu":13.0620002746582,"kind":"ctrl_tick","scale":0.85,"t":36.299}
+{"done":-1.0,"draw_cpu":11.64,"frame":13.3333333333333,"gpu":13.039999961853,"kind":"ctrl_tick","scale":0.85,"t":37.302}
+{"done":-1.0,"draw_cpu":12.724,"frame":13.3333333333333,"gpu":13.1029996871948,"kind":"ctrl_tick","scale":0.85,"t":38.307}
+{"done":-1.0,"draw_cpu":12.805,"frame":13.6363636363636,"gpu":13.2779998779297,"kind":"ctrl_tick","scale":0.85,"t":39.316}
+{"cpu_ms":"0","iters":"1600","kind":"load_change","t":40.01}
+{"from":0.85,"kind":"ctrl_change","t":40.285,"to":0.9,"why":"gpu 7.2 ms, room for 0.90"}
+{"done":-1.0,"draw_cpu":5.484,"frame":8.70724242424185,"gpu":4.88500022888184,"kind":"ctrl_tick","scale":0.9,"t":40.317}
+{"from":0.9,"kind":"ctrl_change","t":41.069,"to":0.95,"why":"gpu 7.6 ms, room for 0.95"}
+{"done":-1.0,"draw_cpu":7.723,"frame":8.33333333333333,"gpu":8.14000034332275,"kind":"ctrl_tick","scale":0.95,"t":41.319}
+{"from":0.95,"kind":"ctrl_change","t":41.873,"to":1.0,"why":"gpu 8.1 ms, room for 1.00"}
+{"done":-1.0,"draw_cpu":9.388,"frame":9.09090909090909,"gpu":9.23799991607666,"kind":"ctrl_tick","scale":1.0,"t":42.323}
+{"done":-1.0,"draw_cpu":8.249,"frame":9.25925925925926,"gpu":8.54399967193604,"kind":"ctrl_tick","scale":1.0,"t":43.332}
+{"done":-1.0,"draw_cpu":8.856,"frame":8.33333333333333,"gpu":9.02000045776367,"kind":"ctrl_tick","scale":1.0,"t":44.336}
+{"done":-1.0,"draw_cpu":10.159,"frame":9.09090909090909,"gpu":10.460000038147,"kind":"ctrl_tick","scale":1.0,"t":45.336}
+{"done":-1.0,"draw_cpu":10.528,"frame":9.09090909090909,"gpu":9.4069995880127,"kind":"ctrl_tick","scale":1.0,"t":46.348}
+{"done":-1.0,"draw_cpu":9.326,"frame":9.09090909090909,"gpu":8.97200012207031,"kind":"ctrl_tick","scale":1.0,"t":47.353}
+{"done":-1.0,"draw_cpu":8.76,"frame":10.7356969696963,"gpu":9.27499961853027,"kind":"ctrl_tick","scale":1.0,"t":48.361}
+{"done":-1.0,"draw_cpu":8.783,"frame":9.09090909090909,"gpu":9.06599998474121,"kind":"ctrl_tick","scale":1.0,"t":49.362}
+{"done":-1.0,"draw_cpu":1.378,"frame":9.09090909090909,"gpu":8.55099964141846,"kind":"ctrl_tick","scale":1.0,"t":50.362}
+{"done":-1.0,"draw_cpu":6.868,"frame":8.33333333333333,"gpu":7.75899982452393,"kind":"ctrl_tick","scale":1.0,"t":51.364}
+{"done":-1.0,"draw_cpu":2.554,"frame":9.09090909090909,"gpu":8.57900047302246,"kind":"ctrl_tick","scale":1.0,"t":52.371}
+{"done":-1.0,"draw_cpu":7.497,"frame":9.09090909090909,"gpu":8.55000019073486,"kind":"ctrl_tick","scale":1.0,"t":53.371}
+{"done":-1.0,"draw_cpu":9.329,"frame":9.09090909090909,"gpu":9.72399997711182,"kind":"ctrl_tick","scale":1.0,"t":54.375}
+{"done":-1.0,"draw_cpu":4.685,"frame":8.33333333333333,"gpu":9.37600040435791,"kind":"ctrl_tick","scale":1.0,"t":55.379}
+{"done":-1.0,"draw_cpu":6.41,"frame":9.09090909090909,"gpu":9.0319995880127,"kind":"ctrl_tick","scale":1.0,"t":56.384}
+{"done":-1.0,"draw_cpu":8.371,"frame":9.09090909090909,"gpu":8.67500019073486,"kind":"ctrl_tick","scale":1.0,"t":57.393}
+{"done":-1.0,"draw_cpu":10.321,"frame":10.1180303030303,"gpu":7.11700010299683,"kind":"ctrl_tick","scale":1.0,"t":58.402}
+{"done":-1.0,"draw_cpu":4.833,"frame":7.57114814814892,"gpu":6.21199989318848,"kind":"ctrl_tick","scale":1.0,"t":59.406}
+{"done":-1.0,"draw_cpu":6.338,"frame":8.33333333333333,"gpu":7.96199989318848,"kind":"ctrl_tick","scale":1.0,"t":60.412}
+{"done":-1.0,"draw_cpu":1.962,"frame":9.09090909090909,"gpu":7.13199996948242,"kind":"ctrl_tick","scale":1.0,"t":61.421}
+{"done":-1.0,"draw_cpu":8.329,"frame":8.33333333333333,"gpu":8.95699977874756,"kind":"ctrl_tick","scale":1.0,"t":62.422}
+{"done":-1.0,"draw_cpu":5.467,"frame":8.51930303030387,"gpu":8.63799953460693,"kind":"ctrl_tick","scale":1.0,"t":63.428}
+{"done":-1.0,"draw_cpu":6.847,"frame":8.33333333333333,"gpu":8.62600040435791,"kind":"ctrl_tick","scale":1.0,"t":64.434}
+{"done":-1.0,"draw_cpu":5.027,"frame":8.33333333333333,"gpu":8.65200042724609,"kind":"ctrl_tick","scale":1.0,"t":65.437}
+{"done":-1.0,"draw_cpu":6.954,"frame":8.33333333333333,"gpu":8.82199954986572,"kind":"ctrl_tick","scale":1.0,"t":66.441}
+{"done":-1.0,"draw_cpu":3.708,"frame":9.09090909090909,"gpu":10.1529998779297,"kind":"ctrl_tick","scale":1.0,"t":67.449}
+{"done":-1.0,"draw_cpu":8.267,"frame":9.09090909090909,"gpu":10.4079999923706,"kind":"ctrl_tick","scale":1.0,"t":68.452}
+{"done":-1.0,"draw_cpu":9.172,"frame":9.09090909090909,"gpu":9.52499961853027,"kind":"ctrl_tick","scale":1.0,"t":69.452}
+{"done":-1.0,"draw_cpu":4.986,"frame":9.25925925925926,"gpu":8.96199989318848,"kind":"ctrl_tick","scale":1.0,"t":70.457}
+{"done":-1.0,"draw_cpu":8.544,"frame":9.09090909090909,"gpu":8.74600028991699,"kind":"ctrl_tick","scale":1.0,"t":71.458}
+{"done":-1.0,"draw_cpu":3.914,"frame":9.09090909090909,"gpu":9.45499992370605,"kind":"ctrl_tick","scale":1.0,"t":72.465}
+{"done":-1.0,"draw_cpu":2.184,"frame":8.33333333333333,"gpu":8.6899995803833,"kind":"ctrl_tick","scale":1.0,"t":73.465}
+{"done":-1.0,"draw_cpu":8.29,"frame":8.33333333333333,"gpu":8.52499961853027,"kind":"ctrl_tick","scale":1.0,"t":74.473}
+{"changes":6,"changes_per_min_settled":1.33333333333333,"kind":"ctrl_summary","phases":{"after":{"final_scale":1.0,"frame_med":9.09090909090909,"missed_frac":0.0},"before":{"final_scale":0.85,"frame_med":13.3333333333333,"missed_frac":0.00216998191681736}},"t":75.01}
+{"kind":"done","t":75.01}

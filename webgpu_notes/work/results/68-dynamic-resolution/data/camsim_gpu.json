@@ -1,0 +1,109 @@
+{
+ "adapter": "[drjs] adapter nvidia/lovelace fallback=false maxSampledTexturesPerShaderStage=48 timestamp-query=true encoder.writeTimestamp=function features=depth32float-stencil8,chromium-experimental-subgroup-matrix,rg11b10ufloat-renderable,texture-formats-tier1,bgra8unorm-storage,chromium-experimental-multi-draw-indirect,texture-compression-bc,dual-source-blending,chromium-experimental-sampling-resource-table,core-features-and-limits,chromium-experimental-timestamp-query-inside-passes,float32-filterable,indirect-first-instance,float32-blendable,atomic-vec2u-min-max,subgroup-size-control,texture-compression-unaligned,depth-clip-control,texture-compression-bc-sliced-3d,timestamp-query,texture-formats-tier2,shader-f16,clip-distances,primitive-index,texture-component-swizzle,subgroups",
+ "samples": [
+  {
+   "t": 21907,
+   "gpu": -1,
+   "done": -1,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 24415,
+   "frame_med": 37.375,
+   "frame_p90": 37.375,
+   "gpu": -1,
+   "done": -1,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 26921,
+   "gpu": -1,
+   "done": -1,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 29434,
+   "frame_med": 23.225000001490116,
+   "frame_p90": 35.315000005066395,
+   "gpu": 1.7569564444444448,
+   "done": 65.21500000357628,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 31954,
+   "frame_med": 27.434999994933605,
+   "frame_p90": 42.225000001490116,
+   "gpu": 3.497415111111111,
+   "done": 43.80000000447035,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 34468,
+   "frame_med": 30.019999995827675,
+   "frame_p90": 49.51500000059605,
+   "gpu": 5.781288421052629,
+   "done": 56.10999999940395,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 36998,
+   "frame_med": 28.025000005960464,
+   "frame_p90": 41.91499999910593,
+   "gpu": 3.5616914285714283,
+   "done": 49.13499999791384,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 39510,
+   "frame_med": 15.640000000596046,
+   "frame_p90": 39.49000000208616,
+   "gpu": 3.813641481481482,
+   "done": 32.50999999791384,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 42039,
+   "frame_med": 21.399999998509884,
+   "frame_p90": 37.80000000447035,
+   "gpu": 3.4084571428571424,
+   "done": 42.17499999701977,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 44546,
+   "frame_med": 17.890000000596046,
+   "frame_p90": 28.125,
+   "gpu": 4.020435862068967,
+   "done": 25.030000001192093,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 47070,
+   "frame_med": 12.009999997913837,
+   "frame_p90": 20.945000000298023,
+   "gpu": 2.428503414634146,
+   "done": 31.859999999403954,
+   "cw": 1656,
+   "ch": 968
+  },
+  {
+   "t": 49595,
+   "frame_med": 23.67500000447035,
+   "frame_p90": 43.20500000566244,
+   "gpu": 3.185593379310345,
+   "done": 34.00500000268221,
+   "cw": 1656,
+   "ch": 968
+  }
+ ]
+}
