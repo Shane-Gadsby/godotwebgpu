@@ -1,8 +1,8 @@
 # 73-webgpu-gpu-time
 
-State: open
+State: ready-for-integration
 Owner: worker-73
-Claimed:
+Claimed: 2026-10-28
 Needs: build, browser
 Branch: work/73
 Results: webgpu_notes/work/results/73-webgpu-gpu-time/
