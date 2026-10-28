@@ -92,12 +92,18 @@ private:
 		BOKEH_PHYSICAL_SIZE = 1 << 12, // CameraAttributesPhysical.dof_physical_blur_size (bokeh_physical_size_resolve()).
 	};
 
+	// The Circle shape's and custom apertures' physical-DOF reach, in percent of the image height (user, 2026-10-29).
+	static constexpr float PHYSICAL_CIRCLE_MAX_BLUR_PERCENT = 3.0f;
+
 	// Sets the longitudinal chromatic aberration's flag and red/blue blur offsets from the camera attributes.
 	void _setup_longitudinal_ca(RID p_camera_attributes);
 	// CameraAttributesPhysical.dof_physical_blur_size: the lens's blur radius in pixels of p_size, and how far the gather
 	// reaches. Leaves both alone when the camera does not size its blur physically. Returns whether the box and hexagon
 	// gathers are sized to the blur (BOKEH_PHYSICAL_SIZE): false without the thin-lens size or with dof_legacy_gather.
 	static bool _physical_blur_size(RID p_camera_attributes, const Size2i &p_size, float &r_blur_size, float &r_reach);
+	// The circular gather's reach for a camera that sizes its blur physically: _physical_blur_size()'s reach, capped at
+	// PHYSICAL_CIRCLE_MAX_BLUR_PERCENT of p_size's height (the circle's cost grows with the square of its reach).
+	static float _physical_circle_reach(const Size2i &p_size, float p_reach);
 
 	// Fills the push constant's shape fields from the camera attributes; returns whether the bokeh has a custom
 	// shape, which only the circular gather can draw.

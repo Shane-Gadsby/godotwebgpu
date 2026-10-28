@@ -151,10 +151,20 @@ bool BokehDOF::_physical_blur_size(RID p_camera_attributes, const Size2i &p_size
 	// resolution (the default 6% is upstream's fixed 32 pixels at about 540p). Past it the blur is clamped: a bigger
 	// reach keeps the box and hexagon's number of samples (spread wider: coarser for small blurs, and they miss the
 	// texture cache more) but costs the circle and custom apertures its square (WebGPU at 1440p, Circle Medium: 4.0 ms at
-	// 32 pixels, 7.8 ms at 3% = 43, 34.7 ms at 6% = 86).
+	// 32 pixels, 7.8 ms at 3% = 43, 34.7 ms at 6% = 86), so those are capped at 3% (_physical_circle_reach()).
 	const float max_percent = GLOBAL_GET_CACHED(float, "rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size");
 	r_reach = MAX(0.01f * max_percent * float(p_size.height), 1.0f);
 	return true;
+}
+
+float BokehDOF::_physical_circle_reach(const Size2i &p_size, float p_reach) {
+	// The Circle shape and custom apertures (which draw through the circular gather) reach at most 3% of the image
+	// height, a fixed cap rather than a share of the project setting, while Box and Hexagon keep the setting's reach
+	// (6% by default). Their sample count stays the same at any reach, but the circle's grows with its square: at 6%,
+	// Circle Medium costs 34.7 ms at 1440p on WebGPU against 7.8 ms at 3% (TASKS.md §4.90). A fixed cap keeps that cost
+	// where it was whatever the setting (half the setting would grow it again with a larger setting); a setting below
+	// 3% still lowers it. A blur past the cap clamps there, as a larger one clamps at the setting with Box and Hexagon.
+	return MIN(p_reach, MAX(0.01f * PHYSICAL_CIRCLE_MAX_BLUR_PERCENT * float(p_size.height), 1.0f));
 }
 
 void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection, bool p_msaa_resolved_depth) {
@@ -214,6 +224,9 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 	_setup_longitudinal_ca(p_camera_attributes);
 	if (sized_gather) {
 		bokeh.push_constant.shape_flags |= BOKEH_PHYSICAL_SIZE;
+		if (bokeh_shape == RSE::DOF_BOKEH_CIRCLE && dof_near_size < 0.0 && dof_far_size < 0.0) {
+			bokeh.push_constant.blur_size = _physical_circle_reach(p_buffers.base_texture_size, physical_reach);
+		}
 	}
 	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {
 		bokeh.push_constant.blur_far_active = true;
@@ -433,6 +446,9 @@ void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attr
 	_setup_longitudinal_ca(p_camera_attributes);
 	if (sized_gather) {
 		bokeh.push_constant.shape_flags |= BOKEH_PHYSICAL_SIZE;
+		if (bokeh_shape == RSE::DOF_BOKEH_CIRCLE && dof_near_size < 0.0 && dof_far_size < 0.0) {
+			bokeh.push_constant.blur_size = _physical_circle_reach(p_buffers.base_texture_size, physical_reach);
+		}
 	}
 	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {
 		dof_far = true;

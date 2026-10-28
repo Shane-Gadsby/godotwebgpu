@@ -1,8 +1,8 @@
 # 79-dof-circle-reach
 
-State: open
+State: ready-for-integration
 Owner: worker-79
-Claimed:
+Claimed: 2026-10-29 06:55
 Needs: build, gpu, browser
 Branch: work/79
 Results: webgpu_notes/work/results/79-dof-circle-reach/
