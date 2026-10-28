@@ -42,6 +42,7 @@ LightShafts::LightShafts() {
 	Vector<String> modes;
 	modes.push_back("\n#define MODE_MASK\n");
 	modes.push_back("\n#define MODE_MASK_RESOLVED_DEPTH\n");
+	modes.push_back("\n#define MODE_PREFILTER\n");
 	modes.push_back("\n#define MODE_BLUR\n");
 	modes.push_back("\n#define MODE_COMPOSITE\n");
 	shader.initialize(modes);
@@ -88,9 +89,11 @@ void LightShafts::process(Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p
 	if (!p_render_buffers->has_texture(context, SNAME("mask"))) {
 		const uint32_t usage = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT;
 		p_render_buffers->create_texture(context, SNAME("mask"), RD::DATA_FORMAT_R16G16B16A16_SFLOAT, usage, RD::TEXTURE_SAMPLES_1, size);
+		p_render_buffers->create_texture(context, SNAME("prefiltered"), RD::DATA_FORMAT_R16G16B16A16_SFLOAT, usage, RD::TEXTURE_SAMPLES_1, size);
 		p_render_buffers->create_texture(context, SNAME("shafts"), RD::DATA_FORMAT_R16G16B16A16_SFLOAT, usage, RD::TEXTURE_SAMPLES_1, size);
 	}
 	RID mask = p_render_buffers->get_texture_slice(context, SNAME("mask"), p_view, 0);
+	RID prefiltered = p_render_buffers->get_texture_slice(context, SNAME("prefiltered"), p_view, 0);
 	RID shafts = p_render_buffers->get_texture_slice(context, SNAME("shafts"), p_view, 0);
 
 	PushConstant push_constant;
@@ -128,12 +131,12 @@ void LightShafts::process(Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p
 		RD::get_singleton()->draw_list_end();
 	}
 
-	{
-		RID shader_rid = shader.version_get_shader(shader_version, MODE_BLUR);
-		RID fb = FramebufferCacheRD::get_singleton()->get_cache(shafts);
-		RD::Uniform u_mask(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ linear_sampler, mask }));
+	for (const Mode mode : { MODE_PREFILTER, MODE_BLUR }) {
+		RID shader_rid = shader.version_get_shader(shader_version, mode);
+		RID fb = FramebufferCacheRD::get_singleton()->get_cache(mode == MODE_PREFILTER ? prefiltered : shafts);
+		RD::Uniform u_mask(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ linear_sampler, mode == MODE_PREFILTER ? mask : prefiltered }));
 		RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(fb, RD::DRAW_IGNORE_COLOR_0);
-		RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, pipelines[MODE_BLUR].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(fb)));
+		RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, pipelines[mode].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(fb)));
 		RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader_rid, 0, u_mask), 0);
 		RD::get_singleton()->draw_list_set_push_constant(draw_list, &push_constant, sizeof(PushConstant));
 		RD::get_singleton()->draw_list_draw(draw_list, false, 1u, 3u);

@@ -47,9 +47,9 @@ private:
 	GLuint screen_triangle = 0;
 	GLuint screen_triangle_array = 0;
 
-	// Mask, then shafts.
-	GLuint textures[2] = { 0, 0 };
-	GLuint fbos[2] = { 0, 0 };
+	// Mask, prefiltered mask, shafts.
+	GLuint textures[3] = { 0, 0, 0 };
+	GLuint fbos[3] = { 0, 0, 0 };
 	Size2i size;
 	float encode_scale = 1.0;
 

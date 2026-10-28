@@ -6,6 +6,7 @@
 // is in post.glsl (USE_LIGHT_SHAFTS), where the frame is linear again.
 
 mode_mask = #define MODE_MASK
+mode_prefilter = #define MODE_PREFILTER
 mode_blur = #define MODE_BLUR
 
 #[specializations]
@@ -67,14 +68,17 @@ void main() {
 
 #endif
 
-#ifdef MODE_BLUR
+#if defined(MODE_PREFILTER) || defined(MODE_BLUR)
 
+// MODE_PREFILTER reads the mask, MODE_BLUR the prefiltered mask (the RD shader explains both passes).
 uniform sampler2D mask_texture; // texunit:0
 // xy: the sun in uv when z is 1, else the direction toward it; w: aspect (RendererEnvironmentStorage::LightShaftsSun).
 uniform vec4 sun;
 uniform float decay;
 uniform float max_length;
 uniform int sample_count;
+
+#define PREFILTER_SAMPLES 16
 
 float interleaved_gradient_noise(vec2 p_pos) {
 	// Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare" (SIGGRAPH 2014).
@@ -87,36 +91,37 @@ vec3 sample_mask(vec2 p_pos) {
 }
 
 void main() {
-	float aspect = sun.w;
-	vec2 pos = vec2(uv_interp.x * aspect, uv_interp.y);
-	vec2 to_sun;
-	float distance_to_sun;
-	if (sun.z > 0.5) {
-		to_sun = vec2(sun.x * aspect, sun.y) - pos;
-		distance_to_sun = length(to_sun);
-	} else {
-		to_sun = sun.xy;
-		distance_to_sun = 1e10;
-	}
-	if (distance_to_sun < 1e-6) {
+	vec2 pos = vec2(uv_interp.x * sun.w, uv_interp.y);
+	vec2 to_sun = sun.z > 0.5 ? vec2(sun.x * sun.w, sun.y) - pos : sun.xy;
+	float len = length(to_sun);
+	if (len < 1e-6) {
 		frag_color = vec4(sample_mask(pos), 1.0);
 		return;
 	}
-	vec2 dir = to_sun / length(to_sun);
-	float march = min(distance_to_sun, max_length);
-
-	// The weighted mean of the mask along the way to the sun, as the RD shader.
-	float scale = 1.0 - exp(-decay * march);
+	vec2 dir = to_sun / len;
+	float distance_to_sun = sun.z > 0.5 ? len : 1e10;
 	float jitter = interleaved_gradient_noise(gl_FragCoord.xy);
-	float n = float(sample_count);
+	float stride = max_length / float(sample_count);
 	vec3 sum = vec3(0.0);
-	for (int i = 0; i < sample_count; i++) {
-		float v = (float(i) + jitter) / n;
-		float t = -log(1.0 - v * scale) / decay;
+#ifdef MODE_PREFILTER
+	for (int i = 0; i < PREFILTER_SAMPLES; i++) {
+		float t = ((float(i) + jitter) / float(PREFILTER_SAMPLES) - 0.5) * stride;
 		sum += sample_mask(pos + dir * t);
 	}
+	frag_color = vec4(sum / float(PREFILTER_SAMPLES), 1.0);
+#else
+	float march = min(distance_to_sun, max_length);
+	float n = float(sample_count);
+	float weights = 0.0;
+	for (int i = 0; i < sample_count; i++) {
+		float t = (float(i) + jitter) / n * march;
+		float w = exp(-decay * t);
+		sum += sample_mask(pos + dir * t) * w;
+		weights += w;
+	}
 	// The mask is already scaled by encode_scale, and so is this.
-	frag_color = vec4(sum / n, 1.0);
+	frag_color = vec4(sum / weights, 1.0);
+#endif
 }
 
 #endif

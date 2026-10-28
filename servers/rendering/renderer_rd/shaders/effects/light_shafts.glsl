@@ -36,7 +36,8 @@ void main() {
 //
 // Passes, in order, at a quarter of the frame's width and height except the last:
 //   MODE_MASK(_RESOLVED_DEPTH)  sky pixels above the threshold (scene-linear), 4x4 box-filtered.
-//   MODE_BLUR                   S(p): stratified exponential importance sampling, so S is the samples' plain mean.
+//   MODE_PREFILTER              the mask averaged along the line to the sun over one stride of the march.
+//   MODE_BLUR                   S(p): stratified samples of the prefiltered mask, weighted by exp(-decay t).
 //   MODE_COMPOSITE              S upsampled and added to the frame's color (additive blend, so no copy), times
 //                               intensity, tint, the sun's fade and the luminance multiplier.
 
@@ -96,9 +97,13 @@ void main() {
 
 #endif
 
-#ifdef MODE_BLUR
+#if defined(MODE_PREFILTER) || defined(MODE_BLUR)
 
+// MODE_PREFILTER reads the mask, MODE_BLUR the prefiltered mask; both through this binding.
 layout(set = 0, binding = 0) uniform sampler2D mask_texture;
+
+// Samples of the prefilter, over one stride of the march (max_length / sample_count).
+#define PREFILTER_SAMPLES 16
 
 float interleaved_gradient_noise(vec2 p_pos) {
 	// Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare" (SIGGRAPH 2014).
@@ -112,39 +117,51 @@ vec3 sample_mask(vec2 p_pos) {
 	return textureLod(mask_texture, vec2(p_pos.x / params.sun.w, p_pos.y), 0.0).rgb;
 }
 
+// The unit direction from p_pos toward the sun and the distance to it (all frame heights); false on the sun itself.
+bool toward_sun(vec2 p_pos, out vec2 r_dir, out float r_distance) {
+	vec2 to_sun = params.sun.z > 0.5 ? vec2(params.sun.x * params.sun.w, params.sun.y) - p_pos : params.sun.xy;
+	float len = length(to_sun);
+	r_dir = to_sun / max(len, 1e-6);
+	r_distance = params.sun.z > 0.5 ? len : 1e10;
+	return len > 1e-6;
+}
+
 void main() {
-	float aspect = params.sun.w;
-	vec2 pos = vec2(uv_interp.x * aspect, uv_interp.y);
-	vec2 to_sun;
+	vec2 pos = vec2(uv_interp.x * params.sun.w, uv_interp.y);
+	vec2 dir;
 	float distance_to_sun;
-	if (params.sun.z > 0.5) {
-		to_sun = vec2(params.sun.x * aspect, params.sun.y) - pos;
-		distance_to_sun = length(to_sun);
-	} else {
-		to_sun = params.sun.xy;
-		distance_to_sun = 1e10;
-	}
-	if (distance_to_sun < 1e-6) {
+	if (!toward_sun(pos, dir, distance_to_sun)) {
 		frag_color = vec4(sample_mask(pos), 1.0);
 		return;
 	}
-	vec2 dir = to_sun / length(to_sun);
-	float march = min(distance_to_sun, params.max_length);
-
-	// t = -ln(1 - v (1 - exp(-decay L))) / decay has density decay exp(-decay t) / (1 - exp(-decay L)) on [0, L], the
-	// normalized weight itself, so the weighted mean is the plain mean of samples at stratified v. The jitter turns the
-	// banding of a fixed pattern into noise finer than the bilinear upsample.
-	float scale = 1.0 - exp(-params.decay * march);
 	float jitter = interleaved_gradient_noise(gl_FragCoord.xy);
-	float n = float(params.sample_count);
+	float stride = params.max_length / float(params.sample_count);
 	vec3 sum = vec3(0.0);
-	for (uint i = 0u; i < params.sample_count; i++) {
-		float v = (float(i) + jitter) / n;
-		float t = -log(1.0 - v * scale) / params.decay;
+
+#ifdef MODE_PREFILTER
+	// The mask averaged over one stride of the march, centered, along the line to the sun. Every point on that line has
+	// the same direction, so the march below, reading this at stride intervals, integrates the mask over its whole
+	// length: a sun disk smaller than a stride would otherwise be hit by one sample in some pixels and missed in their
+	// neighbors, the noise of a radial blur with few samples. It smooths only along the shafts, never across them.
+	for (int i = 0; i < PREFILTER_SAMPLES; i++) {
+		float t = ((float(i) + jitter) / float(PREFILTER_SAMPLES) - 0.5) * stride;
 		sum += sample_mask(pos + dir * t);
 	}
-	vec3 shaft = sum / n;
-	frag_color = vec4(shaft, 1.0);
+	frag_color = vec4(sum / float(PREFILTER_SAMPLES), 1.0);
+#else
+	// The weighted mean exp(-decay t) of the prefiltered mask over [0, L], at stratified t: L / N apart, never more than
+	// the prefilter's stride, which is max_length / N.
+	float march = min(distance_to_sun, params.max_length);
+	float n = float(params.sample_count);
+	float weights = 0.0;
+	for (uint i = 0u; i < params.sample_count; i++) {
+		float t = (float(i) + jitter) / n * march;
+		float w = exp(-params.decay * t);
+		sum += sample_mask(pos + dir * t) * w;
+		weights += w;
+	}
+	frag_color = vec4(sum / weights, 1.0);
+#endif
 }
 
 #endif

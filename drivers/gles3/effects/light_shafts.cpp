@@ -67,7 +67,7 @@ LightShafts::~LightShafts() {
 }
 
 void LightShafts::_free_buffers() {
-	for (int i = 0; i < 2; i++) {
+	for (int i = 0; i < 3; i++) {
 		if (fbos[i] != 0) {
 			glDeleteFramebuffers(1, &fbos[i]);
 			fbos[i] = 0;
@@ -97,7 +97,7 @@ GLuint LightShafts::process(const Parameters &p_params) {
 		// of the light so values up to 4 fit, as the frame itself with glow.
 		const bool use_float = GLES3::Config::get_singleton()->float_texture_supported;
 		encode_scale = use_float ? 1.0f : 0.25f;
-		for (int i = 0; i < 2; i++) {
+		for (int i = 0; i < 3; i++) {
 			glGenTextures(1, &textures[i]);
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, textures[i]);
@@ -112,7 +112,7 @@ GLuint LightShafts::process(const Parameters &p_params) {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-			GLES3::Utilities::get_singleton()->texture_allocated_data(textures[i], buffer_size.x * buffer_size.y * (use_float ? 8 : 4), i == 0 ? "Light shafts mask" : "Light shafts");
+			GLES3::Utilities::get_singleton()->texture_allocated_data(textures[i], buffer_size.x * buffer_size.y * (use_float ? 8 : 4), i == 0 ? "Light shafts mask" : (i == 1 ? "Light shafts prefiltered" : "Light shafts"));
 
 			glGenFramebuffers(1, &fbos[i]);
 			glBindFramebuffer(GL_FRAMEBUFFER, fbos[i]);
@@ -166,20 +166,21 @@ GLuint LightShafts::process(const Parameters &p_params) {
 		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
-	// Radial blur toward the sun.
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, fbos[1]);
-		if (!shader.version_bind_shader(shader_version, LightShaftsShaderGLES3::MODE_BLUR)) {
+	// Prefilter along the line to the sun, then the march (light_shafts.glsl): mask -> textures[1] -> textures[2].
+	const float *sun = p_params.sun.position;
+	for (int pass = 0; pass < 2; pass++) {
+		const LightShaftsShaderGLES3::ShaderVariant mode = pass == 0 ? LightShaftsShaderGLES3::MODE_PREFILTER : LightShaftsShaderGLES3::MODE_BLUR;
+		glBindFramebuffer(GL_FRAMEBUFFER, fbos[pass + 1]);
+		if (!shader.version_bind_shader(shader_version, mode)) {
 			return 0;
 		}
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, textures[0]);
-		const float *sun = p_params.sun.position;
-		shader.version_set_uniform(LightShaftsShaderGLES3::SUN, sun[0], sun[1], sun[2], sun[3], shader_version, LightShaftsShaderGLES3::MODE_BLUR);
-		shader.version_set_uniform(LightShaftsShaderGLES3::DECAY, decay, shader_version, LightShaftsShaderGLES3::MODE_BLUR);
-		shader.version_set_uniform(LightShaftsShaderGLES3::MAX_LENGTH, LIGHT_SHAFTS_CUTOFF / decay, shader_version, LightShaftsShaderGLES3::MODE_BLUR);
-		shader.version_set_uniform(LightShaftsShaderGLES3::SAMPLE_COUNT, int(MAX(settings.sample_count, 1u)), shader_version, LightShaftsShaderGLES3::MODE_BLUR);
-		shader.version_set_uniform(LightShaftsShaderGLES3::ENCODE_SCALE, encode_scale, shader_version, LightShaftsShaderGLES3::MODE_BLUR);
+		glBindTexture(GL_TEXTURE_2D, textures[pass]);
+		shader.version_set_uniform(LightShaftsShaderGLES3::SUN, sun[0], sun[1], sun[2], sun[3], shader_version, mode);
+		shader.version_set_uniform(LightShaftsShaderGLES3::DECAY, decay, shader_version, mode);
+		shader.version_set_uniform(LightShaftsShaderGLES3::MAX_LENGTH, LIGHT_SHAFTS_CUTOFF / decay, shader_version, mode);
+		shader.version_set_uniform(LightShaftsShaderGLES3::SAMPLE_COUNT, int(MAX(settings.sample_count, 1u)), shader_version, mode);
+		shader.version_set_uniform(LightShaftsShaderGLES3::ENCODE_SCALE, encode_scale, shader_version, mode);
 		_draw_screen_triangle();
 	}
 
@@ -188,7 +189,7 @@ GLuint LightShafts::process(const Parameters &p_params) {
 	glDepthMask(GL_TRUE);
 	glUseProgram(0);
 	glBindFramebuffer(GL_FRAMEBUFFER, GLES3::TextureStorage::system_fbo);
-	return textures[1];
+	return textures[2];
 }
 
 #endif // GLES3_ENABLED

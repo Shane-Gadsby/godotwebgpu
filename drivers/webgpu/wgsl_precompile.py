@@ -629,6 +629,7 @@ SHADER_REGISTRY = [
      GENERAL_DEFINES_NONE, [
         ("mask", "\n#define MODE_MASK\n", [VERT, FRAG]),
         ("mask_resolved_depth", "\n#define MODE_MASK_RESOLVED_DEPTH\n", [VERT, FRAG]),
+        ("prefilter", "\n#define MODE_PREFILTER\n", [VERT, FRAG]),
         ("blur", "\n#define MODE_BLUR\n", [VERT, FRAG]),
         ("composite", "\n#define MODE_COMPOSITE\n", [VERT, FRAG]),
     ]),

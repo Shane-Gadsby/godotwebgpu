@@ -630,8 +630,13 @@ void RendererEnvironmentStorage::environment_set_light_shafts_quality(RSE::Envir
  * to its weight. decay is an extinction coefficient (Beer-Lambert) on the way from the pixel toward the sun, so 1 / decay
  * is how far, in frame heights, the shafts reach from the bright sky: past a disk of radius r at distance D, S falls as
  * M (exp(-decay (D - r)) - exp(-decay D)) / (1 - exp(-decay D)), i.e. as exp(-decay D) far out. The march stops where
- * the weight falls below 1/1000 of its start (L <= ln(1000) / decay). The shader evaluates the mean by importance
- * sampling, which converges to the same value at every sample count; the quality setting only changes the noise.
+ * the weight falls below 1/1000 of its start (L <= ln(1000) / decay).
+ *
+ * The shader takes N stratified samples over [0, L] (the quality setting), each of the mask first averaged along the
+ * same line over one stride, ln(1000) / decay / N, by 16 samples of its own. A sun disk smaller than a stride is then
+ * integrated rather than hit or missed per pixel (which showed as a coarse diagonal pattern of the per-pixel jitter),
+ * at the price of smoothing the shafts lengthwise by that stride; nothing is smoothed across them. The result is the
+ * same at every sample count but for that stride; the quality setting changes the noise and the stride.
  *
  * (A first version added the sun's own mask past the end of the march, exp(-decay L) M(sun), so the weights summed to
  * 1 over an infinite ray. It treated a small bright sun disk as an infinite one: the disk bloomed over the whole frame,
