@@ -996,7 +996,7 @@ uint32_t RendererCameraAttributes::_glare_requested_bits(const CameraAttributes 
 		bits |= GLARE_VEILING;
 	}
 	if (p_environment.diffusion_filter_enabled && p_environment.diffusion_filter_strength > 0.0f) {
-		bits |= GLARE_DIFFUSION | (p_environment.diffusion_filter_black ? GLARE_DIFFUSION_BLACK : 0);
+		bits |= GLARE_DIFFUSION | (p_environment.diffusion_filter_black ? uint32_t(GLARE_DIFFUSION_BLACK) : 0u);
 	}
 	if (p_attributes) {
 		if (p_attributes->starburst_enabled && p_attributes->starburst_strength > 0.0f && p_attributes->aperture_blade_count >= 3 && p_attributes->aperture_blade_curvature < 1.0f) {
