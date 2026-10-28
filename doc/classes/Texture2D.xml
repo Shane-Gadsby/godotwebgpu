@@ -155,7 +155,7 @@
 				Returns an [Image] that is a copy of data from this [Texture2D] (a new [Image] is created each time). [Image]s can be accessed and manipulated directly.
 				[b]Note:[/b] This will return [code]null[/code] if this [Texture2D] is invalid.
 				[b]Note:[/b] This will fetch the texture data from the GPU, which might cause performance problems when overused. Avoid calling [method get_image] every frame, especially on large textures.
-				[b]Note:[/b] On the web, a read from the GPU cannot wait for the data. For a texture whose pixels are on the GPU (a [ViewportTexture], a [Texture2DRD], a [DrawableTexture2D], or an [ImageTexture] in an exported project), the first call returns [code]null[/code], and a later call returns what the previous call copied, a frame or more old. Use [method get_image_async] instead, which calls back once the pixels have arrived and behaves the same on every platform.
+				[b]Note:[/b] On the web, a read from the GPU cannot wait for the data. For a texture whose pixels are on the GPU (a [ViewportTexture], a [Texture2DRD], a [DrawableTexture2D], or an [ImageTexture] in an exported project), the first call returns [code]null[/code], and a later call returns what the previous call copied, a frame or more old. Use [method get_image_async] or [method get_image_awaitable] instead, which wait for the pixels and behave the same on every platform. In a debug build, the first [code]null[/code] for each texture prints a warning saying so; release builds stay silent.
 			</description>
 		</method>
 		<method name="get_image_async" qualifiers="const">
@@ -170,16 +170,22 @@
 						if image:
 							image.save_png("user://screenshot.png"))
 				[/codeblock]
-				To [code]await[/code] the image, have the callback emit a signal:
-				[codeblock]
-				signal image_read(image: Image)
-
-				func capture() -&gt; Image:
-					get_viewport().get_texture().get_image_async(image_read.emit)
-					return await image_read
-				[/codeblock]
-				[b]Note:[/b] Every function awaiting [code]image_read[/code] resumes on its next emission, so with this pattern keep one request per signal in flight at a time.
+				To [code]await[/code] the image instead, use [method get_image_awaitable].
 				[b]Note:[/b] The copy is made when a frame is drawn. If nothing is drawn (for example, the window is minimized while [member OS.low_processor_usage_mode] is enabled), the callback waits for the next frame that is.
+			</description>
+		</method>
+		<method name="get_image_awaitable" qualifiers="const">
+			<return type="Signal" />
+			<description>
+				The awaitable form of [method get_image_async]: starts the same read and returns a [Signal] that is emitted once with its result, an [Image] of the pixels or [code]null[/code] (same cases, same timing, same order). [code]await[/code] it in the same function:
+				[codeblock]
+				func save_screenshot():
+					var image: Image = await get_viewport().get_texture().get_image_awaitable()
+					if image:
+						image.save_png("user://screenshot.png")
+				[/codeblock]
+				Each call makes its own request with its own signal, so any number of reads can be awaited at once, from any number of functions. The request stays alive until it has been emitted; nothing needs to keep a reference to it.
+				[b]Note:[/b] Await the returned signal right away. The signal is emitted on a later frame and only once: a function that starts awaiting it after that never resumes.
 			</description>
 		</method>
 		<method name="get_mipmap_count" qualifiers="const">

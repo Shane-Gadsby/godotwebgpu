@@ -1990,6 +1990,16 @@ Ref<Image> TextureStorage::texture_2d_get(RID p_texture) const {
 		// On WebGPU, readback is async — empty data signals "not ready yet."
 		// Return null without an error; caller should retry next frame.
 		// texture_2d_get_async() is the readback that waits for the data instead.
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+		// A project tested natively gets null here on the web with nothing in the console to say why (work task 71).
+		// Warn once per texture, and only when the read could have worked: a texture RenderingDevice refused (freed,
+		// no copy-from usage) already printed its own error, so it is not "not back yet".
+		if (!tex->warned_sync_readback_pending && RD::get_singleton()->texture_is_valid(tex->rd_texture) && (RD::get_singleton()->texture_get_format(tex->rd_texture).usage_bits & RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT)) {
+			tex->warned_sync_readback_pending = true;
+			const String what = tex->is_render_target ? vformat("render target %dx%d", tex->width, tex->height) : (tex->path.is_empty() ? vformat("texture %dx%d", tex->width, tex->height) : vformat("texture '%s'", tex->path));
+			WARN_PRINT(vformat("Texture2D.get_image() / RenderingServer.texture_2d_get() returned null for %s: on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use Texture2D.get_image_async(), \"await texture.get_image_awaitable()\" or RenderingServer.texture_2d_get_async() to wait for them. Shown once per texture, in debug builds only.", what));
+		}
+#endif
 		return Ref<Image>();
 	}
 	Ref<Image> image = _texture_2d_image_from_data(data, tex->width, tex->height, tex->mipmaps > 1, tex->validated_format, tex->format, tex->rd_format);

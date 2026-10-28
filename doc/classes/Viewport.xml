@@ -140,7 +140,7 @@
 				[/csharp]
 				[/codeblocks]
 				[b]Note:[/b] When [member use_hdr_2d] is [code]true[/code] the returned texture will be an HDR image using linear encoding.
-				[b]Note:[/b] On the web, [method Texture2D.get_image] cannot wait for the GPU, and returns [code]null[/code] on its first call. [method Texture2D.get_image_async] behaves the same on every platform, and, called from [method Node._ready] or any other point of a frame, calls back with what that frame rendered, with no need to await [signal RenderingServer.frame_post_draw].
+				[b]Note:[/b] On the web, [method Texture2D.get_image] cannot wait for the GPU, and returns [code]null[/code] on its first call. [method Texture2D.get_image_async] (or its awaitable form, [code]await texture.get_image_awaitable()[/code]) behaves the same on every platform, and, called from [method Node._ready] or any other point of a frame, calls back with what that frame rendered, with no need to await [signal RenderingServer.frame_post_draw].
 			</description>
 		</method>
 		<method name="get_viewport_rid" qualifiers="const">

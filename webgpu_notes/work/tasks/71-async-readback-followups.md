@@ -1,6 +1,6 @@
 # 71-async-readback-followups
 
-State: claimed
+State: ready-for-integration
 Owner: worker-71
 Claimed: 2026-10-28 22:06
 Needs: build, browser

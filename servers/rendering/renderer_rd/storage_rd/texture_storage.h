@@ -189,6 +189,10 @@ private:
 
 		Ref<Image> image_cache_2d;
 		String path;
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+		// texture_2d_get() warns once per texture when the web's asynchronous readback has not arrived yet.
+		bool warned_sync_readback_pending = false;
+#endif
 
 		RID proxy_to;
 		Vector<RID> proxies;

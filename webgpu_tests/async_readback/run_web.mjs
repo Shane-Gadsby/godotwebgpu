@@ -6,6 +6,10 @@
 // is asserted before the export loads: Chrome must give nvidia/lovelace, not the fallback adapter, with 48 sampled
 // textures per stage; Firefox must give an adapter at all. Exit 0 when every check passed, 1 when one failed,
 // 3 when the adapter was refused, 4 on a timeout.
+//
+// Also counts the debug-only warning a synchronous get_image() prints when it returns null on the web (task 71): a
+// debug export (the project prints debug=true) must print it exactly once for each of the two textures the project
+// reads synchronously (w96 is 96x7, w333 is 333x7), and a release export never.
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import fs from 'fs';
@@ -86,9 +90,18 @@ try {
 		const page = await browser.newPage();
 		const lines = [];
 		let result = null;
+		let debug = null;
+		const syncWarnings = [];
 		const finished = new Promise((resolve) => {
 			page.on('console', (m) => {
 				const t = m.text();
+				const debugMatch = /^W66 .* debug=(true|false)/.exec(t);
+				if (debugMatch) {
+					debug = debugMatch[1] === 'true';
+				}
+				if (t.includes('returned null for')) {
+					syncWarnings.push({ type: m.type(), text: t.split('\n')[0] });
+				}
 				if (/^W66|ERROR|error/.test(t)) {
 					lines.push(`[${m.type()}] ${t.split('\n')[0]}`);
 				}
@@ -117,6 +130,17 @@ try {
 			}
 			console.log(`${result.passed}/${result.total} passed (${BROWSER})`);
 			code = failed.length ? 1 : 0;
+			// The warning check: once per texture, as console.warn, in debug; never in release.
+			for (const w of syncWarnings) {
+				console.log(`sync readback warning [${w.type}]: ${w.text}`);
+			}
+			const want = debug ? ['render target 333x7', 'render target 96x7'] : [];
+			const got = syncWarnings.map((w) => (/returned null for (render target \d+x\d+)/.exec(w.text) || [])[1] || w.text).sort();
+			const warnOk = debug !== null && JSON.stringify(got) === JSON.stringify(want) && syncWarnings.every((w) => w.type === 'warning');
+			console.log(`sync readback warnings: ${syncWarnings.length} (${debug === null ? 'build kind unknown' : debug ? 'debug, expected one for each of 96x7 and 333x7' : 'release, expected none'}) -> ${warnOk ? 'ok' : 'FAIL'}`);
+			if (!warnOk) {
+				code = 1;
+			}
 		}
 	}
 } finally {

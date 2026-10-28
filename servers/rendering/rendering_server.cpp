@@ -33,6 +33,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/math/geometry_3d.h"
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "core/variant/typed_array.h"
@@ -2258,6 +2259,27 @@ void RenderingServer::get_argument_options(const StringName &p_function, int p_i
 }
 #endif
 
+static void _image_request_complete(const Ref<Image> &p_image, const Ref<RefCounted> &p_request) {
+	p_request->emit_signal(SNAME("completed"), p_image);
+}
+
+Signal RenderingServer::create_image_request(Callable &r_callback) {
+	// A plain RefCounted with a user signal, not a class of its own: scripts only ever see the Signal they await.
+	Ref<RefCounted> request;
+	request.instantiate();
+	request->add_user_signal(MethodInfo("completed", PropertyInfo(Variant::OBJECT, "image", PROPERTY_HINT_RESOURCE_TYPE, "Image")));
+	// The bound Ref is the only reference: the request lives until the read calls back, then goes with the Callable.
+	r_callback = callable_mp_static(&_image_request_complete).bind(request);
+	return Signal(request.ptr(), SNAME("completed"));
+}
+
+Signal RenderingServer::texture_2d_get_awaitable(RID p_texture) {
+	Callable callback;
+	Signal completed = create_image_request(callback);
+	texture_2d_get_async(p_texture, callback);
+	return completed;
+}
+
 void RenderingServer::_bind_methods() {
 	BIND_CONSTANT(RSE::NO_INDEX_ARRAY);
 	BIND_CONSTANT(RSE::ARRAY_WEIGHTS_SIZE);
@@ -2291,6 +2313,7 @@ void RenderingServer::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("texture_2d_get", "texture"), &RenderingServer::texture_2d_get);
 	ClassDB::bind_method(D_METHOD("texture_2d_get_async", "texture", "callback"), &RenderingServer::texture_2d_get_async);
+	ClassDB::bind_method(D_METHOD("texture_2d_get_awaitable", "texture"), &RenderingServer::texture_2d_get_awaitable);
 	ClassDB::bind_method(D_METHOD("texture_2d_layer_get", "texture", "layer"), &RenderingServer::texture_2d_layer_get);
 	ClassDB::bind_method(D_METHOD("texture_3d_get", "texture"), &RenderingServer::_texture_3d_get);
 

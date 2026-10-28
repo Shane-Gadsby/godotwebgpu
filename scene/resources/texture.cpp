@@ -45,6 +45,13 @@ void Texture2D::get_image_async(const Callable &p_callback) const {
 	p_callback.call_deferred(get_image());
 }
 
+Signal Texture2D::get_image_awaitable() const {
+	Callable callback;
+	Signal completed = RenderingServer::create_image_request(callback);
+	get_image_async(callback);
+	return completed;
+}
+
 Image::Format Texture2D::get_format() const {
 	Image::Format ret = Image::FORMAT_MAX;
 	GDVIRTUAL_CALL(_get_format, ret);
@@ -138,6 +145,7 @@ void Texture2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("draw_rect_region", "canvas_item", "rect", "src_rect", "modulate", "transpose", "clip_uv"), &Texture2D::draw_rect_region, DEFVAL(Color(1, 1, 1)), DEFVAL(false), DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("get_image"), &Texture2D::get_image);
 	ClassDB::bind_method(D_METHOD("get_image_async", "callback"), &Texture2D::get_image_async);
+	ClassDB::bind_method(D_METHOD("get_image_awaitable"), &Texture2D::get_image_awaitable);
 	ClassDB::bind_method(D_METHOD("create_placeholder"), &Texture2D::create_placeholder);
 
 	ADD_GROUP("", "");
