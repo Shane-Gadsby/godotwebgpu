@@ -142,9 +142,14 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		/**
 		 * The start screen, from the export preset's ``html/start_button/*`` options. When
 		 * ``enabled``, the default shell opens on the splash with a Start button and runs
-		 * nothing of the engine (no download of the engine, no GPU device, no audio) until
+		 * nothing of the engine (no compile of the engine, no GPU device, no audio) until
 		 * it is pressed; the press counts as a user gesture inside the page. The engine
 		 * itself does not read this; it is for the HTML shell, default or custom.
+		 *
+		 * ``preload`` (boolean): download the game while the button waits, with
+		 * :js:meth:`prefetch <Engine.prototype.prefetch>` (the default shell skips it in the
+		 * browser's Save-Data mode). ``preloadProgress`` (boolean): show that download's
+		 * progress under the button. Both are ``false`` unless ``enabled`` is.
 		 *
 		 * Keys: ``enabled`` (boolean), ``text``, ``backgroundColor``, ``hoverColor``,
 		 * ``pressedColor``, ``textColor``, ``borderColor`` (CSS hex colors, ``#rrggbbaa``

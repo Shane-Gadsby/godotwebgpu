@@ -1,8 +1,8 @@
 # 53-web-preload-before-start: download the game while the start screen waits
 
-State: open
+State: claimed
 Owner: worker-53
-Claimed:
+Claimed: 2026-10-28 13:29
 Needs: build (web template + editor), browser (Playwright), **after 51-web-start-button**
 Branch: work/53
 Results: webgpu_notes/work/results/53-web-preload-before-start/

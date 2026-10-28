@@ -14,6 +14,8 @@ const Engine = (function () {
 	let loadPromise = null;
 	let loadPath = '';
 	let initPromise = null;
+	let prefetchPromise = null;
+	let prefetchFinished = false;
 
 	/**
 	 * @classdesc The ``Engine`` class provides methods for loading and starting exported projects on the Web. For default export
@@ -43,8 +45,19 @@ const Engine = (function () {
 	Engine.load = function (basePath, size) {
 		if (loadPromise == null) {
 			loadPath = basePath;
-			loadPromise = preloader.loadPromise(`${loadPath}.wasm`, size, true);
-			requestAnimationFrame(preloader.animateProgress);
+			const wasm = `${loadPath}.wasm`;
+			const promise = preloader.loadPromise(wasm, size, true);
+			loadPromise = promise;
+			// A download that failed is forgotten, so the next load (a startGame() after a failed
+			// prefetch()) fetches it again, with the usual retries.
+			promise.then(function () {
+				return preloader.bodyLoaded(wasm);
+			}).catch(function () {
+				if (loadPromise === promise) {
+					loadPromise = null;
+				}
+			});
+			preloader.animateProgress();
 		}
 		return loadPromise;
 	};
@@ -132,6 +145,81 @@ const Engine = (function () {
 			},
 
 			/**
+			 * Download the files :js:meth:`startGame <Engine.prototype.startGame>` will need, without
+			 * starting anything: the engine's WebAssembly is fetched but not compiled, and no GPU device
+			 * is created. A later ``startGame`` (on this or another instance) reuses every download,
+			 * finished or still under way, and fetches nothing twice; its ``onProgress`` continues from
+			 * what has already arrived. A file that fails here is fetched again by ``startGame``, with the
+			 * usual retries.
+			 *
+			 * The files are the engine (``<executable>.wasm``), the main pack, the baked shader pack
+			 * (:js:attr:`shaderPack`), the shader extras (:js:attr:`shaderExtras`, at low priority) and
+			 * the one texture pack of :js:attr:`texturePacks` this browser will load, chosen from the
+			 * WebGPU adapter's features (the device the engine creates later enables every compression
+			 * family its adapter has, so the choice is the same).
+			 *
+			 * The default HTML shell calls this while its start screen waits for the player
+			 * (``html/start_button/preload``), except in the browser's Save-Data mode. It must run in
+			 * the game's own page: browsers keep a separate HTTP cache for each site that embeds a page,
+			 * so a parent page fetching the same files would not speed up a cross-origin iframe of the
+			 * game.
+			 *
+			 * Calling it again returns the same promise, and replaces the progress callback (unless the
+			 * prefetch has finished: the callback's last call comes before the promise resolves).
+			 *
+			 * @param {function(number, number)=} onProgress Called with the bytes downloaded so far and
+			 *     the total, as :js:attr:`onProgress` is (a total of 0 means it is unknown).
+			 * @return {Promise<boolean>} Resolves once every download has finished: ``true`` when they
+			 *     all arrived, ``false`` when one failed (``startGame`` then fetches it again). Never
+			 *     rejects.
+			 */
+			prefetch: function (onProgress) {
+				if (!prefetchFinished) {
+					preloader.setPrefetchProgressFunc(onProgress || null);
+				}
+				if (prefetchPromise) {
+					return prefetchPromise;
+				}
+				const config = this.config;
+				const exe = config.executable;
+				const pack = config.mainPack || `${exe}.pck`;
+				const sizes = config.fileSizes;
+				function settle(promise, file) {
+					return promise.then(function () {
+						return true;
+					}, function (err) {
+						// eslint-disable-next-line no-console
+						console.warn(`Godot: prefetching '${file}' failed (${err}); it will be downloaded again when the game starts.`);
+						return false;
+					});
+				}
+				const wasm = `${exe}.wasm`;
+				const pending = [
+					settle(Engine.load(exe, sizes[wasm]).then(function () {
+						return preloader.bodyLoaded(wasm);
+					}), wasm),
+					settle(preloader.fetchFile(pack, sizes[pack]), pack),
+				];
+				if (config.shaderPack) {
+					pending.push(settle(preloader.fetchFile(config.shaderPack, sizes[config.shaderPack]), config.shaderPack));
+				}
+				if (config.shaderExtras) {
+					pending.push(settle(preloader.fetchFile(config.shaderExtras, sizes[config.shaderExtras], true), config.shaderExtras));
+				}
+				if (config.texturePacks) {
+					pending.push(Engine.chooseTexturePack(config.texturePacks, config.renderingDriver).then(function (texturePack) {
+						return texturePack ? settle(preloader.fetchFile(texturePack, sizes[texturePack]), texturePack) : true;
+					}));
+				}
+				prefetchPromise = Promise.all(pending).then(function (results) {
+					prefetchFinished = true;
+					preloader.finishPrefetchProgress();
+					return results.every(Boolean);
+				});
+				return prefetchPromise;
+			},
+
+			/**
 			 * Start the engine instance using the given override configuration (if any).
 			 * :js:meth:`startGame <Engine.prototype.startGame>` can be used in typical cases instead.
 			 *
@@ -201,6 +289,7 @@ const Engine = (function () {
 							me.rtenv['copyToFS'](file.path, file.buffer);
 						}
 						preloader.preloadedFiles.length = 0; // Clear memory
+						preloader.releaseDownloads();
 
 						function callMainAndResolve() {
 							me.rtenv['callMain'](me.config.args);
@@ -326,15 +415,21 @@ const Engine = (function () {
 			 */
 			loadShaderExtras: function (url) {
 				const me = this;
-				// Low priority where the browser supports it, so the extras never compete
-				// with what the game itself is loading.
-				const init = (typeof Request !== 'undefined' && 'priority' in Request.prototype) ? { priority: 'low' } : {};
-				return fetch(url, init).then(function (response) {
-					if (!response.ok) {
-						throw new Error(`HTTP ${response.status}`);
-					}
-					return response.arrayBuffer();
-				}).then(function (buffer) {
+				function download() {
+					// Low priority where the browser supports it, so the extras never compete
+					// with what the game itself is loading.
+					const init = (typeof Request !== 'undefined' && 'priority' in Request.prototype) ? { priority: 'low' } : {};
+					return fetch(url, init).then(function (response) {
+						if (!response.ok) {
+							throw new Error(`HTTP ${response.status}`);
+						}
+						return response.arrayBuffer();
+					});
+				}
+				// A prefetch() may have it already, or under way; if that download fails, fetch it here.
+				const prefetched = preloader.takeDownload(url);
+				const buffered = prefetched ? prefetched.catch(download) : download();
+				return buffered.then(function (buffer) {
 					if (!me.rtenv) {
 						return; // The game quit meanwhile.
 					}
@@ -420,6 +515,7 @@ const Engine = (function () {
 		// Closure compiler exported instance methods.
 		Engine.prototype['init'] = Engine.prototype.init;
 		Engine.prototype['preloadFile'] = Engine.prototype.preloadFile;
+		Engine.prototype['prefetch'] = Engine.prototype.prefetch;
 		Engine.prototype['start'] = Engine.prototype.start;
 		Engine.prototype['startGame'] = Engine.prototype.startGame;
 		Engine.prototype['copyToFS'] = Engine.prototype.copyToFS;
@@ -454,10 +550,14 @@ const Engine = (function () {
 	 * so BC wins when the device samples both. A device that samples neither gets
 	 * BC, which the engine decompresses on the CPU.
 	 *
-	 * @param {?Object} texturePacks ``{bc, etc2_astc}`` file names, from the export.
-	 * @param {?GPUDevice} device The WebGPU device, or null under WebGL.
+	 * Before the engine starts, pass the ``GPUAdapter`` instead: the device the engine creates
+	 * enables every compression family its adapter has, so the choice is the same.
+	 *
+	 * @param {?Object} texturePacks ``{bc, etc2_astc}`` file names, from the export (:js:attr:`texturePacks`).
+	 * @param {?(GPUDevice|GPUAdapter)} device The WebGPU device or adapter, or null under WebGL.
 	 * @return {?string} The pack to fetch, or null when the export has none.
-	 * @ignore
+	 *
+	 * @function Engine.pickTexturePack
 	 */
 	Engine.pickTexturePack = function (texturePacks, device) {
 		if (!texturePacks) {
@@ -488,6 +588,33 @@ const Engine = (function () {
 			return texturePacks['etc2_astc'];
 		}
 		return texturePacks['bc'] || texturePacks['etc2_astc'] || null;
+	};
+
+	/**
+	 * The texture pack this browser will load, chosen before any GPU device exists: from the WebGPU
+	 * adapter (the one ``requestWebGPUDevice`` would use) under WebGPU, from a throwaway WebGL
+	 * context otherwise.
+	 *
+	 * @ignore
+	 * @param {?Object} texturePacks ``{bc, etc2_astc}`` file names, from the export.
+	 * @param {string} renderingDriver ``'webgpu'`` or ``'opengl3'``.
+	 * @return {Promise<?string>} The pack, or null when there is none or no adapter.
+	 */
+	Engine.chooseTexturePack = function (texturePacks, renderingDriver) {
+		if (!texturePacks) {
+			return Promise.resolve(null);
+		}
+		if (renderingDriver !== 'webgpu') {
+			return Promise.resolve(Engine.pickTexturePack(texturePacks, null));
+		}
+		if (typeof navigator === 'undefined' || !navigator.gpu) {
+			return Promise.resolve(null);
+		}
+		return navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).then(function (adapter) {
+			return adapter ? Engine.pickTexturePack(texturePacks, adapter) : null;
+		}, function () {
+			return null;
+		});
 	};
 
 	Engine.requestWebGPUDevice = function (adapterOptions, deviceDescriptor) {
@@ -684,6 +811,7 @@ const Engine = (function () {
 	SafeEngine['load'] = Engine.load;
 	SafeEngine['unload'] = Engine.unload;
 	SafeEngine['requestWebGPUDevice'] = Engine.requestWebGPUDevice;
+	SafeEngine['pickTexturePack'] = Engine.pickTexturePack;
 
 	// Feature-detection utilities.
 	SafeEngine['isWebGLAvailable'] = Features.isWebGLAvailable;
