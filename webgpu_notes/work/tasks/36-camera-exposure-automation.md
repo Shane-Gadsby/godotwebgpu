@@ -1,8 +1,8 @@
 # 36-camera-exposure-automation: auto exposure metering modes, auto white balance
 
-State: open (task 33 integrated at 779120b64e: branch from webgpu-4.8; the CameraEffects UBO and its extension recipe are in results/33-camera-lens-optics/SUMMARY.md and TASKS §4.52)
+State: ready-for-integration
 Owner: worker-36
-Claimed:
+Claimed: 2026-10-28 (worker-36)
 Needs: build, gpu, task 33 (the CameraEffects UBO exposure region)
 Branch: work/36
 Results: webgpu_notes/work/results/36-camera-exposure-automation/

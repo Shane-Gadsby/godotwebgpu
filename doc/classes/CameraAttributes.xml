@@ -16,6 +16,24 @@
 			If [code]true[/code], enables the tonemapping auto exposure mode of the scene renderer. If [code]true[/code], the renderer will automatically determine the exposure setting to adapt to the scene's illumination and the observed light.
 			[b]Note:[/b] Auto-exposure is only supported in the Forward+ rendering method, not Mobile or Compatibility.
 		</member>
+		<member name="auto_exposure_metering_highlight_percentile" type="float" setter="set_auto_exposure_metering_highlight_percentile" getter="get_auto_exposure_metering_highlight_percentile" default="99.0">
+			The percentile of the frame exposed to the clipping point when [member auto_exposure_metering_mode] is [constant METERING_MODE_HIGHLIGHT_WEIGHTED]: [code]99.0[/code] lets the brightest 1% of the pixels (light sources, specular highlights) clip and keeps everything else below it. With the default [member auto_exposure_scale] of [code]0.4[/code], that percentile comes out at [code]1.0[/code] before tonemapping; [member auto_exposure_scale] still works as exposure compensation (doubling it is one stop brighter). The percentile is found in a histogram with 1/8 EV bins.
+		</member>
+		<member name="auto_exposure_metering_mode" type="int" setter="set_auto_exposure_metering_mode" getter="get_auto_exposure_metering_mode" enum="CameraAttributes.MeteringMode" default="0">
+			Where and how auto exposure meters the frame. Every mode measures the brightest channel of each pixel, in linear scene light, and sets the exposure so the metered value comes out at [member auto_exposure_scale]; the modes differ in which pixels count and how much:
+			- [constant METERING_MODE_AVERAGE] (the default) is the frame's average, as before this setting existed.
+			- [constant METERING_MODE_CENTER_WEIGHTED] gives 75% of the weight to a central circle half the frame height across, the rest to the remainder (Nikon's definition: 75% in a 12 mm circle on a 36x24 mm frame). For a subject in the middle of a frame with a bright sky or window around it.
+			- [constant METERING_MODE_SPOT] meters only a small circle, [member auto_exposure_metering_spot_size] percent of the frame, at [member auto_exposure_metering_spot_point].
+			- [constant METERING_MODE_HIGHLIGHT_WEIGHTED] protects the highlights: the [member auto_exposure_metering_highlight_percentile]-th percentile of the frame is exposed to [code]1.0[/code] (at the default [member auto_exposure_scale] of [code]0.4[/code]), so only the brightest few percent may clip, however dark the rest of the frame gets.
+			The adaptation over time, [member auto_exposure_speed], and the sensitivity limits apply to every mode alike. The weights are relative to the frame, so the same scene meters the same at any resolution.
+			[b]Note:[/b] Like auto exposure itself, the modes other than Average are only supported in the Forward+ rendering method (including WebGPU).
+		</member>
+		<member name="auto_exposure_metering_spot_point" type="Vector2" setter="set_auto_exposure_metering_spot_point" getter="get_auto_exposure_metering_spot_point" default="Vector2(0.5, 0.5)">
+			The center of the spot meter's circle, in UV coordinates of the frame ([code]Vector2(0, 0)[/code] is the top-left corner, [code]Vector2(1, 1)[/code] the bottom-right), used when [member auto_exposure_metering_mode] is [constant METERING_MODE_SPOT]. Set it from a script to meter a subject that moves, as a camera's spot meter follows its focus point.
+		</member>
+		<member name="auto_exposure_metering_spot_size" type="float" setter="set_auto_exposure_metering_spot_size" getter="get_auto_exposure_metering_spot_size" default="2.5">
+			The area of the spot meter's circle, in percent of the frame's area, used when [member auto_exposure_metering_mode] is [constant METERING_MODE_SPOT]. The default [code]2.5[/code] is in the range of camera spot meters (about 1.3% to 4%).
+		</member>
 		<member name="auto_exposure_scale" type="float" setter="set_auto_exposure_scale" getter="get_auto_exposure_scale" default="0.4">
 			The scale of the auto exposure effect. Affects the intensity of auto exposure.
 		</member>
@@ -138,6 +156,21 @@
 		<member name="vignetting_strength" type="float" setter="set_vignetting_strength" getter="get_vignetting_strength" default="1.0">
 			With [CameraAttributesPhysical], scales the lens's own vignetting in stops: [code]1.0[/code] is the physical amount, [code]2.0[/code] doubles the darkening in stops, [code]0.0[/code] removes it. With [CameraAttributesPractical], the darkening at the frame's corners in stops.
 		</member>
+		<member name="white_balance_auto" type="bool" setter="set_white_balance_auto" getter="is_white_balance_auto" default="false">
+			If [code]true[/code], the camera estimates the color of the light from the frame and neutralizes it, as a camera's auto white balance does: a gray card under a tungsten lamp comes out gray (R = G = B). The estimate averages the pixels that look gray once corrected (a gray world over near-neutral pixels, ignoring saturated colors and pixels that would clip), is limited to [member white_balance_auto_min_temperature]-[member white_balance_auto_max_temperature] and follows the scene at [member white_balance_auto_speed]. It runs on the GPU every frame, without reading anything back.
+			[member white_balance_temperature] and [member white_balance_tint] still apply on top of it as a bias, in the same way as without auto white balance: at their defaults they change nothing; [code]5000.0[/code] makes the corrected image cooler, as a camera's white balance shift does. When auto white balance is turned on, it starts from the manual setting alone and adapts from there.
+			Like any gray world estimate, a frame dominated by one color (a forest, a sunset) is partly read as a colored light and corrected toward gray; limit the temperature range for such scenes.
+			[b]Note:[/b] Only supported in the Forward+ rendering method (including WebGPU), where it is a compute reduction. In Mobile and Compatibility, only the manual white balance applies.
+		</member>
+		<member name="white_balance_auto_max_temperature" type="float" setter="set_white_balance_auto_max_temperature" getter="get_white_balance_auto_max_temperature" default="10000.0">
+			The highest color temperature, in Kelvin, [member white_balance_auto] accepts as the light's: a cooler estimate (deep shade, blue hour) is corrected only as far as this temperature.
+		</member>
+		<member name="white_balance_auto_min_temperature" type="float" setter="set_white_balance_auto_min_temperature" getter="get_white_balance_auto_min_temperature" default="2500.0">
+			The lowest color temperature, in Kelvin, [member white_balance_auto] accepts as the light's: a warmer estimate is corrected only as far as this temperature, so very warm scenes (candle light, sunsets) keep some of their warmth.
+		</member>
+		<member name="white_balance_auto_speed" type="float" setter="set_white_balance_auto_speed" getter="get_white_balance_auto_speed" default="1.0">
+			How fast [member white_balance_auto] follows a change of light, as the inverse of its time constant in seconds: at [code]1.0[/code] it covers 63% of the way to a new light in one second and 95% in three, at any frame rate.
+		</member>
 		<member name="white_balance_temperature" type="float" setter="set_white_balance_temperature" getter="get_white_balance_temperature" default="6500.0">
 			The color temperature, in Kelvin, of the light the camera is balanced for, from [code]2000.0[/code] to [code]10000.0[/code]. A light of this temperature appears the way a 6500 K light does at the default setting: lower values turn the image blue and make warm (tungsten, candle) lighting look neutral, higher values turn it orange and make cool (overcast, shade) lighting look neutral. At [code]6500.0[/code] with a [member white_balance_tint] of [code]0.0[/code], white balance is skipped entirely and the image is unchanged.
 			The illuminant is taken on the Planckian locus with the same approximation [member Light3D.light_temperature] uses, so a light set to a given temperature renders neutral under a white balance of the same temperature. The adaptation is a von Kries transform in Bradford cone space, applied in linear scene-referred color after exposure and before tonemapping.
@@ -180,6 +213,18 @@
 		</constant>
 		<constant name="LUT_INPUT_MAX" value="7" enum="LUTInput">
 			Represents the size of the [enum LUTInput] enum.
+		</constant>
+		<constant name="METERING_MODE_AVERAGE" value="0" enum="MeteringMode">
+			Meters the average of the whole frame, as auto exposure did before metering modes existed.
+		</constant>
+		<constant name="METERING_MODE_CENTER_WEIGHTED" value="1" enum="MeteringMode">
+			Meters the whole frame with 75% of the weight in a central circle half the frame height across.
+		</constant>
+		<constant name="METERING_MODE_SPOT" value="2" enum="MeteringMode">
+			Meters only a circle of [member auto_exposure_metering_spot_size] percent of the frame at [member auto_exposure_metering_spot_point].
+		</constant>
+		<constant name="METERING_MODE_HIGHLIGHT_WEIGHTED" value="3" enum="MeteringMode">
+			Exposes the [member auto_exposure_metering_highlight_percentile]-th percentile of the frame to the clipping point, so highlights keep their detail.
 		</constant>
 	</constants>
 </class>

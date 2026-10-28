@@ -33,6 +33,7 @@
 #include "servers/rendering/renderer_compositor.h"
 #include "servers/rendering/renderer_rd/effects/bokeh_dof.h"
 #include "servers/rendering/renderer_rd/effects/camera_finish.h"
+#include "servers/rendering/renderer_rd/effects/camera_metering.h"
 #include "servers/rendering/renderer_rd/effects/camera_motion_blur.h"
 #include "servers/rendering/renderer_rd/effects/copy_effects.h"
 #include "servers/rendering/renderer_rd/effects/debug_effects.h"
@@ -64,6 +65,7 @@ protected:
 	RendererRD::ForwardIDStorage *forward_id_storage = nullptr;
 	RendererRD::BokehDOF *bokeh_dof = nullptr;
 	RendererRD::CameraMotionBlur *camera_motion_blur = nullptr; // Created on first use.
+	RendererRD::CameraMetering *camera_metering = nullptr; // Created on first use.
 	RendererRD::CopyEffects *copy_effects = nullptr;
 	RendererRD::DebugEffects *debug_effects = nullptr;
 	RendererRD::Luminance *luminance = nullptr;

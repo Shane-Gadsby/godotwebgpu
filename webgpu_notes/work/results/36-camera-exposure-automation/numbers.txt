@@ -1,0 +1,72 @@
+== Metering, native Forward+ (RTX 4080 SUPER, Vulkan), HDR 2D captures, Linear tonemapper
+1920x1080 average: frame mean 1.027632, original reduction 0.977812
+1280x720 average: frame mean 1.021141, original reduction 1.277501
+res        case      reference lum  measured lum  error EV  exp. gain meas. gain
+1920x1080  avg            0.977812      0.978138   +0.0005     0.4091     0.4089
+1920x1080  center         0.468853      0.469015   +0.0005     0.8531     0.8529
+1920x1080  spot           0.175468      0.175526   +0.0005     2.2796     2.2789
+1920x1080  spotwin        5.911691      5.913656   +0.0005     0.0677     0.0676
+1920x1080  hl99           4.337500      4.342041   +0.0015     0.0922     0.0921
+1920x1080  hl90           1.375781      1.377109   +0.0014     0.2907     0.2905
+1920x1080  hl999         35.600000     36.099305   +0.0201     0.0225     0.0222
+1280x720   avg            1.277501      1.277904   +0.0005     0.3131     0.3130
+1280x720   center         0.466977      0.467137   +0.0005     0.8566     0.8563
+1280x720   spot           0.175462      0.175523   +0.0005     2.2797     2.2789
+1280x720   spotwin        5.911748      5.913715   +0.0005     0.0677     0.0676
+1280x720   hl99           4.334375      4.334626   +0.0001     0.0923     0.0923
+1280x720   hl90           1.378906      1.374106   -0.0050     0.2901     0.2911
+1280x720   hl999         36.025000     35.297615   -0.0294     0.0222     0.0227
+
+== Auto white balance, native Forward+, 1280x720 HDR, 3200 K blackbody light, manual WB 6500 K
+python estimator: 2 iterations, illuminant CCT 3200 K, Duv +0.0000 (light: 3200 K blackbody)
+gray card, AWB off:            r/g 1.9393 b/g 0.3763 |duv| from white 0.05653
+gray card, predicted converged: r/g 1.0000 b/g 1.0002 |duv| 0.00001
+frame    2 t=  0.04s: r/g 1.9175 b/g 0.3809 |duv| 0.05567  vs predicted |duv| 0.05567
+frame    5 t=  0.13s: r/g 1.8189 b/g 0.4045 |duv| 0.05161  vs predicted |duv| 0.05161
+frame   10 t=  0.23s: r/g 1.7050 b/g 0.4364 |duv| 0.04665  vs predicted |duv| 0.04665
+frame   20 t=  0.42s: r/g 1.5562 b/g 0.4888 |duv| 0.03961  vs predicted |duv| 0.03961
+frame   40 t=  0.79s: r/g 1.3610 b/g 0.5874 |duv| 0.02898  vs predicted |duv| 0.02898
+frame   80 t=  1.53s: r/g 1.1617 b/g 0.7543 |duv| 0.01532  vs predicted |duv| 0.01533
+frame  160 t=  3.24s: r/g 1.0278 b/g 0.9460 |duv| 0.00306  vs predicted |duv| 0.00306
+frame  300 t=  5.37s: r/g 1.0000 b/g 1.0002 |duv| 0.00001  vs predicted |duv| 0.00000
+frame  400 t=  7.37s: r/g 1.0000 b/g 1.0002 |duv| 0.00001  vs predicted |duv| 0.00000
+clamp 4000 K: measured r/g 1.3251 b/g 0.6801   predicted r/g 1.3272 b/g 0.6827
+bias 5000 K / tint 20: measured r/g 0.9147 b/g 1.5151   predicted r/g 0.9147 b/g 1.5146
+
+== AWB under a white (1,1,1) light and a 6500 K blackbody (HDR, gray card, speed 3, frame 400)
+white_ref.12 r/g 1.0000 b/g 1.0000 |duv| 0.00000
+white_awb.400 r/g 0.9994 b/g 1.0003 |duv| 0.00003
+d6500_awb.400 r/g 0.9998 b/g 0.9998 |duv| 0.00001
+white light, whole frame AWB on vs off: max |ratio - 1| 0.00098 (RGBA16F quantum ~0.001), median 0.00000
+
+== WebGPU (system Chrome, headed, Vulkan; adapter nvidia/lovelace, maxSampledTexturesPerShaderStage 48, 'WebGPU 1.0 - Forward+') vs native Vulkan Forward+, 1280x720 8-bit
+case            max    mean    px>2  gray card (AWB) native / web
+awb_bias          1  0.0018       0  r/g 0.9139 b/g 1.5140 / r/g 0.9139 b/g 1.5140
+awb_clamp         1  0.0001       0  r/g 1.3246 b/g 0.6801 / r/g 1.3246 b/g 0.6801
+awb_on            1  0.0015       0  r/g 1.0002 b/g 1.0002 / r/g 1.0002 b/g 1.0001
+awb_ref           0  0.0000       0  r/g 1.9383 b/g 0.3763 / r/g 1.9383 b/g 0.3763
+default_ae        1  0.0000       0
+default_prac      1  0.0000       0
+meter_avg         0  0.0000       0
+meter_center      0  0.0000       0
+meter_hl90        0  0.0000       0
+meter_hl99        0  0.0000       0
+meter_ref         0  0.0000       0
+meter_spot        0  0.0000       0
+meter_spotwin     0  0.0000       0
+
+== GPU time per frame (RenderingServer viewport measured GPU time, median of frames 21-400, 1920x1080, AWB room, two runs)
+none         GPUMS median 0.1730
+avg          GPUMS median 0.2140
+center       GPUMS median 0.2170
+spot         GPUMS median 0.2170
+highlight    GPUMS median 0.1950
+awb          GPUMS median 0.2240
+center+awb   GPUMS median 0.2660
+none         GPUMS median 0.1750
+avg          GPUMS median 0.2160
+center       GPUMS median 0.2180
+spot         GPUMS median 0.2180
+highlight    GPUMS median 0.1980
+awb          GPUMS median 0.2260
+center+awb   GPUMS median 0.2680

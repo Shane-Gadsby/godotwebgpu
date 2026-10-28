@@ -55,6 +55,13 @@ public:
 		LUT_INPUT_MAX,
 	};
 
+	enum MeteringMode {
+		METERING_MODE_AVERAGE,
+		METERING_MODE_CENTER_WEIGHTED,
+		METERING_MODE_SPOT,
+		METERING_MODE_HIGHLIGHT_WEIGHTED,
+	};
+
 private:
 	RID camera_attributes;
 
@@ -128,6 +135,18 @@ protected:
 	float chromatic_aberration_strength = 1.0;
 	void _update_chromatic_aberration();
 
+	// Exposure automation: auto exposure metering modes and auto white balance.
+	MeteringMode auto_exposure_metering_mode = METERING_MODE_AVERAGE;
+	float auto_exposure_metering_spot_size = 2.5; // Percent of the frame's area.
+	Vector2 auto_exposure_metering_spot_point = Vector2(0.5, 0.5);
+	float auto_exposure_metering_highlight_percentile = 99.0;
+	void _update_auto_exposure_metering();
+	bool white_balance_auto = false;
+	float white_balance_auto_speed = 1.0;
+	float white_balance_auto_min_temperature = 2500.0; // In Kelvin.
+	float white_balance_auto_max_temperature = 10000.0;
+	void _update_auto_white_balance();
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -148,6 +167,24 @@ public:
 	float get_white_balance_temperature() const;
 	void set_white_balance_tint(float p_tint);
 	float get_white_balance_tint() const;
+
+	void set_auto_exposure_metering_mode(MeteringMode p_mode);
+	MeteringMode get_auto_exposure_metering_mode() const;
+	void set_auto_exposure_metering_spot_size(float p_size);
+	float get_auto_exposure_metering_spot_size() const;
+	void set_auto_exposure_metering_spot_point(const Vector2 &p_point);
+	Vector2 get_auto_exposure_metering_spot_point() const;
+	void set_auto_exposure_metering_highlight_percentile(float p_percentile);
+	float get_auto_exposure_metering_highlight_percentile() const;
+
+	void set_white_balance_auto(bool p_enabled);
+	bool is_white_balance_auto() const;
+	void set_white_balance_auto_speed(float p_speed);
+	float get_white_balance_auto_speed() const;
+	void set_white_balance_auto_min_temperature(float p_temperature);
+	float get_white_balance_auto_min_temperature() const;
+	void set_white_balance_auto_max_temperature(float p_temperature);
+	float get_white_balance_auto_max_temperature() const;
 
 	void set_grain_enabled(bool p_enabled);
 	bool is_grain_enabled() const;
@@ -388,5 +425,6 @@ public:
 };
 
 VARIANT_ENUM_CAST(CameraAttributes::GrainType);
+VARIANT_ENUM_CAST(CameraAttributes::MeteringMode);
 VARIANT_ENUM_CAST(CameraAttributes::LUTInput);
 VARIANT_ENUM_CAST(CameraAttributesPhysical::SensorFormat);

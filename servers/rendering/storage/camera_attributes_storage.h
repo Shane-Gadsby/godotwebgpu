@@ -60,6 +60,9 @@ struct CameraEffectsContext {
 	Size2i source_size; // The texture the pass reads, in pixels: lens resampling works in its texels.
 	Size2i output_size; // The pixels the pass writes.
 	uint64_t frame = 0;
+	// Exposure automation: the renderer ran the auto white balance passes this frame, so the tonemapper can read their
+	// gains. Only Forward+ does (they need compute); elsewhere the manual white balance applies alone.
+	bool auto_white_balance = false;
 };
 
 class RendererCameraAttributes {
@@ -71,6 +74,11 @@ public:
 		LENS_DIFFRACTION = 4,
 		LENS_VIGNETTING_PHYSICAL = 8,
 		LENS_VIGNETTING_PRACTICAL = 16,
+	};
+
+	// Bits of CameraEffectsUBO::header[2]; camera_exposure_inc.glsl has the same values.
+	enum ExposureBits : uint32_t {
+		EXPOSURE_AUTO_WHITE_BALANCE = 1,
 	};
 
 private:
@@ -155,12 +163,25 @@ private:
 		float chromatic_aberration_strength = 1.0;
 		bool diffraction_enabled = false;
 		float diffraction_strength = 1.0;
+
+		// Exposure automation: auto exposure metering modes and auto white balance. Average metering and auto white
+		// balance off are the defaults, which run exactly the code that ran before they existed.
+		RSE::CameraAttributesMeteringMode auto_exposure_metering_mode = RSE::CAMERA_ATTRIBUTES_METERING_AVERAGE;
+		float auto_exposure_metering_spot_size = 2.5; // Percent of the frame's area.
+		Vector2 auto_exposure_metering_spot_point = Vector2(0.5, 0.5); // In UV, (0, 0) the top left.
+		float auto_exposure_metering_highlight_percentile = 99.0; // Percent.
+		bool auto_white_balance_enabled = false;
+		float auto_white_balance_speed = 1.0; // 1 / time constant, in 1/s.
+		float auto_white_balance_min_temperature = 2500.0; // In Kelvin.
+		float auto_white_balance_max_temperature = 10000.0;
+		uint64_t auto_white_balance_version = 0;
 	};
 
 	static uint32_t _lens_requested_bits(const CameraAttributes &p_attributes);
 	static void _fill_effects_lens(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 	static void _fill_effects_glare(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 	static void _fill_effects_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static uint64_t auto_white_balance_counter;
 
 	RSE::DOFBlurQuality dof_blur_quality = RSE::DOF_BLUR_QUALITY_MEDIUM;
 	RSE::DOFBokehShape dof_blur_bokeh_shape = RSE::DOF_BOKEH_HEXAGON;
@@ -304,6 +325,39 @@ public:
 	// The typical corner distortion of a rectilinear lens whose frame corner is at p_tan_corner (tangent of the field
 	// angle), as a relative radial displacement (negative = barrel). See the .cpp for the source.
 	static double lens_typical_corner_distortion(double p_tan_corner);
+
+	/* Exposure automation */
+
+	// Where the auto exposure meter looks, for a frame of the given size (see the .cpp for the model). Average metering
+	// is the original reduction and has no weights; the others are a weighted mean or a percentile of the same
+	// per-pixel value, max(R, G, B).
+	struct AutoExposureMetering {
+		RSE::CameraAttributesMeteringMode mode = RSE::CAMERA_ATTRIBUTES_METERING_AVERAGE;
+		Vector2 center; // Center of the weighted circle, in units of the frame height from the top-left corner.
+		float radius = 0.0; // In units of the frame height.
+		float inner_weight = 1.0; // Weight of a pixel inside the circle,
+		float outer_weight = 1.0; // and outside it.
+		float highlight_percentile = 0.99; // Fraction of the pixels at or below the metered value (highlight mode).
+		float highlight_key = 0.4; // The highlight mode reports percentile * key.
+	};
+
+	struct AutoWhiteBalance {
+		bool enabled = false;
+		float speed = 1.0;
+		float min_temperature = 2500.0;
+		float max_temperature = 10000.0;
+		uint64_t version = 0;
+	};
+
+	void camera_attributes_set_auto_exposure_metering(RID p_camera_attributes, RSE::CameraAttributesMeteringMode p_mode, float p_spot_size, const Vector2 &p_spot_point, float p_highlight_percentile);
+	AutoExposureMetering camera_attributes_get_auto_exposure_metering(RID p_camera_attributes, const Size2i &p_frame_size);
+	void camera_attributes_set_auto_white_balance(RID p_camera_attributes, bool p_enable, float p_speed, float p_min_temperature, float p_max_temperature);
+	AutoWhiteBalance camera_attributes_get_auto_white_balance(RID p_camera_attributes);
+
+	_FORCE_INLINE_ bool camera_attributes_uses_auto_white_balance(RID p_camera_attributes) {
+		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+		return cam_attributes && cam_attributes->auto_white_balance_enabled;
+	}
 
 	/* CameraEffects uniform buffer */
 

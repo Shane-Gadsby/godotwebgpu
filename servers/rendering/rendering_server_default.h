@@ -942,6 +942,10 @@ public:
 	FUNC6(camera_attributes_set_motion_blur, RID, bool, float, float, float, float)
 	FUNC3(camera_attributes_set_rolling_shutter, RID, bool, float)
 
+	/* Exposure automation */
+	FUNC5(camera_attributes_set_auto_exposure_metering, RID, RSE::CameraAttributesMeteringMode, float, const Vector2 &, float)
+	FUNC5(camera_attributes_set_auto_white_balance, RID, bool, float, float, float)
+
 	/* Lens optics */
 	FUNC8(camera_attributes_set_lens, RID, const Vector2 &, float, float, float, float, float, float)
 	FUNC4(camera_attributes_set_vignetting, RID, bool, float, float)

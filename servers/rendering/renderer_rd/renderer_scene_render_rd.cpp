@@ -654,13 +654,53 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		double step = RSG::camera_attributes->camera_attributes_get_auto_exposure_adjust_speed(p_render_data->camera_attributes) * time_step;
 		float auto_exposure_min_sensitivity = RSG::camera_attributes->camera_attributes_get_auto_exposure_min_sensitivity(p_render_data->camera_attributes);
 		float auto_exposure_max_sensitivity = RSG::camera_attributes->camera_attributes_get_auto_exposure_max_sensitivity(p_render_data->camera_attributes);
-		luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate);
+		// Metering modes other than Average are compute reductions of their own (CameraMetering), writing the same
+		// luminance texture; Average, and every mode without storage (Mobile), is the original reduction.
+		const RendererCameraAttributes::AutoExposureMetering metering = RSG::camera_attributes->camera_attributes_get_auto_exposure_metering(p_render_data->camera_attributes, rb->get_internal_size());
+		if (metering.mode != RSE::CAMERA_ATTRIBUTES_METERING_AVERAGE && can_use_storage) {
+			if (!camera_metering) {
+				camera_metering = memnew(RendererRD::CameraMetering);
+			}
+			RendererRD::CameraMetering::ExposureSettings metering_settings;
+			metering_settings.metering = metering;
+			metering_settings.min_luminance = auto_exposure_min_sensitivity;
+			metering_settings.max_luminance = auto_exposure_max_sensitivity;
+			metering_settings.adjust = step;
+			metering_settings.set = set_immediate;
+			camera_metering->meter_exposure(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, camera_metering->get_buffers(rb), metering_settings);
+		} else {
+			luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate);
+		}
 
 		// Swap final reduce with prev luminance.
 
 		auto_exposure_scale = RSG::camera_attributes->camera_attributes_get_auto_exposure_scale(p_render_data->camera_attributes);
 
 		RenderingServerDefault::redraw_request(); // Redraw all the time if auto exposure rendering is on.
+		RD::get_singleton()->draw_command_end_label();
+	}
+
+	// Auto white balance: estimates the illuminant from the same frame auto exposure meters, after it, so it knows
+	// which pixels the tonemapper will clip. Compute, so Forward+ only.
+	RID auto_white_balance_state;
+	if (can_use_effects && can_use_storage && RSG::camera_attributes->camera_attributes_uses_auto_white_balance(p_render_data->camera_attributes)) {
+		RENDER_TIMESTAMP("Auto White Balance");
+		RD::get_singleton()->draw_command_begin_label("Auto White Balance");
+
+		if (!camera_metering) {
+			camera_metering = memnew(RendererRD::CameraMetering);
+		}
+		RendererRD::CameraMetering::WhiteBalanceSettings awb_settings;
+		awb_settings.awb = RSG::camera_attributes->camera_attributes_get_auto_white_balance(p_render_data->camera_attributes);
+		awb_settings.time_step = time_step;
+		awb_settings.exposure = p_render_data->environment.is_valid() ? environment_get_exposure(p_render_data->environment) : 1.0f;
+		awb_settings.luminance_multiplier = rb->get_luminance_multiplier();
+		awb_settings.use_auto_exposure = RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes);
+		awb_settings.auto_exposure_texture = luminance->get_current_luminance_buffer(rb);
+		awb_settings.auto_exposure_scale = auto_exposure_scale;
+		auto_white_balance_state = camera_metering->auto_white_balance(rb->get_internal_texture(), rb->get_internal_size(), camera_metering->get_buffers(rb), awb_settings);
+
+		RenderingServerDefault::redraw_request(); // It adapts over time, as auto exposure does.
 		RD::get_singleton()->draw_command_end_label();
 	}
 
@@ -896,7 +936,9 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			camera_effects_context.source_size = color_size;
 			camera_effects_context.output_size = tonemap.dest_texture_size;
 			camera_effects_context.frame = RSG::rasterizer->get_frame_number();
+			camera_effects_context.auto_white_balance = auto_white_balance_state.is_valid();
 			tonemap.camera_effects_buffer = tone_mapper->get_camera_effects_buffer(rb, p_render_data->camera_attributes, camera_effects_context);
+			tonemap.auto_white_balance_texture = auto_white_balance_state;
 		}
 
 		tonemap.debanding_mode = RendererRD::ToneMapper::TonemapSettings::DebandingMode::DEBANDING_MODE_DISABLED;
@@ -2043,6 +2085,9 @@ RendererSceneRenderRD::~RendererSceneRenderRD() {
 	memdelete(bokeh_dof);
 	if (camera_motion_blur) {
 		memdelete(camera_motion_blur);
+	}
+	if (camera_metering) {
+		memdelete(camera_metering);
 	}
 	memdelete(copy_effects);
 	memdelete(debug_effects);
