@@ -82,6 +82,10 @@ layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 #define ENVIRONMENT_EFFECTS_BINDING 2
 #include "environment_effects_inc.glsl"
 #include "tonemap_custom_inc.glsl"
+// CameraAttributes local exposure: its bilateral grid, beside the exposure it refines.
+#define CAMERA_LOCAL_EXPOSURE_SET 1
+#define CAMERA_LOCAL_EXPOSURE_BINDING 3
+#include "camera_local_exposure_inc.glsl"
 
 #ifdef USE_MULTIVIEW
 #define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, vec3(m_uv, ViewIndex), m_lod).rgb * params.luminance_multiplier)
@@ -970,6 +974,12 @@ void main() {
 			vec2 unused_uv;
 			color.rgb = camera_lens_sample(uv_interp + (fxaa_uv - lens_uv), unused_uv).rgb * exposure * params.luminance_multiplier;
 		}
+	}
+
+	// Local exposure (camera_local_exposure_inc.glsl): each pixel exposed again by its surroundings, right after the
+	// global exposure and FXAA, before glow and glare add light that should keep its own brightness.
+	if ((camera_effects.header.w & CAMERA_LOCAL_EXPOSURE_BILATERAL) != 0u) {
+		color.rgb = camera_local_exposure_apply(color.rgb, lens_uv);
 	}
 
 	if (bool(params.flags & FLAG_USE_GLOW) && params.glow_mode != GLOW_MODE_SOFTLIGHT) {

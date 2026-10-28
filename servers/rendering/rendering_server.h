@@ -781,6 +781,8 @@ public:
 	virtual void camera_attributes_set_halation_high_quality(RID p_camera_attributes, bool p_enable) = 0;
 	virtual void camera_attributes_set_longitudinal_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
 	virtual void camera_attributes_set_panini(RID p_camera_attributes, bool p_enable, float p_distance, float p_vertical_compression) = 0;
+	virtual void camera_attributes_set_local_exposure(RID p_camera_attributes, bool p_enable, float p_highlight_contrast, float p_shadow_contrast, float p_detail_strength, float p_middle_gray_bias) = 0;
+	virtual void camera_attributes_set_local_exposure_blurred_luminance(RID p_camera_attributes, float p_blend, float p_kernel_size) = 0;
 
 	/* SCENARIO API */
 

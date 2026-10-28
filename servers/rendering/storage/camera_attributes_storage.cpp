@@ -1332,6 +1332,7 @@ bool RendererCameraAttributes::camera_attributes_fill_effects_buffer(RID p_camer
 	}
 	_fill_effects_lens(*cam_attributes, p_context, r_ubo);
 	_fill_effects_exposure(*cam_attributes, p_context, r_ubo);
+	_fill_effects_local_exposure(*cam_attributes, p_context, r_ubo);
 	if ((r_ubo.header[0] | r_ubo.header[1] | r_ubo.header[2] | r_ubo.header[3]) == 0) {
 		r_ubo = CameraEffectsUBO(); // The physical lens fills some regions regardless; nothing reads them.
 		return false;
@@ -1423,4 +1424,96 @@ uint32_t RendererCameraAttributes::_fill_effects_panini(const CameraAttributes &
 	r_ubo.lens[7][2] = distance;
 	r_ubo.lens[7][3] = p_attributes.panini_vertical_compression;
 	return LENS_PANINI;
+}
+
+/* Local exposure
+ *
+ * Unreal Engine's Bilateral local exposure ("Auto Exposure in Unreal Engine", Local Exposure settings,
+ * https://dev.epicgames.com/documentation/en-us/unreal-engine/auto-exposure-in-unreal-engine): the frame keeps its
+ * global exposure, and each pixel is then exposed again by how bright its surroundings are, so a bright window and the
+ * dark room around it can both stay readable. In log2 luminance L (Rec. 709 Y of the exposed color, relative to
+ * middle gray 0.18):
+ * - The base layer B is the frame's large-scale brightness, edges kept: a bilateral filter of L, computed with the
+ *   bilateral grid of Chen, Paris and Durand (2007, "Real-time edge-aware image processing with the bilateral grid",
+ *   ACM SIGGRAPH): a 3D grid of LOCAL_EXPOSURE_GRID_ROWS square cells down the frame and LOCAL_EXPOSURE_GRID_DEPTH
+ *   range bins of 1 EV (16 EV either side of middle gray), each cell the sum of L and the count of the pixels that
+ *   fall in it, blurred with a Gaussian of one cell in all three dimensions and sliced trilinearly at each pixel's
+ *   (x, y, L). So the spatial sigma is 1/16 of the frame height and the range sigma 1 EV, the same at every resolution
+ *   (at 1080p a cell is 67.5 pixels; Unreal's grid is 64 pixels). Blended with B by the blurred luminance blend, a
+ *   plain Gaussian blur of L (no edges kept) of the blurred luminance kernel size, the kernel's +-3 sigma extent in
+ *   percent of the frame width (Unreal measures that kernel in percent of the screen too), which smooths the base
+ *   where the grid alone would leave visible bands.
+ * - The pixel's new log luminance is M + (B - M) * c + (L - B) * d, with M middle gray (shifted by the middle gray
+ *   bias, in EV), c the highlight contrast where B > M and the shadow contrast where B < M, and d the detail strength;
+ *   the pixel is multiplied by 2^(new - L), so its color is kept. c = d = 1 leaves the frame unchanged. This is the
+ *   form of Unreal's (highlight contrast, shadow contrast, detail strength, blurred luminance blend, middle gray bias;
+ *   the defaults are a look choice, Unreal's own being 1 = off for the contrasts).
+ * Applied in the tonemap pass right after exposure and FXAA, before glow, glare, vignetting, white balance and grain,
+ * so the metering (auto exposure, auto white balance) sees the frame before it, as in Unreal. Forward+ only: the grid
+ * is built with compute (camera_local_exposure.glsl). Mobile's RGB10A2 buffer clips at 2.0, leaving no highlights to
+ * compress, and Compatibility tonemaps in the scene shader, so there is no pre-tonemap pass to do it in.
+ */
+
+Size2i RendererCameraAttributes::local_exposure_grid_size(const Size2i &p_frame_size) {
+	if (p_frame_size.x <= 0 || p_frame_size.y <= 0) {
+		return Size2i(1, LOCAL_EXPOSURE_GRID_ROWS);
+	}
+	// Cells of frame height / ROWS pixels: ceil(width / cell) columns.
+	const int64_t columns = (int64_t(p_frame_size.x) * LOCAL_EXPOSURE_GRID_ROWS + p_frame_size.y - 1) / p_frame_size.y;
+	return Size2i(MAX(int(columns), 1), LOCAL_EXPOSURE_GRID_ROWS);
+}
+
+void RendererCameraAttributes::camera_attributes_set_local_exposure(RID p_camera_attributes, bool p_enable, float p_highlight_contrast, float p_shadow_contrast, float p_detail_strength, float p_middle_gray_bias) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+#ifdef DEBUG_ENABLED
+	if ((OS::get_singleton()->get_current_rendering_method() == "gl_compatibility" || OS::get_singleton()->get_current_rendering_method() == "mobile") && p_enable) {
+		WARN_PRINT_ONCE_ED("Local exposure is only available when using the Forward+ renderer.");
+	}
+#endif
+	cam_attributes->local_exposure_enabled = p_enable;
+	cam_attributes->local_exposure_highlight_contrast = CLAMP(p_highlight_contrast, 0.0f, 2.0f);
+	cam_attributes->local_exposure_shadow_contrast = CLAMP(p_shadow_contrast, 0.0f, 2.0f);
+	cam_attributes->local_exposure_detail_strength = CLAMP(p_detail_strength, 0.0f, 4.0f);
+	cam_attributes->local_exposure_middle_gray_bias = CLAMP(p_middle_gray_bias, -15.0f, 15.0f);
+}
+
+void RendererCameraAttributes::camera_attributes_set_local_exposure_blurred_luminance(RID p_camera_attributes, float p_blend, float p_kernel_size) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->local_exposure_blurred_luminance_blend = CLAMP(p_blend, 0.0f, 1.0f);
+	cam_attributes->local_exposure_blurred_luminance_kernel_size = CLAMP(p_kernel_size, 1.0f, 100.0f);
+}
+
+RendererCameraAttributes::LocalExposure RendererCameraAttributes::camera_attributes_get_local_exposure(RID p_camera_attributes, const Size2i &p_frame_size) {
+	LocalExposure local_exposure;
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes || p_frame_size.x <= 0 || p_frame_size.y <= 0) {
+		return local_exposure;
+	}
+	local_exposure.enabled = cam_attributes->local_exposure_enabled;
+	local_exposure.grid_size = local_exposure_grid_size(p_frame_size);
+	local_exposure.cell_size = float(p_frame_size.y) / LOCAL_EXPOSURE_GRID_ROWS;
+	// The kernel's +-3 sigma spans kernel_size percent of the frame width.
+	const float sigma_pixels = cam_attributes->local_exposure_blurred_luminance_kernel_size * 0.01f * float(p_frame_size.x) / 6.0f;
+	local_exposure.blurred_luminance_sigma = sigma_pixels / local_exposure.cell_size;
+	return local_exposure;
+}
+
+// header[3] and local_exposure[2] (camera_local_exposure_inc.glsl): set only when the renderer built the grid for
+// this pass.
+void RendererCameraAttributes::_fill_effects_local_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo) {
+	if (!p_context.local_exposure || !p_attributes.local_exposure_enabled || p_context.source_size.x <= 0 || p_context.source_size.y <= 0) {
+		return;
+	}
+	r_ubo.header[3] |= LOCAL_EXPOSURE_BILATERAL;
+	r_ubo.local_exposure[0][0] = p_attributes.local_exposure_highlight_contrast;
+	r_ubo.local_exposure[0][1] = p_attributes.local_exposure_shadow_contrast;
+	r_ubo.local_exposure[0][2] = p_attributes.local_exposure_detail_strength;
+	r_ubo.local_exposure[0][3] = p_attributes.local_exposure_blurred_luminance_blend;
+	const Size2i grid_size = local_exposure_grid_size(p_context.source_size);
+	const float cells_across = float(p_context.source_size.x) * LOCAL_EXPOSURE_GRID_ROWS / float(p_context.source_size.y);
+	r_ubo.local_exposure[1][0] = p_attributes.local_exposure_middle_gray_bias;
+	r_ubo.local_exposure[1][1] = cells_across / float(grid_size.x);
+	r_ubo.local_exposure[1][2] = float(LOCAL_EXPOSURE_GRID_ROWS) / float(grid_size.y);
 }

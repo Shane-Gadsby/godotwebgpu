@@ -226,6 +226,10 @@ export const FEATURES = [
   { id: 'gtao', cat: 'environment', label: 'GTAO ambient occlusion (ssao method GTAO)', minDelta: 1.39 },
   // Custom tonemapper (engine addition): non-default slope/toe/shoulder/clips against the fixture's Filmic.
   { id: 'tonemap_custom', cat: 'environment', label: 'Custom tonemapper (toe, shoulder, slope, clips)', minDelta: 9.8 },
+  // CameraAttributes local exposure (engine addition, work task 57): highlight contrast 0.4, shadow 0.6, the bright
+  // sphere in both frames. Measured 11.39 on WebGPU with --parity (native diff 0.002 off / 0.004 on, so native's delta is
+  // the same), RTX 4080 SUPER, 2026-10-28; floor at a third.
+  { id: 'local_exposure', cat: 'camera', label: 'Local exposure, bilateral grid (CameraAttributes)', minDelta: 3.8 },
 ];
 
 /**

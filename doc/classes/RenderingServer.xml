@@ -235,6 +235,27 @@
 				Sets the lens distortion of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.distortion_enabled], [member CameraAttributes.distortion_automatic], [member CameraAttributes.distortion_k1], [member CameraAttributes.distortion_k2] and [member CameraAttributes.distortion_auto_crop].
 			</description>
 		</method>
+		<method name="camera_attributes_set_local_exposure">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="highlight_contrast" type="float" />
+			<param index="3" name="shadow_contrast" type="float" />
+			<param index="4" name="detail_strength" type="float" />
+			<param index="5" name="middle_gray_bias" type="float" />
+			<description>
+				Sets the local exposure of the camera attributes. The parameters take on the same meaning as [member CameraAttributes.local_exposure_enabled], [member CameraAttributes.local_exposure_highlight_contrast], [member CameraAttributes.local_exposure_shadow_contrast], [member CameraAttributes.local_exposure_detail_strength] and [member CameraAttributes.local_exposure_middle_gray_bias].
+			</description>
+		</method>
+		<method name="camera_attributes_set_local_exposure_blurred_luminance">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="blend" type="float" />
+			<param index="2" name="kernel_size" type="float" />
+			<description>
+				Sets the blurred luminance that local exposure mixes into its base layer. The parameters take on the same meaning as [member CameraAttributes.local_exposure_blurred_luminance_blend] and [member CameraAttributes.local_exposure_blurred_luminance_kernel_size].
+			</description>
+		</method>
 		<method name="camera_attributes_set_longitudinal_chromatic_aberration">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />

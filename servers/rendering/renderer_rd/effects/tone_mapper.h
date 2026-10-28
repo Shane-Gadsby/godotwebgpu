@@ -254,6 +254,7 @@ public:
 		RID environment_effects_buffer; // The EnvironmentEffects uniform buffer; the default all-zero one when invalid.
 		RID glare_texture; // The glare chain (whole mip chain) when glare is on; a black texture when invalid.
 		RID auto_white_balance_texture; // CameraMetering's state (gains in texel 0); read when the buffer says so.
+		RID local_exposure_grid; // CameraLocalExposure's bilateral grid (3D); read when the buffer says so.
 
 		bool use_bcs = false;
 		float brightness = 1.0;
