@@ -331,6 +331,9 @@ class RenderingDeviceDriverWebGPU : public RenderingDeviceDriver {
 	WGPUTextureView _sampled_texture_view(WGUniformSet *p_us, WGTexture *p_tex, WGPUTextureViewDimension p_expected_dim, WGPUTextureSampleType p_expected_sample, const WGShader *p_shader, uint32_t p_set, uint32_t p_glsl_binding);
 	// (shader name, set, binding) of collapsed texture arrays already warned about.
 	HashSet<String> collapsed_array_warnings;
+	// (view format, swizzle) pairs already warned about by _warn_dropped_swizzle().
+	HashSet<uint32_t> dropped_swizzle_warnings;
+	void _warn_dropped_swizzle(DataFormat p_view_format, const TextureView &p_view);
 
 	// Last line of defense before a draw/dispatch: make the bind groups
 	// actually set on the encoder match the pipeline that is about to consume

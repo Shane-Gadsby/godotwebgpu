@@ -3852,7 +3852,16 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		if (rb.is_valid() && rb->has_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH)) {
 			texture = rb->get_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH);
 		} else {
+#ifdef WEBGPU_ENABLED
+			// The shader declares this slot a float texture (the depth copy is
+			// R32_SFLOAT), and a WebGPU float slot cannot take the D16 depth
+			// placeholder: the driver would swap in its blank fallback and log it on
+			// every uniform set. Nothing reads the slot without a depth copy (one is
+			// made for any material that uses DEPTH_TEXTURE), so bind a float default.
+			texture = texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK);
+#else
 			texture = texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_DEPTH : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_DEPTH);
+#endif
 		}
 		u.append_id(texture);
 		uniforms.push_back(u);

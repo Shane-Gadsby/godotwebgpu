@@ -8,6 +8,7 @@
 // _create_module_with_spec_constants() does); it is built with no pipeline constants and must give expectAlt.
 //
 // Usage: node spec_op_check.mjs <probes_dir> <wgsl_dir>
+import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import fs from 'fs';
 import http from 'http';
@@ -15,8 +16,24 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(path.join(here, '..', 'scene_smoketest', 'package.json'));
-const { chromium } = require('playwright');
+// Playwright comes from scene_smoketest's node_modules; a git worktree has none, so fall back to the main checkout's
+// (as validate_wgsl.mjs does).
+function loadPlaywright() {
+	const candidates = [path.join(here, '..', 'scene_smoketest')];
+	try {
+		const common = execFileSync('git', ['-C', here, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim();
+		candidates.push(path.join(path.dirname(common), 'webgpu_tests', 'scene_smoketest'));
+	} catch {
+		// Not a git checkout: only the local copy can work.
+	}
+	for (const dir of candidates) {
+		if (fs.existsSync(path.join(dir, 'node_modules', 'playwright'))) {
+			return createRequire(path.join(dir, 'package.json'))('playwright');
+		}
+	}
+	throw new Error(`playwright not found in ${candidates.join(' or ')}/node_modules (npm ci in webgpu_tests/scene_smoketest)`);
+}
+const { chromium } = loadPlaywright();
 const [probes, wgslDir] = process.argv.slice(2);
 if (!probes || !wgslDir) {
 	console.error('usage: node spec_op_check.mjs <probes_dir> <wgsl_dir>');
@@ -40,6 +57,18 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage();
 await page.goto(`http://127.0.0.1:${server.address().port}/`);
+// A software (fallback) adapter would answer for swiftshader, not the GPU's compiler (§3 trap 43): refuse to run on one.
+const adapterInfo = await page.evaluate(async () => {
+	const a = await navigator.gpu.requestAdapter();
+	return a && { vendor: a.info.vendor, architecture: a.info.architecture, fallback: a.info.isFallbackAdapter, maxSampled: a.limits.maxSampledTexturesPerShaderStage };
+});
+console.log(`adapter: ${JSON.stringify(adapterInfo)}`);
+if (!adapterInfo || adapterInfo.fallback || adapterInfo.maxSampled < 48) {
+	console.error('no hardware WebGPU adapter (null, fallback, or fewer than 48 sampled textures per stage): not running');
+	await browser.close();
+	server.close();
+	process.exit(1);
+}
 
 const run = (code, constants) =>
 	page.evaluate(

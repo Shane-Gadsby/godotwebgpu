@@ -49,12 +49,12 @@ const FEATURES := [
 	"normal_map", "emission", "rim", "clearcoat", "anisotropy",
 	"subsurface_scattering", "backlight", "refraction", "heightmap", "triplanar",
 	"transparency", "alpha_scissor", "alpha_hash", "proximity_fade", "distance_fade",
-	"depth_texture", "mipmap_bias", "texture_array", "shader_builtins", "point_coord",
+	"depth_texture", "mipmap_bias", "texture_array", "image_formats", "shader_builtins", "point_coord",
 	"stencil_outline", "stencil_xray", "bent_normal",
 	"fog_volume", "fog_volume_shader", "lightmap_gi",
 	"multimesh", "skeletal_animation", "blend_shapes", "mesh_lod", "visibility_range", "occlusion_culling",
 	"gpu_particles", "particle_collision", "particle_attractor", "particle_trails",
-	"msaa", "taa", "fxaa", "smaa", "debanding", "scaling_3d", "fsr2",
+	"msaa", "taa", "fxaa", "smaa", "debanding", "scaling_3d", "fsr2", "fsr2_camera_move",
 	"dof_far", "dof_near", "dof_nan", "auto_exposure", "white_balance", "compositor_effect",
 	"glow_nan", "ssr_nan", "auto_exposure_nan",
 	# CameraAttributes / Environment camera effects (engine additions, TASKS.md 4.52-4.55); only the deterministic
@@ -104,6 +104,8 @@ const SETTLE_OVERRIDE := {
 	"reflection_probe": 12,
 	"voxel_gi": 20,
 	"fsr2": 16,
+	# Pans for the whole settle, so FSR2 accumulates real camera motion over the sky.
+	"fsr2_camera_move": 64,
 	# The camera flies 60 m away (scrolling every SDFGI cascade) and back over
 	# 240 frames, then SDFGI settles where it started.
 	"sdfgi_camera_move": 330,
@@ -165,6 +167,10 @@ var tex_ao: ImageTexture
 var probe_mi: MeshInstance3D           # wears mat_probe unless a test swaps in a ShaderMaterial
 var mat_depth: ShaderMaterial
 var mat_array: ShaderMaterial
+# image_formats: the bands shader, and its textures in their own formats (on) and expanded to RGBA8 (off).
+var mat_formats: ShaderMaterial
+var _format_textures: Array[ImageTexture] = []
+var _format_textures_rgba8: Array[ImageTexture] = []
 var mat_builtins: ShaderMaterial
 var mat_points: ShaderMaterial
 
@@ -175,6 +181,10 @@ var _resource_defaults := {}
 # sdfgi_camera_move's flight: frame counter (-1 when not flying) and start.
 var _move_frame := -1
 var _cam_base: Transform3D
+# fsr2_camera_move's pan: the frame it started on (-1 when not panning), around _cam_base. Counted from
+# get_frames_drawn(), not per _process() call: natively the arm is applied before that frame's _process(), on the web
+# from inside it, and a per-call counter put the native camera one step (0.25 degrees) ahead.
+var _pan_start := -1
 
 # Settle frames to use instead of each feature's own (--fp-settle=N natively,
 # the hash's third field on the web), or -1.
@@ -881,6 +891,39 @@ void fragment() {
 	ALBEDO = texture(layers[layer], UV).rgb;
 }
 """)
+	# Image formats that Vulkan and Metal show through a texture view swizzle (L8's (R, R, R, 1), LA8's
+	# (R, R, R, G), RGBA4444's and RGB565's red/blue exchange) or through WebGPU's own defaults for missing
+	# channels (R8, RG8). WebGPU views cannot swizzle, so the web converts them up front (task 58, TASKS.md
+	# 2.43). Six bands, twice around the probe; off shows the same images expanded to RGBA8 by Image.convert(),
+	# which is what each swizzle means, so off and on are the same picture natively.
+	mat_formats = _shader_material("""shader_type spatial;
+render_mode unshaded;
+uniform sampler2D t0 : filter_nearest;
+uniform sampler2D t1 : filter_nearest;
+uniform sampler2D t2 : filter_nearest;
+uniform sampler2D t3 : filter_nearest;
+uniform sampler2D t4 : filter_nearest;
+uniform sampler2D t5 : filter_nearest;
+void fragment() {
+	int band = int(UV.x * 12.0) % 6;
+	vec2 uv = vec2(fract(UV.x * 12.0), UV.y);
+	vec4 c = band == 0 ? texture(t0, uv) : band == 1 ? texture(t1, uv) : band == 2 ? texture(t2, uv)
+			: band == 3 ? texture(t3, uv) : band == 4 ? texture(t4, uv) : texture(t5, uv);
+	// Alpha shows against magenta, so a lost or forced alpha is visible.
+	ALBEDO = mix(vec3(1.0, 0.0, 1.0), c.rgb, c.a);
+}
+""")
+	for f in [Image.FORMAT_L8, Image.FORMAT_LA8, Image.FORMAT_RGBA4444, Image.FORMAT_RGB565, Image.FORMAT_R8, Image.FORMAT_RG8]:
+		var fimg := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+		for y in 16:
+			for x in 16:
+				fimg.set_pixel(x, y, Color(x / 15.0, y / 15.0, 1.0 - x / 15.0, 0.25 + 0.75 * y / 15.0))
+		fimg.convert(f)
+		_format_textures.push_back(ImageTexture.create_from_image(fimg))
+		var expanded := fimg.duplicate()
+		expanded.convert(Image.FORMAT_RGBA8)
+		_format_textures_rgba8.push_back(ImageTexture.create_from_image(expanded))
+
 	mat_array.set_shader_parameter("layers", [
 		_solid_texture(Color(0.9, 0.1, 0.1)), _solid_texture(Color(0.1, 0.9, 0.1)),
 		_solid_texture(Color(0.1, 0.2, 0.9)), _solid_texture(Color(0.9, 0.8, 0.1))])
@@ -1002,6 +1045,12 @@ func _process(_delta: float) -> void:
 		else:
 			_move_frame = -1
 		cam.transform = _cam_base.translated(Vector3(60.0 * t, 0, 0))
+	if _pan_start >= 0:
+		# Yaw 0.25 degrees a frame and pitch up a little: the sky moves across the frame.
+		var k := Engine.get_frames_drawn() - _pan_start
+		var yaw := Basis(Vector3.UP, deg_to_rad(0.25 * k))
+		var pitch := Basis(Vector3.RIGHT, deg_to_rad(0.05 * k))
+		cam.transform = Transform3D(yaw * _cam_base.basis * pitch, _cam_base.origin)
 	if OS.has_feature("web"):
 		var h: String = str(JavaScriptBridge.eval("location.hash", true))
 		if h != _last_hash:
@@ -1097,6 +1146,7 @@ func _request(spec: String) -> void:
 func _reset() -> void:
 	_restore_resources()
 	_move_frame = -1
+	_pan_start = -1
 	cam.transform = Transform3D(Basis(), Vector3(0, 2.6, 7.5)).looking_at(Vector3(0, 1.0, 0), Vector3.UP)
 	probe_mi.material_override = mat_probe
 	mat_array.set_shader_parameter("layer", 0)
@@ -1484,6 +1534,11 @@ func _apply(id: String, on: bool) -> bool:
 		"texture_array":
 			probe_mi.material_override = mat_array
 			mat_array.set_shader_parameter("layer", 2 if on else 0)
+		"image_formats":
+			probe_mi.material_override = mat_formats
+			var texs := _format_textures if on else _format_textures_rgba8
+			for i in texs.size():
+				mat_formats.set_shader_parameter("t%d" % i, texs[i])
 		"shader_builtins":
 			probe_mi.material_override = mat_builtins
 			mat_builtins.set_shader_parameter("use_builtins", on)
@@ -1573,6 +1628,16 @@ func _apply(id: String, on: bool) -> bool:
 			vp.scaling_3d_mode = (Viewport.SCALING_3D_MODE_FSR2 if on
 				else Viewport.SCALING_3D_MODE_BILINEAR)
 			vp.scaling_3d_scale = 0.5
+		"fsr2_camera_move":
+			# Parity only: FSR2 while the camera pans across the sky, where it derives
+			# motion vectors from depth (the sky writes none). Off is the same FSR2
+			# with the camera still. Checks the reprojection and every depth read
+			# FSR2 makes on WebGPU against native (TASKS.md 2.42).
+			vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
+			vp.scaling_3d_scale = 0.5
+			if on:
+				_cam_base = cam.transform
+				_pan_start = Engine.get_frames_drawn()
 		"dof_far":
 			cam_attrs.dof_blur_far_enabled = on
 			cam_attrs.dof_blur_far_distance = 6.0

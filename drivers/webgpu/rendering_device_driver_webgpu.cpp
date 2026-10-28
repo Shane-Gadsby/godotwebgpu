@@ -2296,7 +2296,158 @@ static WGPUTextureFormat _get_srgb_view_format(WGPUTextureFormat p_format) {
 	}
 }
 
+// Color channels a sampled view of p_format has. A WebGPU view reads 0 for a
+// missing green or blue channel and 1 for a missing alpha, which is what most
+// of Godot's swizzles ask for anyway (R8's (R, 0, 0, 1), BC1's opaque alpha).
+static uint32_t _data_format_channel_count(RDD::DataFormat p_format) {
+	switch (p_format) {
+		case RDD::DATA_FORMAT_R8_UNORM:
+		case RDD::DATA_FORMAT_R8_SNORM:
+		case RDD::DATA_FORMAT_R8_USCALED:
+		case RDD::DATA_FORMAT_R8_SSCALED:
+		case RDD::DATA_FORMAT_R8_UINT:
+		case RDD::DATA_FORMAT_R8_SINT:
+		case RDD::DATA_FORMAT_R8_SRGB:
+		case RDD::DATA_FORMAT_R16_UNORM:
+		case RDD::DATA_FORMAT_R16_SNORM:
+		case RDD::DATA_FORMAT_R16_USCALED:
+		case RDD::DATA_FORMAT_R16_SSCALED:
+		case RDD::DATA_FORMAT_R16_UINT:
+		case RDD::DATA_FORMAT_R16_SINT:
+		case RDD::DATA_FORMAT_R16_SFLOAT:
+		case RDD::DATA_FORMAT_R32_UINT:
+		case RDD::DATA_FORMAT_R32_SINT:
+		case RDD::DATA_FORMAT_R32_SFLOAT:
+		case RDD::DATA_FORMAT_R64_UINT:
+		case RDD::DATA_FORMAT_R64_SINT:
+		case RDD::DATA_FORMAT_R64_SFLOAT:
+		case RDD::DATA_FORMAT_D16_UNORM:
+		case RDD::DATA_FORMAT_X8_D24_UNORM_PACK32:
+		case RDD::DATA_FORMAT_D32_SFLOAT:
+		case RDD::DATA_FORMAT_S8_UINT:
+		case RDD::DATA_FORMAT_D16_UNORM_S8_UINT:
+		case RDD::DATA_FORMAT_D24_UNORM_S8_UINT:
+		case RDD::DATA_FORMAT_D32_SFLOAT_S8_UINT:
+		case RDD::DATA_FORMAT_BC4_UNORM_BLOCK:
+		case RDD::DATA_FORMAT_BC4_SNORM_BLOCK:
+		case RDD::DATA_FORMAT_EAC_R11_UNORM_BLOCK:
+		case RDD::DATA_FORMAT_EAC_R11_SNORM_BLOCK:
+			return 1;
+		case RDD::DATA_FORMAT_R4G4_UNORM_PACK8:
+		case RDD::DATA_FORMAT_R8G8_UNORM:
+		case RDD::DATA_FORMAT_R8G8_SNORM:
+		case RDD::DATA_FORMAT_R8G8_USCALED:
+		case RDD::DATA_FORMAT_R8G8_SSCALED:
+		case RDD::DATA_FORMAT_R8G8_UINT:
+		case RDD::DATA_FORMAT_R8G8_SINT:
+		case RDD::DATA_FORMAT_R8G8_SRGB:
+		case RDD::DATA_FORMAT_R16G16_UNORM:
+		case RDD::DATA_FORMAT_R16G16_SNORM:
+		case RDD::DATA_FORMAT_R16G16_USCALED:
+		case RDD::DATA_FORMAT_R16G16_SSCALED:
+		case RDD::DATA_FORMAT_R16G16_UINT:
+		case RDD::DATA_FORMAT_R16G16_SINT:
+		case RDD::DATA_FORMAT_R16G16_SFLOAT:
+		case RDD::DATA_FORMAT_R32G32_UINT:
+		case RDD::DATA_FORMAT_R32G32_SINT:
+		case RDD::DATA_FORMAT_R32G32_SFLOAT:
+		case RDD::DATA_FORMAT_R64G64_UINT:
+		case RDD::DATA_FORMAT_R64G64_SINT:
+		case RDD::DATA_FORMAT_R64G64_SFLOAT:
+		case RDD::DATA_FORMAT_BC5_UNORM_BLOCK:
+		case RDD::DATA_FORMAT_BC5_SNORM_BLOCK:
+		case RDD::DATA_FORMAT_EAC_R11G11_UNORM_BLOCK:
+		case RDD::DATA_FORMAT_EAC_R11G11_SNORM_BLOCK:
+			return 2;
+		case RDD::DATA_FORMAT_R5G6B5_UNORM_PACK16:
+		case RDD::DATA_FORMAT_B5G6R5_UNORM_PACK16:
+		case RDD::DATA_FORMAT_R8G8B8_UNORM:
+		case RDD::DATA_FORMAT_R8G8B8_SNORM:
+		case RDD::DATA_FORMAT_R8G8B8_USCALED:
+		case RDD::DATA_FORMAT_R8G8B8_SSCALED:
+		case RDD::DATA_FORMAT_R8G8B8_UINT:
+		case RDD::DATA_FORMAT_R8G8B8_SINT:
+		case RDD::DATA_FORMAT_R8G8B8_SRGB:
+		case RDD::DATA_FORMAT_B8G8R8_UNORM:
+		case RDD::DATA_FORMAT_B8G8R8_SNORM:
+		case RDD::DATA_FORMAT_B8G8R8_USCALED:
+		case RDD::DATA_FORMAT_B8G8R8_SSCALED:
+		case RDD::DATA_FORMAT_B8G8R8_UINT:
+		case RDD::DATA_FORMAT_B8G8R8_SINT:
+		case RDD::DATA_FORMAT_B8G8R8_SRGB:
+		case RDD::DATA_FORMAT_R16G16B16_UNORM:
+		case RDD::DATA_FORMAT_R16G16B16_SNORM:
+		case RDD::DATA_FORMAT_R16G16B16_USCALED:
+		case RDD::DATA_FORMAT_R16G16B16_SSCALED:
+		case RDD::DATA_FORMAT_R16G16B16_UINT:
+		case RDD::DATA_FORMAT_R16G16B16_SINT:
+		case RDD::DATA_FORMAT_R16G16B16_SFLOAT:
+		case RDD::DATA_FORMAT_R32G32B32_UINT:
+		case RDD::DATA_FORMAT_R32G32B32_SINT:
+		case RDD::DATA_FORMAT_R32G32B32_SFLOAT:
+		case RDD::DATA_FORMAT_R64G64B64_UINT:
+		case RDD::DATA_FORMAT_R64G64B64_SINT:
+		case RDD::DATA_FORMAT_R64G64B64_SFLOAT:
+		case RDD::DATA_FORMAT_B10G11R11_UFLOAT_PACK32:
+		case RDD::DATA_FORMAT_E5B9G9R9_UFLOAT_PACK32:
+		case RDD::DATA_FORMAT_BC1_RGB_UNORM_BLOCK:
+		case RDD::DATA_FORMAT_BC1_RGB_SRGB_BLOCK:
+		case RDD::DATA_FORMAT_BC6H_UFLOAT_BLOCK:
+		case RDD::DATA_FORMAT_BC6H_SFLOAT_BLOCK:
+		case RDD::DATA_FORMAT_ETC2_R8G8B8_UNORM_BLOCK:
+		case RDD::DATA_FORMAT_ETC2_R8G8B8_SRGB_BLOCK:
+			return 3;
+		default:
+			return 4;
+	}
+}
+
+// WebGPU texture views have no component swizzle (Vulkan's VkComponentMapping,
+// Metal's MTLTextureSwizzleChannels), so a view's swizzle cannot be applied. That
+// is harmless when it only asks for what WebGPU reads anyway (identity, or 0/1
+// for a channel the format lacks); anything else -- a broadcast, a channel swap,
+// a forced value on a channel the data has -- changes what the shader reads on
+// every other driver and silently not here (TASKS.md §3 trap 55, §2.43). Engine
+// paths that need one do it in the data (TextureStorage::_validate_texture_format)
+// or in the shader; this warns once per format and swizzle about anything left.
+void RenderingDeviceDriverWebGPU::_warn_dropped_swizzle(DataFormat p_view_format, const TextureView &p_view) {
+	const TextureSwizzle swizzles[4] = { p_view.swizzle_r, p_view.swizzle_g, p_view.swizzle_b, p_view.swizzle_a };
+	const uint32_t channels = _data_format_channel_count(p_view_format);
+	bool dropped = false;
+	for (uint32_t i = 0; i < 4; i++) {
+		const TextureSwizzle sw = swizzles[i];
+		const bool missing = i >= channels;
+		if (sw == TEXTURE_SWIZZLE_IDENTITY || sw == (TextureSwizzle)(TEXTURE_SWIZZLE_R + i)) {
+			continue;
+		}
+		if (missing && i < 3 && sw == TEXTURE_SWIZZLE_ZERO) {
+			continue;
+		}
+		if (missing && i == 3 && sw == TEXTURE_SWIZZLE_ONE) {
+			continue;
+		}
+		dropped = true;
+	}
+	if (!dropped) {
+		return;
+	}
+	const uint32_t key = (uint32_t)p_view_format << 12 | (uint32_t)swizzles[0] << 9 | (uint32_t)swizzles[1] << 6 | (uint32_t)swizzles[2] << 3 | (uint32_t)swizzles[3];
+	if (dropped_swizzle_warnings.has(key)) {
+		return;
+	}
+	dropped_swizzle_warnings.insert(key);
+	static const char *names = "-01RGBA";
+	String mapping;
+	for (uint32_t i = 0; i < 4; i++) {
+		const TextureSwizzle sw = swizzles[i] == TEXTURE_SWIZZLE_IDENTITY ? (TextureSwizzle)(TEXTURE_SWIZZLE_R + i) : swizzles[i];
+		mapping += String::chr(names[sw]);
+	}
+	WARN_PRINT(vformat("WebGPU: a %s texture view asks for the component swizzle (%s), which WebGPU texture views cannot apply; the shader reads the channels unswizzled. Convert the data or swizzle in the shader instead.",
+			p_view_format < DATA_FORMAT_MAX ? FORMAT_NAMES[p_view_format] : "texture", mapping));
+}
+
 RDD::TextureID RenderingDeviceDriverWebGPU::texture_create(const TextureFormat &p_format, const TextureView &p_view) {
+	_warn_dropped_swizzle(p_view.format != DATA_FORMAT_MAX ? p_view.format : p_format.format, p_view);
 	WGTexture *tex = memnew(WGTexture());
 
 	tex->format = _data_format_to_wgpu(p_format.format);
@@ -2347,12 +2498,10 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create(const TextureFormat &
 		}
 	}
 
-	// WebGPU has no texture component swizzle (unlike Vulkan's VkComponentSwizzle).
-	// Textures with non-identity swizzles (e.g., R8 with R→all broadcast) must be
-	// handled at a higher level. The driver stores the swizzle for potential future
-	// use but does NOT promote the format (Godot's upload data wouldn't match).
-	// See: servers/rendering/renderer_rd/storage_rd/texture_storage.cpp which
-	// handles swizzle emulation for backends that don't support it natively.
+	// WebGPU has no texture component swizzle (unlike Vulkan's VkComponentSwizzle):
+	// p_view's swizzle is not applied, and _warn_dropped_swizzle() above says so
+	// when that changes what a shader reads. TextureStorage::_validate_texture_format()
+	// bakes the swizzles of Godot's own image formats into the data on the web.
 
 	WGPUTextureDescriptor desc = {};
 	desc.dimension = tex->dimension;
@@ -2438,6 +2587,7 @@ static bool _is_srgb_format(WGPUTextureFormat p_format) {
 RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared(TextureID p_original_texture, const TextureView &p_view) {
 	WGTexture *orig = (WGTexture *)(p_original_texture.id);
 	ERR_FAIL_NULL_V(orig, TextureID());
+	_warn_dropped_swizzle(p_view.format != DATA_FORMAT_MAX ? p_view.format : orig->rd_format, p_view);
 
 	WGTexture *tex = memnew(WGTexture());
 	*tex = *orig; // Copy base properties.
@@ -2493,6 +2643,7 @@ RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared(TextureID p_or
 RDD::TextureID RenderingDeviceDriverWebGPU::texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {
 	WGTexture *orig = (WGTexture *)(p_original_texture.id);
 	ERR_FAIL_NULL_V(orig, TextureID());
+	_warn_dropped_swizzle(p_view.format != DATA_FORMAT_MAX ? p_view.format : orig->rd_format, p_view);
 
 	WGTexture *tex = memnew(WGTexture());
 	*tex = *orig;

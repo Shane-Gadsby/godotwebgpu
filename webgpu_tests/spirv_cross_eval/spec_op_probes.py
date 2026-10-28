@@ -96,13 +96,10 @@ op("Select", "uint", ["BA", "A", "B"], lambda v: val(v, "A") if val(v, "BA") els
 op("IAdd_mixed", "uint", ["SA", "B"], lambda v: u(val(v, "SA") + val(v, "B")))
 
 
-def f32_bits(f):
-    import struct
-
-    return struct.unpack("<I", struct.pack("<f", f))[0]
-
-
-op("FConvert_f32", "float", ["FA"], lambda v: f32_bits(val(v, "FA")))  # same width: a no-op the spec allows
+# No FConvert probe. The one Tint's list implied, f32 -> f32, is invalid SPIR-V (the validator requires a different
+# component width, and run_pipeline() rejects the module before any pass runs), and a valid one needs f16 or f64: WGSL
+# has no f64, and an f16 override needs the shader-f16 device feature, which no engine or Godot user shader declares a
+# spec constant with.
 
 TYPES = """
 %void = OpTypeVoid
