@@ -1,8 +1,8 @@
 # 81-web-buffer-get-data-empty
 
-State: open
-Owner:
-Claimed:
+State: ready-for-integration
+Owner: worker-81
+Claimed: 2026-10-29
 Needs: build, browser
 Branch: work/81
 Results: webgpu_notes/work/results/81-web-buffer-get-data-empty/

@@ -6,7 +6,9 @@ extends Node
 # RID or the texture without copy-from usage). The synchronous RenderingDevice.texture_get_data() / buffer_get_data() reads
 # at frames 5-7 are what they count the web's debug-only "RenderingDevice.*_get_data() returned" warning on (work task
 # 77: one per resource: textures 41x5 and 17x3, buffers of 100 and 52 bytes; none for an invalid RID or a texture
-# without copy-from usage). User args (after --): mode=test (default),
+# without copy-from usage). Task 81: on the web a buffer's first synchronous read is an empty array, not zeros, and so is
+# an ArrayMesh's first Mesh.surface_get_arrays() (one debug-only warning for that, counted too); by frame 35 both return
+# the data. User args (after --): mode=test (default),
 # mode=perf_none or mode=perf_readback (a readback of the main viewport every frame, for gpu_time.mjs).
 # From frame 200, the load_* checks (work task 76): a 1920x1080 HDR 3D viewport read back every frame for 600 frames,
 # bursts of four reads in one frame, and its float values against native Vulkan's.
@@ -282,6 +284,8 @@ func _process(_delta: float) -> void:
 			_request("order_a4", "w96")
 		30:
 			_test_rd_formats()
+		35:
+			_test_sync_rd_later()
 		40:
 			_test_free_same_frame()
 		50:
@@ -497,6 +501,8 @@ func _test_sync_invalid() -> void:
 # build warns once per texture/buffer. Each resource is read on frames 5, 6 and 7 or on frame 5 only. ---
 
 var sync_rd := {} # name -> {rid, kind, bytes, frames}
+var sync_mesh: ArrayMesh
+var sync_mesh_arrays := []
 
 
 func _add_sync_rd() -> void:
@@ -521,6 +527,18 @@ func _add_sync_rd() -> void:
 		var rid := rd.storage_buffer_create(data.size(), data)
 		rd_textures.append(rid)
 		sync_rd[b[0]] = { "rid": rid, "kind": "buffer", "bytes": data, "frames": b[2] }
+	# An ArrayMesh: Mesh.surface_get_arrays() reads its vertex and index buffers back through buffer_get_data() (task 81).
+	var verts := PackedVector3Array()
+	for i in 7:
+		verts.append(Vector3(i * 0.25, 1.5 - i * 0.125, i * i * 0.5))
+	var indices := PackedInt32Array([0, 1, 2, 2, 3, 4, 4, 5, 6])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_INDEX] = indices
+	sync_mesh = ArrayMesh.new()
+	sync_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	sync_mesh_arrays = arrays
 
 
 func _test_sync_rd() -> void:
@@ -534,8 +552,56 @@ func _test_sync_rd() -> void:
 			continue
 		var got: PackedByteArray = rd.texture_get_data(s.rid, 0) if s.kind == "texture" else rd.buffer_get_data(s.rid)
 		var returned := "empty" if got.is_empty() else ("data" if got == s.bytes else ("zeros" if got.count(0) == got.size() else "other"))
-		# Natively a synchronous read returns the data every time. On the web, what it returns is information.
-		_record("sync_rd_%s_frame%d" % [n, frame], "" if web or returned == "data" else "returned %s, not the data" % returned, { "returned": returned })
+		# Natively a synchronous read returns the data every time. On the web a texture's is information; a buffer's
+		# first read (frame 5) is an empty array, not zeros (task 81), and any read is either empty or the data.
+		var err := ""
+		if not web:
+			err = "" if returned == "data" else "returned %s, not the data" % returned
+		elif s.kind == "buffer":
+			if frame == 5 and returned != "empty":
+				err = "first synchronous read returned %s, not an empty array" % returned
+			elif returned != "empty" and returned != "data":
+				err = "returned %s, neither an empty array (not ready) nor the data" % returned
+		_record("sync_rd_%s_frame%d" % [n, frame], err, { "returned": returned })
+	if frame == 5 and sync_mesh != null:
+		# Natively the arrays at once; on the web the first read is an empty array (task 81), never zeros.
+		var kind := _mesh_arrays_kind(sync_mesh.surface_get_arrays(0))
+		var want := "empty" if web else "data"
+		_record("sync_mesh_arrays_frame5", "" if kind == want else "returned %s, not %s" % [kind, want], { "returned": kind })
+
+
+func _mesh_arrays_kind(p_arrays: Array) -> String:
+	if p_arrays.is_empty():
+		return "empty"
+	if p_arrays.size() != Mesh.ARRAY_MAX:
+		return "other"
+	var v: PackedVector3Array = p_arrays[Mesh.ARRAY_VERTEX]
+	var i: PackedInt32Array = p_arrays[Mesh.ARRAY_INDEX]
+	if v == sync_mesh_arrays[Mesh.ARRAY_VERTEX] and i == sync_mesh_arrays[Mesh.ARRAY_INDEX]:
+		return "data"
+	if v.size() == sync_mesh_arrays[Mesh.ARRAY_VERTEX].size() and v.count(Vector3()) == v.size():
+		return "zeros"
+	return "other"
+
+
+# Frame 35, long after the frame-5 reads: every synchronous read returns the data now, natively and on the web.
+func _test_sync_rd_later() -> void:
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		return
+	for n in sync_rd:
+		var s: Dictionary = sync_rd[n]
+		if s.kind != "buffer":
+			continue
+		var got: PackedByteArray = rd.buffer_get_data(s.rid)
+		var returned := "empty" if got.is_empty() else ("data" if got == s.bytes else ("zeros" if got.count(0) == got.size() else "other"))
+		_record("sync_rd_%s_later" % n, "" if returned == "data" else "returned %s, not the data" % returned, { "returned": returned })
+		# A part of it, at an offset: the cached copy is sliced the same way.
+		var part: PackedByteArray = rd.buffer_get_data(s.rid, 8, 20)
+		_record("sync_rd_%s_later_part" % n, "" if part == s.bytes.slice(8, 28) else "returned %d bytes, not bytes 8-27" % part.size())
+	if sync_mesh != null:
+		var kind := _mesh_arrays_kind(sync_mesh.surface_get_arrays(0))
+		_record("sync_mesh_arrays_later", "" if kind == "data" else "returned %s, not the data" % kind, { "returned": kind })
 
 
 # --- The awaitable forms (task 71) ---

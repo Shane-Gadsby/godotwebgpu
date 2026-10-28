@@ -57,6 +57,13 @@ void SoftBodyRenderingServerHandler::prepare(RID p_mesh, int p_surface) {
 	RS::get_singleton()->mesh_surface_make_offsets_from_format(surface_data.format, surface_data.vertex_count, surface_data.index_count, surface_offsets, vertex_stride, normal_tangent_stride, attrib_stride, skin_stride);
 
 	buffer = surface_data.vertex_data;
+	if (buffer.is_empty() && surface_data.vertex_count > 0) {
+		// On the web the vertex data is read back from the GPU asynchronously and is empty on a first read (work task
+		// 81). set_vertex() / set_normal() write every vertex's position and normal before commit_changes() uploads the
+		// buffer, so start from zeros of the uncompressed size (soft body meshes are never compressed), as when that
+		// read returned zeros.
+		buffer.resize_initialized((vertex_stride + normal_tangent_stride) * surface_data.vertex_count);
+	}
 	stride = vertex_stride;
 	normal_stride = normal_tangent_stride;
 	offset_vertices = surface_offsets[RSE::ARRAY_VERTEX];

@@ -3100,6 +3100,7 @@
 			<param index="1" name="surface" type="int" />
 			<description>
 				Returns a mesh's surface's buffer arrays.
+				[b]Note:[/b] On the web (WebGPU), the arrays are read back from the GPU asynchronously: a first call for a surface returns an empty array until the data has arrived, a frame or more later. Debug builds print a warning the first time this happens.
 			</description>
 		</method>
 		<method name="mesh_surface_get_attribute_buffer_rd_rid" qualifiers="const">

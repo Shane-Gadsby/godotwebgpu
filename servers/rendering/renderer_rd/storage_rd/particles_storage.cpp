@@ -665,6 +665,12 @@ AABB ParticlesStorage::particles_get_current_aabb(RID p_particles) {
 
 	uint32_t particle_data_size = sizeof(ParticleData) + sizeof(float) * 4 * particles->userdata_count;
 	Vector<uint8_t> buffer = RD::get_singleton()->buffer_get_data(particles->particle_buffer);
+#ifdef WEB_ENABLED
+	// Empty until the asynchronous readback has arrived (work task 81): no data yet, which is not an error.
+	if (buffer.is_empty() && total_amount > 0) {
+		return AABB();
+	}
+#endif
 	ERR_FAIL_COND_V(buffer.size() != (int)(total_amount * particle_data_size), AABB());
 
 	Transform3D inv = particles->emission_transform.affine_inverse();
