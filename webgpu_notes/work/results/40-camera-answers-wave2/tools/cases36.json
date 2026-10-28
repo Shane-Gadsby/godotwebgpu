@@ -1,0 +1,4 @@
+{"meter_ref": "scene=meter&frames=90", "meter_avg": "scene=meter&frames=90&auto_exposure_enabled=true&auto_exposure_max_sensitivity=1000000&auto_exposure_speed=20", "meter_logavg": "scene=meter&frames=90&auto_exposure_enabled=true&auto_exposure_max_sensitivity=1000000&auto_exposure_speed=20&auto_exposure_metering_log_average=true",
+ "meter_logcenter": "scene=meter&frames=90&auto_exposure_enabled=true&auto_exposure_max_sensitivity=1000000&auto_exposure_speed=20&auto_exposure_metering_log_average=true&auto_exposure_metering_mode=1",
+ "meter_logspotwin": "scene=meter&frames=90&auto_exposure_enabled=true&auto_exposure_max_sensitivity=1000000&auto_exposure_speed=20&auto_exposure_metering_log_average=true&auto_exposure_metering_mode=2&auto_exposure_metering_spot_point=0.75,0.3&auto_exposure_metering_spot_size=1.0",
+ "default_ae": "scene=default&attrs=practical&frames=12&auto_exposure_enabled=true"}

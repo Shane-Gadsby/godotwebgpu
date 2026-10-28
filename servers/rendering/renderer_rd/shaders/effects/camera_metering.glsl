@@ -7,7 +7,7 @@
 // CameraAttributes exposure automation (CameraMetering, camera_metering.cpp; the model is in
 // camera_attributes_storage.cpp, "Exposure automation" and "Auto white balance"). Forward+ only.
 //
-// Auto exposure metering other than Average (which is luminance_reduce.glsl, untouched):
+// Auto exposure metering other than Average (which is luminance_reduce.glsl):
 // - Center-weighted and spot: MODE_METER_READ writes per 8x8 block the sums of w * v and w, where v = max(R, G, B) and
 //   w the pixel's metering weight; MODE_REDUCE sums 8x8 blocks of those down to 1x1; MODE_METER_RESOLVE divides,
 //   adapts toward it from the previous luminance as luminance_reduce.glsl does, and writes the 1x1 luminance the
@@ -56,6 +56,10 @@ params;
 
 #define FLAG_SET 1u // Start over: no adaptation from the previous state.
 #define FLAG_USE_AUTO_EXPOSURE 2u
+// The weighted log-average, exp(sum(w log(v + delta)) / sum(w)), instead of the weighted mean (Reinhard et al. 2002's
+// key, as luminance_reduce.glsl's FLAG_LOG_AVERAGE does for Average). A percentile is the same either way.
+#define FLAG_LOG_AVERAGE 4u
+#define LOG_AVERAGE_DELTA 1e-4
 
 // The log2 histogram: bin 0 holds everything below 2^-16 (black included), bins 1-254 are 1/8 EV wide, bin 255 holds
 // everything from 2^15.75 up.
@@ -173,6 +177,9 @@ void main() {
 		float v = max(c.r, max(c.g, c.b));
 		vec2 q = (vec2(pos) + 0.5) / float(params.source_size.y);
 		float w = distance(q, params.center) <= params.radius ? params.inner_weight : params.outer_weight;
+		if (bool(params.flags & FLAG_LOG_AVERAGE)) {
+			v = log(v + LOG_AVERAGE_DELTA);
+		}
 		value = vec4(w * v, w, 0.0, 0.0);
 #endif
 #ifdef MODE_AWB_READ
@@ -250,6 +257,9 @@ void main() {
 #ifdef MODE_METER_RESOLVE
 	vec4 sums = imageLoad(source_sums, ivec2(0, 0));
 	avg = sums.y > 0.0 ? sums.x / sums.y : 0.0;
+	if (bool(params.flags & FLAG_LOG_AVERAGE)) {
+		avg = sums.y > 0.0 ? exp(avg) : 0.0;
+	}
 #else
 	float total = 0.0;
 	for (uint i = 0u; i < HISTOGRAM_BINS; i++) {

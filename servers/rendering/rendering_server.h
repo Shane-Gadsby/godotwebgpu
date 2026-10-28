@@ -746,6 +746,7 @@ public:
 
 	/* Exposure automation */
 	virtual void camera_attributes_set_auto_exposure_metering(RID p_camera_attributes, RSE::CameraAttributesMeteringMode p_mode, float p_spot_size, const Vector2 &p_spot_point, float p_highlight_percentile) = 0;
+	virtual void camera_attributes_set_auto_exposure_metering_log_average(RID p_camera_attributes, bool p_enable) = 0;
 	virtual void camera_attributes_set_auto_white_balance(RID p_camera_attributes, bool p_enable, float p_speed, float p_min_temperature, float p_max_temperature) = 0;
 
 	/* Lens optics */
@@ -760,6 +761,7 @@ public:
 	virtual void camera_attributes_set_tilt_shift(RID p_camera_attributes, bool p_enable, float p_tilt, float p_axis) = 0;
 	virtual void camera_attributes_set_starburst(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
 	virtual void camera_attributes_set_halation(RID p_camera_attributes, bool p_enable, float p_strength, float p_radius) = 0;
+	virtual void camera_attributes_set_halation_high_quality(RID p_camera_attributes, bool p_enable) = 0;
 	virtual void camera_attributes_set_longitudinal_chromatic_aberration(RID p_camera_attributes, bool p_enable, float p_strength) = 0;
 
 	/* SCENARIO API */

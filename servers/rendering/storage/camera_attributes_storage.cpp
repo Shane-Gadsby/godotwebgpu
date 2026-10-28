@@ -879,6 +879,17 @@ void RendererCameraAttributes::camera_attributes_set_halation(RID p_camera_attri
 	cam_attributes->halation_radius = MAX(p_radius, 0.01f);
 }
 
+void RendererCameraAttributes::camera_attributes_set_halation_high_quality(RID p_camera_attributes, bool p_enable) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->halation_high_quality = p_enable;
+}
+
+bool RendererCameraAttributes::camera_attributes_uses_full_resolution_glare(RID p_camera_attributes) {
+	const CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	return cam_attributes && cam_attributes->halation_high_quality && (_glare_requested_bits(cam_attributes, CameraGlareEnvironment()) & GLARE_HALATION);
+}
+
 // The frame on the sensor in millimeters, desqueezed horizontally, for an image p_aspect wide per unit of height (as in
 // _fill_effects_lens()). Without a physical lens: a 24 mm tall frame, the full-frame height.
 static void _camera_frame_mm(bool p_physical, const Vector2 &p_sensor_size, double p_squeeze, double p_aspect, double &r_frame_w, double &r_frame_h) {
@@ -1139,8 +1150,11 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
  * Metering modes. Every mode meters the same per-pixel value as Godot's original auto exposure, max(R, G, B) of the
  * scene-linear frame, and the renderer turns the metered value into exposure the same way (scale / value), so the
  * modes only change where and how the meter looks:
- * - Average: the original reduction, untouched: the mean over the frame. A reflected-light meter integrates the
- *   light linearly, and the exposure equation it is calibrated by uses the scene's average luminance (ISO 2720:1974).
+ * - Average: the original reduction, the mean over the whole frame. A reflected-light meter integrates the light
+ *   linearly, and the exposure equation it is calibrated by uses the scene's average luminance (ISO 2720:1974).
+ *   Upstream's reduction dropped the right and bottom edge blocks at each level (the right 20% of a 1080p frame, the
+ *   bottom 27% of a 720p one); it now sums every pixel once (luminance_reduce.glsl), which moves the exposure of
+ *   existing auto-exposed scenes by up to about a third of a stop, wherever their edges differ from the rest.
  * - Center-weighted: the same mean with 75% of the weight in a central circle 12 mm across on a 36x24 mm frame, the
  *   rest spread over the remainder. That is Nikon's definition ("75% weight given to 12 mm dia. circle", Nikon
  *   F100/F5/F6 specifications); the circle is half the frame height, so it covers the same part of any sensor
@@ -1153,6 +1167,15 @@ void RendererCameraAttributes::_fill_effects_glare(const CameraAttributes *p_att
  *   compensation: twice the scale is one stop over. Counted in a histogram of log2 values on the GPU.
  * The weights are per pixel center, normalized so the circle's share of the total is exact whatever the frame's
  * aspect.
+ *
+ * Log-average (auto_exposure_metering_log_average, off by default): every mean above becomes the weighted log-average,
+ * exp(sum(w log(v + delta)) / sum(w)), the "key" of the scene in Reinhard et al. 2002 ("Photographic Tone
+ * Reproduction for Digital Images", SIGGRAPH, eq. 1). It is the geometric mean, so a few very bright pixels (a lamp,
+ * the sun) pull it up far less than the arithmetic mean: a contrasty frame meters lower and is exposed brighter.
+ * delta = 1e-4 (Reinhard's "small value" that keeps black pixels finite; about 13 stops below 1.0, a sensor's range)
+ * is a choice: a frame with large black areas meters lower with it, as with any log-average, and auto exposure's
+ * sensitivity limits bound that.
+ * The highlight mode's percentile is the same either way (log is monotonic), so the option does not change it.
  */
 
 // The default auto_exposure_scale: highlight metering reports percentile * this, so the default scale exposes the
@@ -1171,6 +1194,12 @@ void RendererCameraAttributes::camera_attributes_set_auto_exposure_metering(RID 
 	cam_attributes->auto_exposure_metering_highlight_percentile = CLAMP(p_highlight_percentile, 1.0f, 100.0f);
 }
 
+void RendererCameraAttributes::camera_attributes_set_auto_exposure_metering_log_average(RID p_camera_attributes, bool p_enable) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->auto_exposure_metering_log_average = p_enable;
+}
+
 RendererCameraAttributes::AutoExposureMetering RendererCameraAttributes::camera_attributes_get_auto_exposure_metering(RID p_camera_attributes, const Size2i &p_frame_size) {
 	AutoExposureMetering metering;
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
@@ -1181,6 +1210,7 @@ RendererCameraAttributes::AutoExposureMetering RendererCameraAttributes::camera_
 	metering.mode = cam_attributes->auto_exposure_metering_mode;
 	metering.highlight_percentile = cam_attributes->auto_exposure_metering_highlight_percentile / 100.0f;
 	metering.highlight_key = AUTO_EXPOSURE_HIGHLIGHT_KEY;
+	metering.log_average = cam_attributes->auto_exposure_metering_log_average;
 	switch (metering.mode) {
 		case RSE::CAMERA_ATTRIBUTES_METERING_CENTER_WEIGHTED: {
 			metering.center = Vector2(0.5f * aspect, 0.5f);

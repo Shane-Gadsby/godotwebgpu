@@ -159,6 +159,16 @@ void CameraAttributes::_update_auto_exposure_metering() {
 	emit_changed();
 }
 
+void CameraAttributes::set_auto_exposure_metering_log_average(bool p_enabled) {
+	auto_exposure_metering_log_average = p_enabled;
+	RS::get_singleton()->camera_attributes_set_auto_exposure_metering_log_average(camera_attributes, auto_exposure_metering_log_average);
+	emit_changed();
+}
+
+bool CameraAttributes::is_auto_exposure_metering_log_average() const {
+	return auto_exposure_metering_log_average;
+}
+
 void CameraAttributes::set_white_balance_auto(bool p_enabled) {
 	white_balance_auto = p_enabled;
 	_update_auto_white_balance();
@@ -734,6 +744,16 @@ void CameraAttributes::_update_longitudinal_chromatic_aberration() {
 	RS::get_singleton()->camera_attributes_set_longitudinal_chromatic_aberration(camera_attributes, longitudinal_chromatic_aberration_enabled, longitudinal_chromatic_aberration_strength);
 }
 
+void CameraAttributes::set_halation_high_quality(bool p_enabled) {
+	halation_high_quality = p_enabled;
+	RS::get_singleton()->camera_attributes_set_halation_high_quality(camera_attributes, halation_high_quality);
+	emit_changed();
+}
+
+bool CameraAttributes::is_halation_high_quality() const {
+	return halation_high_quality;
+}
+
 void CameraAttributes::_update_aperture() {
 	RS::get_singleton()->camera_attributes_set_aperture(camera_attributes, aperture_enabled, aperture_blade_count, aperture_blade_curvature, aperture_rotation);
 }
@@ -849,6 +869,8 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_metering_spot_point"), &CameraAttributes::get_auto_exposure_metering_spot_point);
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_metering_highlight_percentile", "percentile"), &CameraAttributes::set_auto_exposure_metering_highlight_percentile);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_metering_highlight_percentile"), &CameraAttributes::get_auto_exposure_metering_highlight_percentile);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_metering_log_average", "enabled"), &CameraAttributes::set_auto_exposure_metering_log_average);
+	ClassDB::bind_method(D_METHOD("is_auto_exposure_metering_log_average"), &CameraAttributes::is_auto_exposure_metering_log_average);
 
 	ClassDB::bind_method(D_METHOD("set_white_balance_auto", "enabled"), &CameraAttributes::set_white_balance_auto);
 	ClassDB::bind_method(D_METHOD("is_white_balance_auto"), &CameraAttributes::is_white_balance_auto);
@@ -928,6 +950,7 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_metering_spot_size", PROPERTY_HINT_RANGE, "0.1,20,0.1,or_greater,suffix:%"), "set_auto_exposure_metering_spot_size", "get_auto_exposure_metering_spot_size");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "auto_exposure_metering_spot_point", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_auto_exposure_metering_spot_point", "get_auto_exposure_metering_spot_point");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_metering_highlight_percentile", PROPERTY_HINT_RANGE, "50,100,0.1,suffix:%"), "set_auto_exposure_metering_highlight_percentile", "get_auto_exposure_metering_highlight_percentile");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_exposure_metering_log_average"), "set_auto_exposure_metering_log_average", "is_auto_exposure_metering_log_average");
 
 	ADD_GROUP("White Balance", "white_balance_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "white_balance_temperature", PROPERTY_HINT_RANGE, "2000,10000,1,suffix:K"), "set_white_balance_temperature", "get_white_balance_temperature");
@@ -1021,6 +1044,8 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_halation_strength"), &CameraAttributes::get_halation_strength);
 	ClassDB::bind_method(D_METHOD("set_halation_radius", "radius"), &CameraAttributes::set_halation_radius);
 	ClassDB::bind_method(D_METHOD("get_halation_radius"), &CameraAttributes::get_halation_radius);
+	ClassDB::bind_method(D_METHOD("set_halation_high_quality", "enabled"), &CameraAttributes::set_halation_high_quality);
+	ClassDB::bind_method(D_METHOD("is_halation_high_quality"), &CameraAttributes::is_halation_high_quality);
 
 	ADD_GROUP("Aperture", "aperture_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "aperture_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_aperture_enabled", "is_aperture_enabled");
@@ -1040,6 +1065,7 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "halation_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_halation_enabled", "is_halation_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "halation_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_halation_strength", "get_halation_strength");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "halation_radius", PROPERTY_HINT_RANGE, "0.1,8,0.01,or_greater"), "set_halation_radius", "get_halation_radius");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "halation_high_quality"), "set_halation_high_quality", "is_halation_high_quality");
 
 	ClassDB::bind_method(D_METHOD("set_longitudinal_chromatic_aberration_enabled", "enabled"), &CameraAttributes::set_longitudinal_chromatic_aberration_enabled);
 	ClassDB::bind_method(D_METHOD("is_longitudinal_chromatic_aberration_enabled"), &CameraAttributes::is_longitudinal_chromatic_aberration_enabled);

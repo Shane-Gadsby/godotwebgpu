@@ -134,6 +134,7 @@ private:
 	enum {
 		FLAG_SET = 1,
 		FLAG_USE_AUTO_EXPOSURE = 2,
+		FLAG_LOG_AVERAGE = 4, // Weighted log-average instead of the weighted mean (the percentile is unaffected).
 	};
 
 	CameraMeteringShaderRD shader;

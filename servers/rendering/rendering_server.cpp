@@ -3237,6 +3237,7 @@ void RenderingServer::_bind_methods() {
 
 	/* Exposure automation */
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_metering", "camera_attributes", "mode", "spot_size", "spot_point", "highlight_percentile"), &RenderingServer::camera_attributes_set_auto_exposure_metering);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_metering_log_average", "camera_attributes", "enable"), &RenderingServer::camera_attributes_set_auto_exposure_metering_log_average);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_white_balance", "camera_attributes", "enable", "speed", "min_temperature", "max_temperature"), &RenderingServer::camera_attributes_set_auto_white_balance);
 
 	/* Lens optics */
@@ -3250,6 +3251,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_tilt_shift", "camera_attributes", "enable", "tilt", "axis"), &RenderingServer::camera_attributes_set_tilt_shift);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_starburst", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_starburst);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_halation", "camera_attributes", "enable", "strength", "radius"), &RenderingServer::camera_attributes_set_halation);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_halation_high_quality", "camera_attributes", "enable"), &RenderingServer::camera_attributes_set_halation_high_quality);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_longitudinal_chromatic_aberration", "camera_attributes", "enable", "strength"), &RenderingServer::camera_attributes_set_longitudinal_chromatic_aberration);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
