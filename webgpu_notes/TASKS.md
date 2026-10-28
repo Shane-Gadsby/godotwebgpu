@@ -3371,6 +3371,11 @@ error repeats once per read, compare the read's size with the download ring firs
 web tier (a runner matching only `/ERROR|error/` missed them for weeks); `results/76-web-readback-under-load/tools/`
 has a JS-side GPU buffer tracer that names the misusing submit without a rebuild.
 
+105. **emdawnwebgpu cannot omit a `GPUComputePassTimestampWrites` index** (2026-10-29, work task 73): it passes
+`WGPU_QUERY_SET_INDEX_UNDEFINED` through as 4294967295, a validation error; give the unused write a spare query. And an
+empty compute pass's *beginning* write may land before earlier passes finish: use the end-of-pass write for a "here"
+timestamp, as Vulkan's bottom-of-pipe write does.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5569,6 +5574,21 @@ checks (600 frames of 1080p HDR reads, bursts of 4, luminance against native 0.2
 on WebGPU validation messages. Worker: 60/60 natively and in Chrome and Firefox with both templates, 0 validation
 messages, web luminance 0.271551. Lead (merged tree with 69): 60/60 natively, in Chrome and Firefox, debug and release,
 0 validation messages. Question `web-download-staging-cap` (keep 128 MB).
+
+### 4.89 GPU time on WebGPU (October 2026) *(work task 73; dynamic resolution phase 1)*
+
+`drivers/webgpu/` only (plus a web note in `RenderingServer.xml`): a timestamp is the end-of-pass write of an empty
+compute pass's `timestampWrites`, replacing the Chrome-only `writeTimestamp()`; its beginning-of-pass write goes to one
+spare query (emdawnwebgpu passes an "unset" index as 4294967295, a validation error). Each frame slot reads back
+through a ring of 4 buffers; a buffer whose read is pending is never touched, and a full ring drops that frame's
+timestamps rather than waiting, so results are a few frames old; results are returned only when their count matches the
+frame's (else zeros). `engine.js` already requested `timestamp-query`. `viewport_get_measured_render_time_gpu()` and
+`--gpu-profile` / the Visual Profiler's GPU times now work on the web; without `timestamp-query`, 0 and no errors.
+Worker (release template, task 68's bench, scales 1.0-0.5): Chrome -1.2% to +0.1% against a page timestamp hook,
+Firefox -0.8% to -2.4%; frame time with measurement on = off. Lead (merged tree): Chrome 0.985-1.009 and Firefox
+0.970-1.000 of the hook at every scale, 0 errors; withheld `timestamp-query` reads 0.00 with 0 errors in both. Risks:
+two measured viewports swapping draw order with the same count could pair names with the previous layout's values for
+a few frames; how often a full ring drops a frame was not measured.
 
 ## 5. References — retired docs
 

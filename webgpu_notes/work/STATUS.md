@@ -46,7 +46,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 70 | user answers on 63: physical DOF max blur default 6%, legacy (diluted) gather option | 9 | worker-70 |
 | 71 | user answers on 66: built-in awaitable readback, debug-only web warning on a null get_image() | 9 | worker-71 (retired); **merged `6d77ce108d`**, verified, TASKS §4.84 |
 | 72 | user answer on 62: frame without the monitoring overlays, only while requested (camera-sim Download Image) | 9 | worker-72 (retired); **merged `a6d73f0b86`**, verified, TASKS §4.85 |
-| 73 | dynamic resolution phase 1: GPU time on WebGPU (timestampWrites, non-stalling readback) | 9 | worker-73 |
+| 73 | dynamic resolution phase 1: GPU time on WebGPU (timestampWrites, non-stalling readback) | 9 | worker-73 (retired); **merged `694fade59c`**, verified, TASKS §4.89, trap 105 |
 | 74 | dynamic resolution phase 2: scale changes keep FSR 2, TAA (resampled) and auto exposure (every change, user Q1) | 9 | worker-74 (retired); **merged `99b7b5874d`**, verified, TASKS §4.86 |
 | 76 | WebGPU async readback every frame (pending-map validation errors, stalls) and 11x-dark float readback (found by 74) | 10 | worker-76 (retired); **merged `4c967537e8`**, verified, TASKS §4.88, trap 104 |
 | 75 | dynamic resolution phases 3-4: controller, API, project settings, queue-depth hint (Q6), remember option (Q9), verification; after 73 and 74 | 10 | worker-75 |
