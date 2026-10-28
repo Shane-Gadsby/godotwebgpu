@@ -1,6 +1,6 @@
 # 41-postprocess-survey: post-processing effects Godot lacks (TASKS.md §2.48)
 
-State: ready-for-integration
+State: integrated (lead: results merged; questions pp-* on the hand-offs page)
 Owner: worker-41
 Claimed: 2026-10-28
 Needs: — (no build, no GPU; read code and docs)
