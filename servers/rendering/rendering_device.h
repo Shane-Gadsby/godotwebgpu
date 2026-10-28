@@ -192,6 +192,11 @@ private:
 		RDG::ResourceTracker *draw_tracker = nullptr;
 		int32_t transfer_worker_index = -1;
 		uint64_t transfer_worker_operation = 0;
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+		// The script-facing buffer_get_data() warns once per buffer when the web's asynchronous readback has not
+		// arrived yet (work task 77).
+		bool warned_sync_readback_pending = false;
+#endif
 	};
 
 	RDD::MemoryAllocationType _get_buffer_alloc_type(bool p_has_initial_data, Thread::ID p_thread_id) const;
@@ -284,7 +289,8 @@ public:
 	bool supports_texture_view_swizzle();
 	uint32_t get_max_supported_texture_samples();
 	Error buffer_clear(RID p_buffer, uint32_t p_offset, uint32_t p_size);
-	Vector<uint8_t> buffer_get_data(RID p_buffer, uint32_t p_offset = 0, uint32_t p_size = 0); // This causes stall, only use to retrieve large buffers for saving.
+	// r_not_ready (web): set when the asynchronous readback had not arrived yet, so the result is zeros, not the buffer.
+	Vector<uint8_t> buffer_get_data(RID p_buffer, uint32_t p_offset = 0, uint32_t p_size = 0, bool *r_not_ready = nullptr); // This causes stall, only use to retrieve large buffers for saving.
 	Error buffer_get_data_async(RID p_buffer, const Callable &p_callback, uint32_t p_offset = 0, uint32_t p_size = 0);
 	uint64_t buffer_get_device_address(RID p_buffer);
 	uint8_t *buffer_persistent_map_advance(RID p_buffer);
@@ -399,6 +405,11 @@ public:
 		SharedFallback *shared_fallback = nullptr;
 		int32_t transfer_worker_index = -1;
 		uint64_t transfer_worker_operation = 0;
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+		// The script-facing texture_get_data() warns once per texture when the web's asynchronous readback has not
+		// arrived yet (work task 77).
+		bool warned_sync_readback_pending = false;
+#endif
 
 		RDD::TextureSubresourceRange barrier_range() const {
 			RDD::TextureSubresourceRange r;
@@ -491,7 +502,8 @@ public:
 	RID texture_create_from_extension(TextureType p_type, DataFormat p_format, TextureSamples p_samples, BitField<RenderingDevice::TextureUsageBits> p_usage, uint64_t p_image, uint64_t p_width, uint64_t p_height, uint64_t p_depth, uint64_t p_layers, uint64_t p_mipmaps = 1);
 	RID texture_create_shared_from_slice(const TextureView &p_view, RID p_with_texture, uint32_t p_layer, uint32_t p_mipmap, uint32_t p_mipmaps = 1, TextureSliceType p_slice_type = TEXTURE_SLICE_2D, uint32_t p_layers = 0);
 	Error texture_update(RID p_texture, uint32_t p_layer, const Vector<uint8_t> &p_data);
-	Vector<uint8_t> texture_get_data(RID p_texture, uint32_t p_layer); // CPU textures will return immediately, while GPU textures will most likely force a flush
+	// r_not_ready (web): set when the asynchronous readback had not arrived yet, so the result is empty.
+	Vector<uint8_t> texture_get_data(RID p_texture, uint32_t p_layer, bool *r_not_ready = nullptr); // CPU textures will return immediately, while GPU textures will most likely force a flush
 	Error texture_get_data_async(RID p_texture, uint32_t p_layer, const Callable &p_callback);
 
 	bool texture_is_format_supported_for_usage(DataFormat p_format, BitField<TextureUsageBits> p_usage) const;
@@ -2121,6 +2133,10 @@ private:
 	RID _uniform_set_create(const TypedArray<RDUniform> &p_uniforms, RID p_shader, uint32_t p_shader_set);
 
 	Error _buffer_update_bind(RID p_buffer, uint32_t p_offset, uint32_t p_size, const Vector<uint8_t> &p_data);
+	// The script-facing texture_get_data() / buffer_get_data(): engine code calls the methods themselves, so the debug web
+	// warning these print (work task 77) is only ever about a read the project made.
+	Vector<uint8_t> _texture_get_data_bind(RID p_texture, uint32_t p_layer);
+	Vector<uint8_t> _buffer_get_data_bind(RID p_buffer, uint32_t p_offset, uint32_t p_size);
 
 	RID _blas_create(const TypedArray<RDAccelerationStructureGeometry> &p_geometries, BitField<AccelerationStructureFlagBits> p_flags);
 	Error _tlas_build(RID p_tlas, const TypedArray<RDAccelerationStructureInstance> &p_instances);
