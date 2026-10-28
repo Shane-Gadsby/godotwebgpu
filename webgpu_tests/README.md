@@ -10,6 +10,7 @@ Automated tests for the Godot WebGPU rendering backend. Validates the full shade
 | [SPIR-V Preprocessing](preprocessing_tests/) | Each SPIR-V pass in isolation, including the IR passes (`spirv-val` on their output) — 291 assertions | ~10s | No (needs wgsl_convert_cli) |
 | [Driver Unit Tests](driver_unit_tests/) | Bind-group layout, format and pipeline-state logic, the expanded-array binding layout — 379 assertions | ~2s | No (standalone) |
 | [SPIR-V Validation](shader_corpus/validate_spirv_dump.mjs) | ALL engine-compiled SPIR-V through wgsl_convert_cli | ~5s | Yes (editor) |
+| [Converter Smoke](converter_smoke/) (`run.sh`) | Every engine variant `wgsl_precompile.py` builds converts, keeps the bindings, kinds and override ids of the stored reference and the driver's text-scan facts, and compiles in Chrome — the only check short of rendering that bind-group layouts and pipeline constants still line up | ~2min | No (builds wgsl_convert_cli; Chrome and a real adapter) |
 | [Spec-Constant Overrides](spec_constant_overrides/) | Specialization constants survive as `@id(N) override`, and WebGPU pipeline constants set them | ~5s | No (needs wgsl_convert_cli) |
 | [Smoke Test](test_project/smoke_test.mjs) | Full runtime in headless Chrome — no shader errors, no device lost | ~60s | Yes (editor + web template) |
 | [Scene Smoketest](scene_smoketest/) | 23 scenes (demos, benchmarks, a self-checking audio suite and a braced GDScript project) across Chrome, Firefox, and Safari | ~8min | Yes (pre-exported) |
@@ -73,6 +74,29 @@ cd webgpu_tests/shader_corpus
 ./compile_fixtures.sh    # GLSL → SPIR-V (requires glslangValidator)
 node run_tests.mjs       # SPIR-V → WGSL validation (skips if no wgsl_convert_cli)
 ```
+
+### 1b. Converter smoke check (no engine build; a real adapter for the Chrome step)
+
+```bash
+webgpu_tests/converter_smoke/run.sh <scratch_dir>     # KEEP=0 deletes a passing run's directory
+```
+
+Builds `bin/wgsl_convert_cli` from the tree, dumps and converts every engine variant `wgsl_precompile.py` builds
+(`spirv_cross_eval/dump_corpus.py`, 0 failures), compares bindings, kinds and override ids with
+`spirv_cross_eval/interface_reference.json` (`compare_interface.py`), runs `wgsl_text_scan/run_tests.sh` on the run
+against `scan_reference.txt`, and compiles every module in Chrome (`spirv_cross_eval/validate_wgsl.mjs`). A module that
+is invalid in Chrome fails unless `converter_smoke/expected_invalid.txt` lists it, and a listed module that has become
+valid fails too. Last line `SMOKE OK` / `SMOKE FAILED`; `local_ci.sh` runs it in stage 1, `--quick` included.
+
+The references are Tint's interface from when SPIRV-Cross replaced it (TASKS.md §4.36). After a deliberate interface
+change, regenerate them from a run (`compare_interface.py --write <manifest> <run>/wgsl`,
+`WRITE_REFERENCE=1 wgsl_text_scan/run_tests.sh <run>`) and say why in the commit.
+
+The Chrome step launches system Chrome headed with the Vulkan flags and refuses any adapter but nvidia/lovelace with 48
+sampled textures per stage (TASKS.md §3 trap 79), exit 3 from the validator. On another machine set
+`WGSL_VALIDATE_ADAPTER=<vendor>/<architecture>` (the `adapter` line it printed) or `WGSL_VALIDATE_ADAPTER=any`; the
+fallback (swiftshader) adapter is never accepted. `webgpu_notes/work/smoke.sh`, where this lived while the converter swap's
+work board ran, forwards here.
 
 ### Font Rendering (needs the `font_rendering` scene exported)
 

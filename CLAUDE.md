@@ -59,10 +59,11 @@ cd webgpu_tests/driver_unit_tests && node run_tests.mjs
 # SPIR-V preprocessing pass tests (run_pipeline()'s passes, standalone):
 cd webgpu_tests/preprocessing_tests && node run_tests.mjs
 
-# Every engine variant through the converter, interfaces against the stored reference, WGSL compiled in Chrome
-# (BROWSER=firefox node validate_wgsl.mjs <dirs> asks naga instead); then the driver's WGSL text scans on that run:
-webgpu_notes/work/smoke.sh <scratch_dir>
-webgpu_tests/wgsl_text_scan/run_tests.sh <smoke run dir>      # VALIDATE=1 also compiles the rewritten text in Chrome
+# Every engine variant through the converter: interfaces and the driver's WGSL text-scan facts against the stored
+# references, WGSL compiled in Chrome (BROWSER=firefox node validate_wgsl.mjs <dirs> asks naga instead). Also in
+# local_ci.sh --quick. Off the 4080 its adapter check refuses; WGSL_VALIDATE_ADAPTER=any accepts another real adapter:
+webgpu_tests/converter_smoke/run.sh <scratch_dir>
+webgpu_tests/wgsl_text_scan/run_tests.sh <smoke run dir>      # the text scans alone; VALIDATE=1 compiles the rewritten text
 
 # Resource lifecycle / screenshot comparison (standalone, need Playwright):
 cd webgpu_tests/resource_lifecycle && node run_tests.mjs
@@ -138,7 +139,7 @@ Every Playwright launch in these tiers must set `headless` explicitly (`headless
 
 SPIR-V dump validation and the smoke/scene-smoketest tiers need a full editor + web template build first (see `webgpu_tests/README.md` for exact commands and `GODOT_DUMP_SPIRV` env var usage). `webgpu_tests/shader_corpus/expected_failures.json` is the baseline of known/accepted conversion failures (Vulkan-only shader variants never used by the WebGPU runtime, each with its reason) — CI only fails on failures *not* in that baseline.
 
-With Tint gone there is no second converter to compare against, so the interface checks compare with **stored references** made from Tint's output when SPIRV-Cross replaced it: `webgpu_tests/spirv_cross_eval/interface_reference.json` (bindings, kinds and override ids of the 276 engine variants, read by `compare_interface.py`) and `webgpu_tests/wgsl_text_scan/scan_reference.txt` (the driver's WGSL text-scan facts, read by `wgsl_text_scan/run_tests.sh`). `webgpu_notes/work/smoke.sh` (moving into `webgpu_tests/` when the swap's work board retires, `webgpu_notes/TASKS.md` §2.38) runs both. They are the only check, short of rendering, that bind-group layouts and pipeline constants still line up. A reference module missing from the candidate fails. After a deliberate interface change, regenerate them (`compare_interface.py --write`, `WRITE_REFERENCE=1 run_tests.sh <run>`) and say why in the commit. Every offline tier that drives the converter takes `WGSL_CONVERT_CLI=<path>` (default `bin/wgsl_convert_cli`).
+With Tint gone there is no second converter to compare against, so the interface checks compare with **stored references** made from Tint's output when SPIRV-Cross replaced it: `webgpu_tests/spirv_cross_eval/interface_reference.json` (bindings, kinds and override ids of the 276 engine variants, read by `compare_interface.py`) and `webgpu_tests/wgsl_text_scan/scan_reference.txt` (the driver's WGSL text-scan facts, read by `wgsl_text_scan/run_tests.sh`). `webgpu_tests/converter_smoke/run.sh` runs both (`webgpu_notes/work/smoke.sh` forwards to it). They are the only check, short of rendering, that bind-group layouts and pipeline constants still line up. A reference module missing from the candidate fails. After a deliberate interface change, regenerate them (`compare_interface.py --write`, `WRITE_REFERENCE=1 run_tests.sh <run>`) and say why in the commit. Every offline tier that drives the converter takes `WGSL_CONVERT_CLI=<path>` (default `bin/wgsl_convert_cli`).
 
 ## Linting
 

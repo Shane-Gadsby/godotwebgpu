@@ -6,7 +6,7 @@
 #   ./webgpu_tests/local_ci.sh              # Rebuild engine + re-export + run all tests
 #   ./webgpu_tests/local_ci.sh --no-rebuild # Run all tests against the existing exports
 #   ./webgpu_tests/local_ci.sh --no-safari  # Skip Safari (faster, no AppleScript needed)
-#   ./webgpu_tests/local_ci.sh --quick      # Shader corpus + scene smoketest only (no rebuild)
+#   ./webgpu_tests/local_ci.sh --quick      # Shader corpus + converter smoke + scene smoketest only (no rebuild)
 #   ./webgpu_tests/local_ci.sh --quick --rebuild  # Rebuild + quick tests only
 #   ./webgpu_tests/local_ci.sh --no-export  # Rebuild but keep the existing exports
 #   ./webgpu_tests/local_ci.sh --export     # Re-export without rebuilding
@@ -210,7 +210,7 @@ echo "╚═══════════════════════�
 echo ""
 
 if [[ "$QUICK" == true ]]; then
-    echo "  Mode: --quick (shader corpus + scene smoketest only)"
+    echo "  Mode: --quick (shader corpus + converter smoke + scene smoketest only)"
 else
     echo "  Mode: full"
 fi
@@ -347,6 +347,14 @@ run_test "Compile GLSL fixtures" \
 run_test "SPIR-V → WGSL validation" \
     "$SCRIPT_DIR/shader_corpus" \
     node run_tests.mjs
+
+# Every engine variant through the converter: interfaces and the driver's text-scan facts against the stored
+# references, every module compiled in Chrome (converter_smoke/run.sh; it rebuilds bin/wgsl_convert_cli, which is not
+# SCons). Its Chrome step asserts the adapter like every browser tier; WGSL_VALIDATE_ADAPTER=any accepts another real
+# one. A passing run's scratch directory is deleted; a failing one keeps its logs under $CONVERTER_SMOKE_DIR.
+run_test "Converter smoke (every engine variant)" \
+    "$SCRIPT_DIR/converter_smoke" \
+    env KEEP=0 bash ./run.sh "${CONVERTER_SMOKE_DIR:-${TMPDIR:-/tmp}/godot-converter-smoke}"
 
 echo ""
 
