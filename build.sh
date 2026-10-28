@@ -160,6 +160,39 @@ build_wgsl_cli() {
 	echo -e "${GREEN}wgsl_convert_cli -> bin/wgsl_convert_cli${NC}"
 }
 
+# Where the editor looks for this version's export templates when exporting.
+case "$HOST_PLATFORM" in
+	macos) EDITOR_TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/$VERSION" ;;
+	*) EDITOR_TEMPLATES_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates/$VERSION" ;;
+esac
+
+# Builds one threads=no web/WebGPU template, with or without GDExtension
+# support (dlink), and installs it into $3 under the name Godot's export
+# templates folder expects (export_plugin.h's _get_template_name(): "web" +
+# ["_dlink"] + "_nothreads" + "_debug.zip"/"_release.zip"). The scons output
+# name is spelled out rather than taken as the newest bin/ zip, which would pick
+# up whichever variant happened to be built last.
+build_web_template() {
+	local dlink="$1" target="$2" dest="$3"
+	local label="debug"
+	[[ "$target" == "template_release" ]] && label="release"
+	echo -e "${BOLD}Building web export template ($label, dlink=$dlink, threads=no)...${NC}"
+	scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no threads=no -j"$JOBS"
+
+	local scons_zip="bin/godot.web.$target.wasm32.nothreads"
+	[[ "$dlink" == "yes" ]] && scons_zip+=".dlink"
+	scons_zip+=".zip"
+	if [[ ! -f "$scons_zip" ]]; then
+		echo -e "${RED}Web template build succeeded but $scons_zip wasn't found.${NC}" >&2
+		exit 1
+	fi
+	local dest_name="web"
+	[[ "$dlink" == "yes" ]] && dest_name+="_dlink"
+	dest_name+="_nothreads_$label.zip"
+	cp "$scons_zip" "$dest/$dest_name"
+	echo -e "${GREEN}Web template -> $dest/$dest_name${NC}"
+}
+
 build_templates() {
 	if [[ ! -f "$EMSDK_DIR/emsdk_env.sh" ]]; then
 		echo -e "${RED}Emscripten not found at $EMSDK_DIR (set EMSDK_DIR to override).${NC}" >&2
@@ -184,7 +217,7 @@ build_templates() {
 	fi
 
 
-	# The web templates below are dlink_enabled=yes, which needs this fork's two
+	# Half the web templates below are dlink_enabled=yes, which needs this fork's two
 	# Emscripten toolchain patches, and `emsdk install`/an emsdk update overwrites
 	# the toolchain tree -- so apply them here, after the environment is set up, on
 	# every run. Idempotent; refuses rather than fuzzily applying if upstream has
@@ -200,31 +233,25 @@ build_templates() {
 		echo -e "${YELLOW}boot. See misc/emsdk_patches/README.md.${NC}" >&2
 	fi
 
-	echo -e "${BOLD}Building web export template (debug)...${NC}"
-	scons platform=web target=template_debug dlink_enabled=yes webgpu=yes opengl3=no threads=no -j"$JOBS"
-
-	echo -e "${BOLD}Building web export template (release)...${NC}"
-	scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no -j"$JOBS"
-
 	local dest="$OUT_DIR/templates"
 	mkdir -p "$dest"
 
-	local debug_zip release_zip
-	debug_zip="$(ls -t bin/godot.web.template_debug*.zip 2> /dev/null | head -1 || true)"
-	release_zip="$(ls -t bin/godot.web.template_release*.zip 2> /dev/null | head -1 || true)"
-
-	if [[ -z "$debug_zip" || -z "$release_zip" ]]; then
-		echo -e "${RED}Template build succeeded but a .zip wasn't found in bin/.${NC}" >&2
-		exit 1
+	# The no-threads, no-dlink pair first (webgpu_notes/TASKS.md 2.50): it is
+	# what most exports use, so it is installed as soon as it exists and the user
+	# can export while the GDExtension (dlink) pair builds.
+	build_web_template no template_debug "$dest"
+	build_web_template no template_release "$dest"
+	echo
+	echo -e "${GREEN}${BOLD}==> Ready to export: web_nothreads_debug.zip + web_nothreads_release.zip installed in $dest${NC}"
+	# pwd -P rather than readlink -f, which older macOS lacks.
+	if [[ "$(cd "$dest" && pwd -P)" != "$(cd "$EDITOR_TEMPLATES_DIR" 2> /dev/null && pwd -P || echo "$EDITOR_TEMPLATES_DIR")" ]]; then
+		echo -e "${YELLOW}    That is not the editor's export templates folder ($EDITOR_TEMPLATES_DIR):${NC}"
+		echo -e "${YELLOW}    copy the two there, or symlink that folder to $dest, to export with them now.${NC}"
 	fi
+	echo -e "${GREEN}    The GDExtension (dlink) pair builds next; exporting with these two is safe meanwhile.${NC}"
 
-	# Renamed to match the filenames Godot's export_templates directory expects,
-	# so these can be dropped straight in:
-	#   ~/.local/share/godot/export_templates/$VERSION/  (Linux)
-	#   ~/Library/Application Support/Godot/export_templates/$VERSION/  (macOS)
-	cp "$debug_zip" "$dest/web_nothreads_debug.zip"
-	cp "$release_zip" "$dest/web_nothreads_release.zip"
-	echo -e "${GREEN}Templates -> $dest${NC}"
+	build_web_template yes template_debug "$dest"
+	build_web_template yes template_release "$dest"
 	package_tpz
 }
 
@@ -448,7 +475,7 @@ show_menu() {
 	echo "  Output:  builds/$VERSION/"
 	echo
 	echo "  1) Editor only ($HOST_PLATFORM)"
-	echo "  2) Templates only (web, debug + release -- also rebuilds wgsl_convert_cli first)"
+	echo "  2) Templates only (web, threads=no: debug + release, without then with GDExtension -- also rebuilds wgsl_convert_cli first)"
 	echo "  3) Editor + templates ($HOST_PLATFORM + web)"
 	echo "  4) Windows: editor only"
 	echo "  5) Windows: templates only (debug + release)"

@@ -32,6 +32,12 @@
 # If a threaded web export misbehaves under the WebGPU driver, narrow it down
 # against a threads=no build first.
 #
+# Order: the editor, wgsl_convert_cli, then the no-threads, no-dlink web
+# templates (debug + release) -- the pair most exports use -- installed at once
+# with a "Ready to export" line, so you can export while the rest builds; then
+# the Linux templates and the other six web variants (webgpu_notes/TASKS.md
+# 2.50).
+#
 # Run this FROM the repo root, ON real Linux (or WSL). This is not for
 # cross-compiling Windows/macOS targets -- see build.sh (options 4-9) for
 # that.
@@ -95,6 +101,11 @@
 #   USE_CCACHE=no        Same as --no-ccache (default: yes)
 #   GDB_RIDER_DIR=path   Rider plugin repo (default: ../godot-gdb-rider)
 #   GDB_VSCODE_DIR=path  VS Code extension repo (default: ../godot-gdb-vscode)
+#   EDITORS_DIR=path     Where the editor and wgsl_convert_cli are also installed
+#                        (default: /mnt/109313D2109313D2/godot-editors/editors;
+#                        skipped when missing, so a nonexistent path opts out)
+#   TPZ_COPY_DIR=path    Where the .tpz is also copied (default:
+#                        /mnt/109313D2109313D2/godot-editors/templates; same rule)
 
 set -euo pipefail
 
@@ -129,6 +140,10 @@ EMSDK_VERSION="${EMSDK_VERSION:-6.0.9}"
 SCONS_VERSION="4.10.1"
 GDB_RIDER_DIR="${GDB_RIDER_DIR:-$REPO_ROOT/../godot-gdb-rider}"
 GDB_VSCODE_DIR="${GDB_VSCODE_DIR:-$REPO_ROOT/../godot-gdb-vscode}"
+# Installs outside this tree. Overridable so a test run from a second worktree
+# does not replace the editor and templates the user exports with.
+EDITORS_DIR="${EDITORS_DIR:-/mnt/109313D2109313D2/godot-editors/editors}"
+TPZ_COPY_DIR="${TPZ_COPY_DIR:-/mnt/109313D2109313D2/godot-editors/templates}"
 # Pinned so a run doesn't ask the npm registry for the newest vsce every time.
 VSCE_VERSION="3.9.2"
 
@@ -142,6 +157,9 @@ WEB_DLINK="yes,no"
 usage() {
 	cat << 'EOF'
 Usage: ./build-linux.sh [options]
+
+Builds the editor, then the no-threads, no-dlink web templates (installed at
+once, "Ready to export"), then the Linux templates and the rest of the web matrix.
 
   --skip-install            Don't touch apt/pip/AccessKit/emsdk (they are also
                             skipped automatically when already up to date).
@@ -178,7 +196,7 @@ Usage: ./build-linux.sh [options]
   --jobs N                  Parallel jobs (default: nproc).
 
 Env overrides: EMSDK_DIR, EMSDK_VERSION, CCACHE_MAXSIZE, LINKER, USE_CCACHE,
-GDB_RIDER_DIR, GDB_VSCODE_DIR.
+GDB_RIDER_DIR, GDB_VSCODE_DIR, EDITORS_DIR, TPZ_COPY_DIR.
 EOF
 }
 
@@ -276,6 +294,8 @@ STEP_NAMES=()
 STEP_SECS=()
 STEP_CURRENT=""
 STEP_T0=0
+# Seconds into the run at which the no-threads, no-dlink web pair was installed.
+READY_AT=""
 
 _close_step() {
 	if [[ -n "$STEP_CURRENT" ]]; then
@@ -312,6 +332,9 @@ print_timings() {
 		printf '  %8s  %s\n' "$(fmt_duration "${STEP_SECS[$i]}")" "${STEP_NAMES[$i]}"
 	done
 	printf '  %8s  %s\n' "$(fmt_duration "$SECONDS")" "TOTAL"
+	if [[ -n "$READY_AT" ]]; then
+		printf '  %8s  %s\n' "$(fmt_duration "$READY_AT")" "ready to export (web_nothreads pair installed)"
+	fi
 }
 
 # Comma-list membership, for the web matrix filters.
@@ -538,7 +561,7 @@ package_tpz() {
 	rm -rf "$staging"
 	ok "Export template package -> $tpz"
 
-	local templates_out_dir="/mnt/109313D2109313D2/godot-editors/templates"
+	local templates_out_dir="$TPZ_COPY_DIR"
 	if [[ -d "$templates_out_dir" ]]; then
 		cp "$tpz" "$templates_out_dir/"
 		ok "Export template package -> $templates_out_dir/$(basename "$tpz")"
@@ -838,7 +861,6 @@ mkdir -p "$dest"
 install_binary "$EDITOR_BIN" "$dest" || die "Could not install the editor into $dest."
 ok "Editor -> $dest/$(basename "$EDITOR_BIN")"
 
-EDITORS_DIR="/mnt/109313D2109313D2/godot-editors/editors"
 if [[ -d "$EDITORS_DIR" ]]; then
 	install_binary "$EDITOR_BIN" "$EDITORS_DIR" || die "Could not install the editor into $EDITORS_DIR."
 	ok "Editor -> $EDITORS_DIR"
@@ -846,29 +868,11 @@ else
 	warn "$EDITORS_DIR not found -- skipping editor copy there."
 fi
 
-if [[ "$SKIP_NATIVE_TEMPLATES" -eq 0 ]]; then
-	step "Building Linux export template (debug)..."
-	scons platform=linuxbsd target=template_debug accesskit="$ACCESSKIT_ENABLED" gdscript_braces="$GDSCRIPT_BRACES" \
-		"${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
-
-	step "Building Linux export template (release)..."
-	scons platform=linuxbsd target=template_release accesskit="$ACCESSKIT_ENABLED" gdscript_braces="$GDSCRIPT_BRACES" \
-		"${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
-
-	dest="$OUT_DIR/templates_linux"
-	mkdir -p "$dest"
-	dbg="bin/godot.linuxbsd.template_debug.$EDITOR_ARCH"
-	rel="bin/godot.linuxbsd.template_release.$EDITOR_ARCH"
-	[[ -f "$dbg" && -f "$rel" ]] || die "Linux template build succeeded but a binary wasn't found in bin/."
-	# Renamed to match EditorExportPlatformLinuxBSD::get_template_file_name()
-	# ("linux_" + target + "." + arch) so these drop straight into
-	# ~/.local/share/godot/export_templates/$VERSION/.
-	cp --reflink=auto "$dbg" "$dest/linux_debug.$EDITOR_ARCH"
-	cp --reflink=auto "$rel" "$dest/linux_release.$EDITOR_ARCH"
-	ok "Linux templates -> $dest"
-else
-	warn "Skipping the Linux export templates (--skip-native-templates)."
-fi
+# The editor's export templates folder for this version, which is where Godot
+# looks for templates when exporting. builds/<version>/templates is installed to
+# below; it only reaches the editor if it IS that folder (a symlink to it), or
+# once the .tpz at the end of the run is installed through the Template Manager.
+EDITOR_TEMPLATES_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates/$VERSION"
 
 if [[ "$SKIP_WGSL_CLI" -eq 0 ]]; then
 	step "Building wgsl_convert_cli (native SPIR-V -> WGSL precompile tool)..."
@@ -891,6 +895,11 @@ else
 	warn "Skipping wgsl_convert_cli build (--skip-wgsl-cli) -- any web build below will embed"
 	warn "whatever WGSL bin/wgsl_convert_cli last produced, which may be stale."
 fi
+
+# The native template builds run with the PATH this script had before
+# emsdk_env.sh (sourced below for the web builds) rearranged it, so they resolve
+# exactly the tools they did when they ran before any web build.
+NATIVE_PATH="$PATH"
 
 if [[ "$SKIP_WEB" -eq 0 ]]; then
 	# shellcheck source=/dev/null
@@ -928,44 +937,108 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 		rm -f drivers/webgpu/wgsl_precompiled.gen.h
 	fi
 
-	dest="$OUT_DIR/templates"
-	mkdir -p "$dest"
+	WEB_DEST="$OUT_DIR/templates"
+	mkdir -p "$WEB_DEST"
+fi
 
-	# Full web template matrix: GDExtension/dlink support x thread support x
-	# debug/release (8 builds), so every combination the Web export preset's
-	# "GDExtension Support" / "Thread Support" checkboxes can select has a
-	# matching template. Filenames on both sides (scons output and the
-	# templates/ dir) must match Godot's own naming rules exactly:
-	#   - scons suffix order: .wasm32[.nothreads][.dlink]
-	#     (SConstruct's ".nothreads" is appended before detect.py's ".dlink")
-	#   - export_plugin.h's _get_template_name(): "web" + ["_dlink"] +
-	#     ["_nothreads"] + "_debug.zip"/"_release.zip"
+# Builds one web/WebGPU template and installs it into builds/<version>/templates.
+# Filenames on both sides (scons output and the templates/ dir) must match
+# Godot's own naming rules exactly:
+#   - scons suffix order: .wasm32[.nothreads][.dlink]
+#     (SConstruct's ".nothreads" is appended before detect.py's ".dlink")
+#   - export_plugin.h's _get_template_name(): "web" + ["_dlink"] +
+#     ["_nothreads"] + "_debug.zip"/"_release.zip"
+# Leaves the installed file's name in WEB_LAST_INSTALLED.
+build_web_template() {
+	local dlink="$1" threads="$2" target="$3"
+	local debug_label="debug"
+	[[ "$target" == "template_release" ]] && debug_label="release"
+
+	step "Building web/WebGPU export template ($debug_label, dlink=$dlink, threads=$threads)..."
+	scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no \
+		threads="$threads" gdscript_braces="$GDSCRIPT_BRACES" module_raycast_enabled="$WEB_RAYCAST" -j"$JOBS"
+
+	local scons_zip="bin/godot.web.${target}.wasm32"
+	[[ "$threads" == "no" ]] && scons_zip+=".nothreads"
+	[[ "$dlink" == "yes" ]] && scons_zip+=".dlink"
+	scons_zip+=".zip"
+	[[ -f "$scons_zip" ]] || die "Web template build succeeded but $scons_zip wasn't found."
+
+	local dest_name="web"
+	[[ "$dlink" == "yes" ]] && dest_name+="_dlink"
+	[[ "$threads" == "no" ]] && dest_name+="_nothreads"
+	dest_name+="_${debug_label}.zip"
+
+	cp "$scons_zip" "$WEB_DEST/$dest_name"
+	ok "Web template -> $WEB_DEST/$dest_name"
+	WEB_LAST_INSTALLED="$dest_name"
+}
+
+# The no-threads, no-dlink pair first (TASKS.md 2.50): it is what most exports
+# use, so it is built and installed right after the editor and the converter,
+# and the user can export while the rest of the run builds. The editor and these
+# templates come from the same tree in the same run, so their hashes match.
+if [[ "$SKIP_WEB" -eq 0 ]] && list_has no "$WEB_DLINK" && list_has no "$WEB_THREADS"; then
+	ready_files=()
+	for target in template_debug template_release; do
+		debug_label="debug"
+		[[ "$target" == "template_release" ]] && debug_label="release"
+		list_has "$debug_label" "$WEB_TARGETS" || continue
+		build_web_template no no "$target"
+		ready_files+=("$WEB_LAST_INSTALLED")
+	done
+	_close_step
+	READY_AT="$SECONDS"
+	echo
+	ok "${BOLD}==> Ready to export ($(fmt_duration "$READY_AT") into the run): ${ready_files[*]} installed in $WEB_DEST${NC}"
+	if [[ "$(readlink -f "$WEB_DEST")" != "$(readlink -f "$EDITOR_TEMPLATES_DIR" 2> /dev/null || echo "$EDITOR_TEMPLATES_DIR")" ]]; then
+		warn "    $WEB_DEST is not the editor's export templates folder ($EDITOR_TEMPLATES_DIR):"
+		warn "    copy them there, or symlink that folder to $WEB_DEST, to export with them now."
+	fi
+	ok "    The rest of the templates build next; exporting with these two is safe meanwhile."
+elif [[ "$SKIP_WEB" -eq 0 ]]; then
+	warn "The web matrix filters exclude threads=no dlink_enabled=no -- no early export-ready pair this run."
+fi
+
+if [[ "$SKIP_NATIVE_TEMPLATES" -eq 0 ]]; then
+	step "Building Linux export template (debug)..."
+	env PATH="$NATIVE_PATH" scons platform=linuxbsd target=template_debug accesskit="$ACCESSKIT_ENABLED" \
+		gdscript_braces="$GDSCRIPT_BRACES" "${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
+
+	step "Building Linux export template (release)..."
+	env PATH="$NATIVE_PATH" scons platform=linuxbsd target=template_release accesskit="$ACCESSKIT_ENABLED" \
+		gdscript_braces="$GDSCRIPT_BRACES" "${NATIVE_LINKER_ARGS[@]}" -j"$JOBS"
+
+	dest="$OUT_DIR/templates_linux"
+	mkdir -p "$dest"
+	dbg="bin/godot.linuxbsd.template_debug.$EDITOR_ARCH"
+	rel="bin/godot.linuxbsd.template_release.$EDITOR_ARCH"
+	[[ -f "$dbg" && -f "$rel" ]] || die "Linux template build succeeded but a binary wasn't found in bin/."
+	# Renamed to match EditorExportPlatformLinuxBSD::get_template_file_name()
+	# ("linux_" + target + "." + arch) so these drop straight into
+	# ~/.local/share/godot/export_templates/$VERSION/.
+	cp --reflink=auto "$dbg" "$dest/linux_debug.$EDITOR_ARCH"
+	cp --reflink=auto "$rel" "$dest/linux_release.$EDITOR_ARCH"
+	ok "Linux templates -> $dest"
+else
+	warn "Skipping the Linux export templates (--skip-native-templates)."
+fi
+
+if [[ "$SKIP_WEB" -eq 0 ]]; then
+	# The rest of the web template matrix: GDExtension/dlink support x thread
+	# support x debug/release (8 builds with the pair above), so every
+	# combination the Web export preset's "GDExtension Support" / "Thread Support"
+	# checkboxes can select has a matching template.
 	for dlink in yes no; do
 		list_has "$dlink" "$WEB_DLINK" || continue
 		for threads in yes no; do
 			list_has "$threads" "$WEB_THREADS" || continue
+			[[ "$dlink" == "no" && "$threads" == "no" ]] && continue # Built first, above.
 			for target in template_debug template_release; do
 				debug_label="debug"
 				[[ "$target" == "template_release" ]] && debug_label="release"
 				list_has "$debug_label" "$WEB_TARGETS" || continue
-
-				step "Building web/WebGPU export template ($debug_label, dlink=$dlink, threads=$threads)..."
-				scons platform=web target="$target" dlink_enabled="$dlink" webgpu=yes opengl3=no \
-					threads="$threads" gdscript_braces="$GDSCRIPT_BRACES" module_raycast_enabled="$WEB_RAYCAST" -j"$JOBS"
-
-				scons_zip="bin/godot.web.${target}.wasm32"
-				[[ "$threads" == "no" ]] && scons_zip+=".nothreads"
-				[[ "$dlink" == "yes" ]] && scons_zip+=".dlink"
-				scons_zip+=".zip"
-				[[ -f "$scons_zip" ]] || die "Web template build succeeded but $scons_zip wasn't found."
-
-				dest_name="web"
-				[[ "$dlink" == "yes" ]] && dest_name+="_dlink"
-				[[ "$threads" == "no" ]] && dest_name+="_nothreads"
-				dest_name+="_${debug_label}.zip"
-
-				cp "$scons_zip" "$dest/$dest_name"
-				ok "Web template -> $dest/$dest_name"
+				build_web_template "$dlink" "$threads" "$target"
 			done
 		done
 	done

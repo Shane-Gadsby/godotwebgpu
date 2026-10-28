@@ -1,8 +1,8 @@
 # 50-build-template-order
 
-State: open
+State: claimed
 Owner: worker-50
-Claimed:
+Claimed: 2026-10-28 12:20
 Needs: build (one full build-linux.sh run)
 Branch: work/50
 Results: webgpu_notes/work/results/50-build-template-order/
