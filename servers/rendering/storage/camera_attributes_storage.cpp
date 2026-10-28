@@ -145,6 +145,17 @@ float RendererCameraAttributes::camera_attributes_get_dof_physical_blur_radius(R
 	return 0.5f * cam_attributes->dof_physical_blur_frame_fraction * float(frame_px);
 }
 
+void RendererCameraAttributes::camera_attributes_set_dof_legacy_gather(RID p_camera_attributes, bool p_enable) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->dof_legacy_gather = p_enable;
+}
+
+bool RendererCameraAttributes::camera_attributes_get_dof_legacy_gather(RID p_camera_attributes) {
+	const CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	return cam_attributes && cam_attributes->dof_legacy_gather;
+}
+
 float RendererCameraAttributes::camera_attributes_get_dof_blur_amount(RID p_camera_attributes) {
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 	ERR_FAIL_NULL_V(cam_attributes, 0.0);

@@ -95,7 +95,8 @@ private:
 	// Sets the longitudinal chromatic aberration's flag and red/blue blur offsets from the camera attributes.
 	void _setup_longitudinal_ca(RID p_camera_attributes);
 	// CameraAttributesPhysical.dof_physical_blur_size: the lens's blur radius in pixels of p_size, and how far the gather
-	// reaches. Leaves both alone and returns false when the camera does not size its blur physically.
+	// reaches. Leaves both alone when the camera does not size its blur physically. Returns whether the box and hexagon
+	// gathers are sized to the blur (BOKEH_PHYSICAL_SIZE): false without the thin-lens size or with dof_legacy_gather.
 	static bool _physical_blur_size(RID p_camera_attributes, const Size2i &p_size, float &r_blur_size, float &r_reach);
 
 	// Fills the push constant's shape fields from the camera attributes; returns whether the bokeh has a custom

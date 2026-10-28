@@ -140,10 +140,18 @@ bool BokehDOF::_physical_blur_size(RID p_camera_attributes, const Size2i &p_size
 		return false;
 	}
 	r_blur_size = radius;
+	if (RSG::camera_attributes->camera_attributes_get_dof_legacy_gather(p_camera_attributes)) {
+		// CameraAttributesPhysical.dof_legacy_gather: upstream's gather around the thin-lens size, for projects whose look
+		// was tuned through it. The reach stays upstream's fixed 32 pixels (r_reach untouched: a larger blur clamps
+		// there, whatever the project setting), the box and hexagon divide by every sample, which dilutes a blur smaller
+		// than the reach toward sharp (TASKS.md §3 trap 97), and the half-size passes blur twice as wide.
+		return false;
+	}
 	// The gather's reach scales with the image too, as a percentage of its height, so the blur looks the same at every
-	// resolution (the default 3% is upstream's fixed 32 pixels at about 1080p). Past it the blur is clamped: a bigger
-	// reach keeps the box and hexagon's number of samples (spread wider, so they miss the texture cache more) but costs
-	// the circle and custom apertures its square (WebGPU at 1440p: Circle 7.8 ms at 32 pixels, 13.9 ms at 43).
+	// resolution (the default 6% is upstream's fixed 32 pixels at about 540p). Past it the blur is clamped: a bigger
+	// reach keeps the box and hexagon's number of samples (spread wider: coarser for small blurs, and they miss the
+	// texture cache more) but costs the circle and custom apertures its square (WebGPU at 1440p, Circle Medium: 4.0 ms at
+	// 32 pixels, 7.8 ms at 3% = 43, 34.7 ms at 6% = 86).
 	const float max_percent = GLOBAL_GET_CACHED(float, "rendering/camera/depth_of_field/depth_of_field_physical_max_blur_size");
 	r_reach = MAX(0.01f * max_percent * float(p_size.height), 1.0f);
 	return true;
@@ -165,7 +173,7 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 	float dof_near_size = RSG::camera_attributes->camera_attributes_get_dof_near_transition(p_camera_attributes);
 	float bokeh_size = RSG::camera_attributes->camera_attributes_get_dof_blur_amount(p_camera_attributes) * 64; // Base 64 pixel radius.
 	float physical_reach = 32.0f; // The physically-based blur's gather reach, in pixels.
-	const bool physical_size = _physical_blur_size(p_camera_attributes, p_buffers.base_texture_size, bokeh_size, physical_reach);
+	const bool sized_gather = _physical_blur_size(p_camera_attributes, p_buffers.base_texture_size, bokeh_size, physical_reach);
 
 	bool use_jitter = RSG::camera_attributes->camera_attributes_get_dof_blur_use_jitter();
 	RSE::DOFBokehShape bokeh_shape = RSG::camera_attributes->camera_attributes_get_dof_blur_bokeh_shape();
@@ -204,7 +212,7 @@ void BokehDOF::bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_att
 		bokeh_shape = RSE::DOF_BOKEH_CIRCLE;
 	}
 	_setup_longitudinal_ca(p_camera_attributes);
-	if (physical_size) {
+	if (sized_gather) {
 		bokeh.push_constant.shape_flags |= BOKEH_PHYSICAL_SIZE;
 	}
 	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {
@@ -388,7 +396,7 @@ void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attr
 	float dof_near_size = RSG::camera_attributes->camera_attributes_get_dof_near_transition(p_camera_attributes);
 	float bokeh_size = RSG::camera_attributes->camera_attributes_get_dof_blur_amount(p_camera_attributes) * 64; // Base 64 pixel radius.
 	float physical_reach = 32.0f; // The physically-based blur's gather reach, in pixels.
-	const bool physical_size = _physical_blur_size(p_camera_attributes, p_buffers.base_texture_size, bokeh_size, physical_reach);
+	const bool sized_gather = _physical_blur_size(p_camera_attributes, p_buffers.base_texture_size, bokeh_size, physical_reach);
 
 	RSE::DOFBokehShape bokeh_shape = RSG::camera_attributes->camera_attributes_get_dof_blur_bokeh_shape();
 	RSE::DOFBlurQuality blur_quality = RSG::camera_attributes->camera_attributes_get_dof_blur_quality();
@@ -423,7 +431,7 @@ void BokehDOF::bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attr
 		bokeh_shape = RSE::DOF_BOKEH_CIRCLE;
 	}
 	_setup_longitudinal_ca(p_camera_attributes);
-	if (physical_size) {
+	if (sized_gather) {
 		bokeh.push_constant.shape_flags |= BOKEH_PHYSICAL_SIZE;
 	}
 	if (bokeh.push_constant.shape_flags & BOKEH_SHAPE_TILT) {

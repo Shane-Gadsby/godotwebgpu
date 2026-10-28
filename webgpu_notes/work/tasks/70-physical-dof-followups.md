@@ -1,8 +1,8 @@
 # 70-physical-dof-followups
 
-State: open
+State: ready-for-integration
 Owner: worker-70
-Claimed:
+Claimed: 2026-10-28 22:04
 Needs: build, gpu
 Branch: work/70
 Results: webgpu_notes/work/results/70-physical-dof-followups/
@@ -14,7 +14,7 @@ User answers on task 63's questions (hand-offs page, 2026-10-28): `dof-physical-
    cameras with `dof_physical_blur_size` on, so nothing else changes; re-measure the WebGPU cost at 1440p for Hexagon
    Low/High and Circle Medium at 6% (task 63 could not get a Circle number at 6% within 300 s: find out why, and if
    Circle at 6% is pathologically slow, say so in the class docs and the setting's description).
-2. A **legacy-look option** for physical-blur cameras: the old diluted Box/Hexagon gather (the upstream behaviour that
+2. A **legacy-look option** for physical-blur cameras: the old diluted Box/Hexagon gather (the upstream behavior that
    camera-sim's look was tuned through, §3 trap 97) as an opt-in, e.g. `CameraAttributesPhysical.dof_legacy_gather`
    (bool, default false) or an enum, so a project can keep its tuned look while using the thin-lens size. Name and
    place it as fits the existing group; document what it does and that it is not physically correct.

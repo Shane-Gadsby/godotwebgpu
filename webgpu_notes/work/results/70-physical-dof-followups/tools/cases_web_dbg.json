@@ -1,0 +1,3 @@
+{ "exact_hex2": "phys=1&shape=hexagon&quality=2",
+  "legacy_hex2b": "phys=1&legacy=1&shape=hexagon&quality=2",
+  "matched_hex2_new": "kind=practical&shape=hexagon&quality=2&amount=0.1708272696&fov=26.99146656&far=2.5&near=2.5" }

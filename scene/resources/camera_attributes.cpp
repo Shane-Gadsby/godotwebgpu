@@ -1538,11 +1538,22 @@ real_t CameraAttributesPhysical::get_far() const {
 void CameraAttributesPhysical::set_dof_physical_blur_size(bool p_enable) {
 	dof_physical_blur_size = p_enable;
 	_update_frustum();
+	notify_property_list_changed(); // dof_legacy_gather only shows with it.
 	emit_changed();
 }
 
 bool CameraAttributesPhysical::is_dof_physical_blur_size() const {
 	return dof_physical_blur_size;
+}
+
+void CameraAttributesPhysical::set_dof_legacy_gather(bool p_enable) {
+	dof_legacy_gather = p_enable;
+	RS::get_singleton()->camera_attributes_set_dof_legacy_gather(get_rid(), dof_legacy_gather);
+	emit_changed();
+}
+
+bool CameraAttributesPhysical::is_dof_legacy_gather() const {
+	return dof_legacy_gather;
 }
 
 real_t CameraAttributesPhysical::get_fov() const {
@@ -1858,6 +1869,10 @@ void CameraAttributesPhysical::_validate_property(PropertyInfo &property) const 
 	if ((property.name == "tilt_shift_tilt" || property.name == "tilt_shift_axis") && !tilt_shift_enabled) {
 		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 	}
+	// Without the thin-lens size the gather already is upstream's.
+	if (property.name == "dof_legacy_gather" && !dof_physical_blur_size) {
+		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+	}
 }
 
 void CameraAttributesPhysical::_bind_methods() {
@@ -1880,6 +1895,8 @@ void CameraAttributesPhysical::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_dof_physical_blur_size", "enable"), &CameraAttributesPhysical::set_dof_physical_blur_size);
 	ClassDB::bind_method(D_METHOD("is_dof_physical_blur_size"), &CameraAttributesPhysical::is_dof_physical_blur_size);
+	ClassDB::bind_method(D_METHOD("set_dof_legacy_gather", "enable"), &CameraAttributesPhysical::set_dof_legacy_gather);
+	ClassDB::bind_method(D_METHOD("is_dof_legacy_gather"), &CameraAttributesPhysical::is_dof_legacy_gather);
 
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_max_exposure_value", "exposure_value_max"), &CameraAttributesPhysical::set_auto_exposure_max_exposure_value);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_max_exposure_value"), &CameraAttributesPhysical::get_auto_exposure_max_exposure_value);
@@ -1945,6 +1962,7 @@ void CameraAttributesPhysical::_bind_methods() {
 
 	ADD_GROUP("Depth of Field", "dof_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dof_physical_blur_size"), "set_dof_physical_blur_size", "is_dof_physical_blur_size");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dof_legacy_gather"), "set_dof_legacy_gather", "is_dof_legacy_gather");
 
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_aperture", PROPERTY_HINT_RANGE, "0.5,64.0,0.01,exp,suffix:f-stop"), "set_aperture", "get_aperture");

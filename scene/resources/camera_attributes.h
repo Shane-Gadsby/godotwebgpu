@@ -470,6 +470,9 @@ private:
 	// Physical depth of field blur size: the thin-lens blur circle, sized against the frame (and so the sensor and the
 	// render resolution) instead of upstream's fixed scale. Off by default: off matches upstream Godot.
 	bool dof_physical_blur_size = false;
+	// The upstream box/hexagon gather (fixed 32-pixel reach, every sample in the divisor) for physically-sized blurs:
+	// a look option for projects tuned through it, not physically correct.
+	bool dof_legacy_gather = false;
 
 	virtual void _update_auto_exposure() override;
 
@@ -501,6 +504,9 @@ public:
 
 	void set_dof_physical_blur_size(bool p_enable);
 	bool is_dof_physical_blur_size() const;
+
+	void set_dof_legacy_gather(bool p_enable);
+	bool is_dof_legacy_gather() const;
 
 	real_t get_fov() const;
 	// True when get_fov() is the horizontal field of view (an anamorphic lens), false when it is the vertical one.
