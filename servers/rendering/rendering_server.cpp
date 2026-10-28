@@ -3112,6 +3112,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("environment_set_light_shafts_quality", "quality"), &RenderingServer::environment_set_light_shafts_quality);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap", "env", "tone_mapper", "exposure", "white"), &RenderingServer::environment_set_tonemap);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap_agx_contrast", "env", "agx_contrast"), &RenderingServer::environment_set_tonemap_agx_contrast);
+	ClassDB::bind_method(D_METHOD("environment_set_tonemap_custom", "env", "slope", "toe", "shoulder", "black_clip", "white_clip"), &RenderingServer::environment_set_tonemap_custom);
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment", "env", "enable", "brightness", "contrast", "saturation", "use_1d_color_correction", "color_correction"), &RenderingServer::environment_set_adjustment);
 	ClassDB::bind_method(D_METHOD("environment_set_color_grading", "env", "enable", "color_filter", "hue_shift", "vibrance", "lift", "gamma", "gain"), &RenderingServer::environment_set_color_grading);
 	ClassDB::bind_method(D_METHOD("environment_set_color_grading_shadows_midtones_highlights", "env", "shadows", "midtones", "highlights", "shadows_start", "shadows_end", "highlights_start", "highlights_end"), &RenderingServer::environment_set_color_grading_shadows_midtones_highlights);
@@ -3175,6 +3176,7 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::ENV_TONE_MAPPER_FILMIC);
 	BIND_ENUM_CONSTANT(RSE::ENV_TONE_MAPPER_ACES);
 	BIND_ENUM_CONSTANT(RSE::ENV_TONE_MAPPER_AGX);
+	BIND_ENUM_CONSTANT(RSE::ENV_TONE_MAPPER_CUSTOM);
 
 	BIND_ENUM_CONSTANT(RSE::ENV_SSR_ROUGHNESS_QUALITY_DISABLED);
 	BIND_ENUM_CONSTANT(RSE::ENV_SSR_ROUGHNESS_QUALITY_LOW);

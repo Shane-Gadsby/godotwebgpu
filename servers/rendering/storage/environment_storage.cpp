@@ -239,6 +239,9 @@ float RendererEnvironmentStorage::environment_get_white(RID p_env, bool p_limit_
 		// Filmic and ACES only support SDR; their white is stable regardless
 		// of output_max_value.
 		return MAX(1.0, env->white);
+	} else if (env->tone_mapper == RSE::ENV_TONE_MAPPER_CUSTOM) {
+		// The Custom curve has no white parameter: its white is where the curve itself reaches white.
+		return tonemap_custom_compute_curve(env->tonemap_custom_slope, env->tonemap_custom_toe, env->tonemap_custom_shoulder, env->tonemap_custom_black_clip, env->tonemap_custom_white_clip).white;
 	} else if (env->tone_mapper == RSE::ENV_TONE_MAPPER_AGX) {
 		// AgX works best with a high white. 2.0 is the minimum required for
 		// good behavior with Mobile rendering method.
@@ -341,6 +344,145 @@ RendererEnvironmentStorage::TonemapParameters RendererEnvironmentStorage::enviro
 	}
 
 	return tonemap_parameters;
+}
+
+/* Custom tonemap */
+
+// The Custom tonemapper's curve, with the parameters of Unreal Engine's Film tonemapper (slope, toe, shoulder, black
+// clip, white clip; https://dev.epicgames.com/documentation/en-us/unreal-engine/color-grading-and-the-filmic-tonemapper-in-unreal-engine),
+// so values can be carried over from it. In L = log10(x) the curve is a straight line, joined in value and slope to a
+// hyperbolic-tangent toe below it and shoulder above it:
+//   line(L)     = slope * (L + a)
+//   toe(L)      = (1 - toe) + ts * tanh(slope / ts * (L - l_toe)),           ts = 1 + black_clip - toe
+//   shoulder(L) = shoulder + ss * tanh(slope / ss * (L - l_shoulder)),      ss = 1 + white_clip - shoulder
+// The toe takes over below the output 1 - toe and falls toward -black_clip, the shoulder takes over above the output
+// `shoulder` and rises toward 1 + white_clip; a positive black (white) clip makes the curve reach 0 (1) at a finite
+// input. Mid gray anchors it: 0.18 maps to 0.18, on the toe when the toe reaches above 0.18 (toe < 0.82), on the line
+// otherwise. When the shoulder starts below the toe's end (l_shoulder < l_toe, as with the defaults), there is no line:
+// toe and shoulder are blended across the overlap with a smoothstep weight, as Unreal's curve does. The defaults are
+// Unreal's (0.88, 0.55, 0.26, 0, 0.04), its match of the ACES film curve. The output is clipped to [0, 1]: like
+// Filmic and ACES, this is a curve for SDR output.
+//
+// The shaders evaluate it in log2(x), so the constants are converted here: params[0] = (l_toe, l_shoulder, a,
+// slope) in log2 units, params[1] = (1 - toe, ts, shoulder, ss), params[2] = (blend scale, blend offset,
+// slope / ts, slope / ss), the last two in log2 units too. webgpu_notes/work/results/56-pp-custom-tonemap/ has a
+// numpy model of the curve written from this description, which the renders are checked against.
+RendererEnvironmentStorage::TonemapCustomCurve RendererEnvironmentStorage::tonemap_custom_compute_curve(float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip) {
+	// Guards for the ends of the ranges, where a segment would become a step: a slope of 0 or a toe (shoulder) that
+	// fills the whole range with no clip.
+	const double slope = MAX(double(p_slope), 0.01);
+	const double toe = CLAMP(double(p_toe), 0.0, 1.0);
+	const double shoulder = CLAMP(double(p_shoulder), 0.0, 1.0);
+	const double black_clip = MAX(double(p_black_clip), 0.0);
+	const double white_clip = MAX(double(p_white_clip), 0.0);
+	const double ts = MAX(1.0 + black_clip - toe, 1e-4);
+	const double ss = MAX(1.0 + white_clip - shoulder, 1e-4);
+
+	const double mid_gray = 0.18;
+	const double l_mid_gray = Math::log(mid_gray) / Math::log(10.0);
+	double a;
+	double l_toe;
+	if (toe < 1.0 - mid_gray) {
+		// Mid gray is on the toe: toe(l_mid_gray) = 0.18. The atanh argument is in (-1, 0) here.
+		const double b = (mid_gray - (1.0 - toe)) / ts;
+		l_toe = l_mid_gray - ts / slope * 0.5 * Math::log((1.0 + b) / (1.0 - b));
+		a = (1.0 - toe) / slope - l_toe;
+	} else {
+		// Mid gray is on the line: line(l_mid_gray) = 0.18.
+		a = mid_gray / slope - l_mid_gray;
+		l_toe = (1.0 - toe) / slope - a;
+	}
+	const double l_shoulder = shoulder / slope - a;
+
+	// Everything in log2(x) for the shaders: L10 = L2 * log10(2).
+	const double log10_2 = Math::log(2.0) / Math::log(10.0);
+	const double slope2 = slope * log10_2;
+	const double lo = MIN(l_toe, l_shoulder) / log10_2;
+	const double hi = MAX(l_toe, l_shoulder) / log10_2;
+	const double blend_scale = 1.0 / MAX(hi - lo, 1e-6);
+
+	TonemapCustomCurve curve;
+	curve.params[0][0] = l_toe / log10_2;
+	curve.params[0][1] = l_shoulder / log10_2;
+	curve.params[0][2] = a / log10_2;
+	curve.params[0][3] = slope2;
+	curve.params[1][0] = 1.0 - toe;
+	curve.params[1][1] = ts;
+	curve.params[1][2] = shoulder;
+	curve.params[1][3] = ss;
+	curve.params[2][0] = blend_scale;
+	curve.params[2][1] = -lo * blend_scale;
+	curve.params[2][2] = slope2 / ts;
+	curve.params[2][3] = slope2 / ss;
+
+	// White: the input shown as white (half an 8-bit step below 1.0), from the shoulder (or the line, if the shoulder
+	// starts above it). The blend can move it slightly; it only sets glow's Screen blend range.
+	const double white_output = 1.0 - 0.5 / 255.0;
+	double l_white;
+	if (white_output > shoulder) {
+		const double w = (white_output - shoulder) / ss; // In (0, 1): the shoulder rises toward 1 + white_clip.
+		l_white = l_shoulder + ss / slope * 0.5 * Math::log((1.0 + w) / (1.0 - w));
+	} else {
+		l_white = white_output / slope - a;
+	}
+	curve.white = CLAMP(Math::pow(10.0, l_white), 1.0, 1e6);
+	return curve;
+}
+
+void RendererEnvironmentStorage::environment_set_tonemap_custom(RID p_env, float p_slope, float p_toe, float p_shoulder, float p_black_clip, float p_white_clip) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->tonemap_custom_slope = p_slope;
+	env->tonemap_custom_toe = p_toe;
+	env->tonemap_custom_shoulder = p_shoulder;
+	env->tonemap_custom_black_clip = p_black_clip;
+	env->tonemap_custom_white_clip = p_white_clip;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_slope(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.88);
+	return env->tonemap_custom_slope;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_toe(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.55);
+	return env->tonemap_custom_toe;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_shoulder(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.26);
+	return env->tonemap_custom_shoulder;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_black_clip(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.0);
+	return env->tonemap_custom_black_clip;
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_custom_white_clip(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.04);
+	return env->tonemap_custom_white_clip;
+}
+
+bool RendererEnvironmentStorage::environment_fill_effects_buffer(RID p_env, EnvironmentEffectsUBO &r_ubo) const {
+	r_ubo = EnvironmentEffectsUBO();
+	Environment *env = environment_owner.get_or_null(p_env);
+	if (!env) {
+		return false;
+	}
+	bool used = false;
+	if (env->tone_mapper == RSE::ENV_TONE_MAPPER_CUSTOM) {
+		const TonemapCustomCurve curve = tonemap_custom_compute_curve(env->tonemap_custom_slope, env->tonemap_custom_toe, env->tonemap_custom_shoulder, env->tonemap_custom_black_clip, env->tonemap_custom_white_clip);
+		r_ubo.header[0] |= ENVIRONMENT_EFFECTS_TONEMAP_CUSTOM;
+		memcpy(r_ubo.tonemap_custom, curve.params, sizeof(r_ubo.tonemap_custom));
+		used = true;
+	}
+	return used;
 }
 
 // Fog

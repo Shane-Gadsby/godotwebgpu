@@ -463,6 +463,21 @@
 			The white reference value for tonemapping, which indicates where bright white is located in the scale of values provided to the tonemapper. For photorealistic lighting, it is recommended to set [member tonemap_agx_white] to at least [code]6.0[/code]. Higher values result in less blown out highlights, but may make the scene appear lower contrast. [member tonemap_agx_white] is the same as [member tonemap_white], but is only effective with the [constant TONE_MAPPER_AGX] tonemapper. See also [member tonemap_exposure].
 			[b]Note:[/b] When using the Mobile renderer with [member Viewport.use_hdr_2d] disabled, [member tonemap_agx_white] is ignored and a white value of [code]2.0[/code] will always be used instead. Otherwise, [member tonemap_agx_white] will be dynamically adjusted at runtime by multiplying it by the parent window's [method Window.get_output_max_linear_value] when using [member Viewport.use_hdr_2d] to ensure good behavior with both SDR and HDR output.
 		</member>
+		<member name="tonemap_custom_black_clip" type="float" setter="set_tonemap_custom_black_clip" getter="get_tonemap_custom_black_clip" default="0.0">
+			Where the toe of the [constant TONE_MAPPER_CUSTOM] curve ends up at the dark end: at [code]0.0[/code] it approaches black without reaching it, above [code]0.0[/code] it aims below black, so the darkest values become pure black (crushed) at a finite brightness. Small values (up to about [code]0.05[/code]) are typical. Same as Unreal Engine's Film "Black Clip".
+		</member>
+		<member name="tonemap_custom_shoulder" type="float" setter="set_tonemap_custom_shoulder" getter="get_tonemap_custom_shoulder" default="0.26">
+			The highlight compression of the [constant TONE_MAPPER_CUSTOM] curve: the output level at which the shoulder takes over from the straight part of the curve. Higher values keep highlights linear for longer and make them reach white sooner (brighter, more clipped highlights); lower values roll them off earlier and more gently. Very low values also start to pull mid gray down. Same as Unreal Engine's Film "Shoulder".
+		</member>
+		<member name="tonemap_custom_slope" type="float" setter="set_tonemap_custom_slope" getter="get_tonemap_custom_slope" default="0.88">
+			The contrast of the [constant TONE_MAPPER_CUSTOM] curve: its steepness through the midtones, in output per decade of input brightness. Mid gray ([code]0.18[/code]) stays where it is; higher values make shadows darker and highlights brighter, lower values flatten the image. Same as Unreal Engine's Film "Slope".
+		</member>
+		<member name="tonemap_custom_toe" type="float" setter="set_tonemap_custom_toe" getter="get_tonemap_custom_toe" default="0.55">
+			The shadow compression of the [constant TONE_MAPPER_CUSTOM] curve: how much of the output range the toe covers ([code]1.0 - toe[/code] is the output level where it ends). Higher values darken the shadows and lower midtones more; lower values keep them lighter and more linear. Same as Unreal Engine's Film "Toe".
+		</member>
+		<member name="tonemap_custom_white_clip" type="float" setter="set_tonemap_custom_white_clip" getter="get_tonemap_custom_white_clip" default="0.04">
+			Where the shoulder of the [constant TONE_MAPPER_CUSTOM] curve ends up at the bright end: at [code]0.0[/code] it approaches white without reaching it, above [code]0.0[/code] it aims past white, so bright values become pure white at a finite brightness (about [code]10.0[/code] with the defaults). Same as Unreal Engine's Film "White Clip".
+		</member>
 		<member name="tonemap_exposure" type="float" setter="set_tonemap_exposure" getter="get_tonemap_exposure" default="1.0">
 			Adjusts the brightness of values before they are provided to the tonemapper. Higher [member tonemap_exposure] values result in a brighter image. See also [member tonemap_white].
 			[b]Note:[/b] Values provided to the tonemapper will also be multiplied by [code]2.0[/code] and [code]1.8[/code] for [constant TONE_MAPPER_FILMIC] and [constant TONE_MAPPER_ACES] respectively to produce a similar apparent brightness as [constant TONE_MAPPER_LINEAR].
@@ -590,6 +605,10 @@
 		</constant>
 		<constant name="TONE_MAPPER_AGX" value="4" enum="ToneMapper">
 			Uses an adjustable film-like tonemapping curve and desaturates bright values for a more realistic appearance. Better than other tonemappers at maintaining the hue of colors as they become brighter. The slowest tonemapping option.
+		</constant>
+		<constant name="TONE_MAPPER_CUSTOM" value="5" enum="ToneMapper">
+			A film-like curve shaped by [member tonemap_custom_slope], [member tonemap_custom_toe], [member tonemap_custom_shoulder], [member tonemap_custom_black_clip] and [member tonemap_custom_white_clip]: a straight line in logarithmic brightness joined to a smooth toe in the shadows and a shoulder in the highlights, which always maps mid gray ([code]0.18[/code]) to [code]0.18[/code]. The parameters are those of Unreal Engine's Film tonemapper, so its values can be carried over, and the defaults are its defaults, which match the ACES film curve. It is applied to each color channel, like [constant TONE_MAPPER_FILMIC], and does not use [member tonemap_white]. It is a curve for standard dynamic range output: its result is clipped to [code]1.0[/code].
+			[b]Note:[/b] In the Mobile renderer, the scene is stored with values up to [code]2.0[/code], so the shoulder sees nothing brighter than that (about [code]0.86[/code] output with the defaults). In the Compatibility renderer, it is applied in the scene shader like the other tonemappers.
 		</constant>
 		<constant name="GLOW_BLEND_MODE_ADDITIVE" value="0" enum="GlowBlendMode">
 			Adds the glow effect to the scene.

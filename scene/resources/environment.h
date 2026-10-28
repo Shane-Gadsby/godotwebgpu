@@ -69,6 +69,7 @@ public:
 		TONE_MAPPER_FILMIC,
 		TONE_MAPPER_ACES,
 		TONE_MAPPER_AGX,
+		TONE_MAPPER_CUSTOM,
 	};
 
 	enum SDFGIYScale {
@@ -120,6 +121,14 @@ private:
 	float tonemap_agx_white = 16.29; // Default to Blender's AgX white.
 	float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast.
 	void _update_tonemap();
+
+	// Custom tonemap: Unreal Engine's Film tonemapper parameters, at its defaults.
+	float tonemap_custom_slope = 0.88;
+	float tonemap_custom_toe = 0.55;
+	float tonemap_custom_shoulder = 0.26;
+	float tonemap_custom_black_clip = 0.0;
+	float tonemap_custom_white_clip = 0.04;
+	void _update_tonemap_custom();
 
 	// SSR
 	bool ssr_enabled = false;
@@ -345,6 +354,18 @@ public:
 	float get_tonemap_agx_white() const;
 	void set_tonemap_agx_contrast(float p_agx_contrast);
 	float get_tonemap_agx_contrast() const;
+
+	// Custom tonemap
+	void set_tonemap_custom_slope(float p_slope);
+	float get_tonemap_custom_slope() const;
+	void set_tonemap_custom_toe(float p_toe);
+	float get_tonemap_custom_toe() const;
+	void set_tonemap_custom_shoulder(float p_shoulder);
+	float get_tonemap_custom_shoulder() const;
+	void set_tonemap_custom_black_clip(float p_black_clip);
+	float get_tonemap_custom_black_clip() const;
+	void set_tonemap_custom_white_clip(float p_white_clip);
+	float get_tonemap_custom_white_clip() const;
 
 	// SSR
 	void set_ssr_enabled(bool p_enabled);

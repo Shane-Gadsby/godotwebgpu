@@ -500,6 +500,8 @@ private:
 			uint32_t camera_lut = 0; // Packed CameraAttributes LUT (RendererCameraAttributes::camera_attributes_get_lut_packed()).
 			int32_t pad5 = 0;
 			int32_t pad6 = 0;
+			// The Custom tonemapper's curve (RendererEnvironmentStorage::tonemap_custom_compute_curve()).
+			float tonemap_custom[3][4] = {};
 		};
 		static_assert(sizeof(TonemapUBO) % 16 == 0, "Tonemap UBO size must be a multiple of 16 bytes");
 

@@ -76,6 +76,13 @@ layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 #define CAMERA_EXPOSURE_BINDING 2
 #include "camera_exposure_inc.glsl"
 
+// Environment features with more parameters than the push constant holds (the Custom tonemapper's curve): beside the
+// Environment's color correction LUT. Set 3 is shared with push-constant emulation on WebGPU (binding 120).
+#define ENVIRONMENT_EFFECTS_SET 3
+#define ENVIRONMENT_EFFECTS_BINDING 2
+#include "environment_effects_inc.glsl"
+#include "tonemap_custom_inc.glsl"
+
 #ifdef USE_MULTIVIEW
 #define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, vec3(m_uv, ViewIndex), m_lod).rgb * params.luminance_multiplier)
 #define CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) (textureGrad(source_glare, vec3(m_uv, ViewIndex), m_dx, m_dy).rgb * params.luminance_multiplier)
@@ -299,6 +306,7 @@ vec3 srgb_to_linear(vec3 color) {
 #define TONEMAPPER_FILMIC 2
 #define TONEMAPPER_ACES 3
 #define TONEMAPPER_AGX 4
+#define TONEMAPPER_CUSTOM 5
 
 vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 	if (params.tonemapper == TONEMAPPER_LINEAR) {
@@ -315,6 +323,8 @@ vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 		return tonemap_filmic(color);
 	} else if (params.tonemapper == TONEMAPPER_ACES) {
 		return tonemap_aces(color);
+	} else if (params.tonemapper == TONEMAPPER_CUSTOM) {
+		return tonemap_custom_curve(color, environment_effects.tonemap_custom[0], environment_effects.tonemap_custom[1], environment_effects.tonemap_custom[2]);
 	} else { // TONEMAPPER_AGX
 		return tonemap_agx(color);
 	}

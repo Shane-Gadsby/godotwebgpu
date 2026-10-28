@@ -258,6 +258,57 @@ void Environment::_update_tonemap() {
 			tone_mapper == TONE_MAPPER_AGX ? tonemap_agx_white : tonemap_white);
 }
 
+// Custom tonemap
+
+void Environment::set_tonemap_custom_slope(float p_slope) {
+	tonemap_custom_slope = p_slope;
+	_update_tonemap_custom();
+}
+
+float Environment::get_tonemap_custom_slope() const {
+	return tonemap_custom_slope;
+}
+
+void Environment::set_tonemap_custom_toe(float p_toe) {
+	tonemap_custom_toe = p_toe;
+	_update_tonemap_custom();
+}
+
+float Environment::get_tonemap_custom_toe() const {
+	return tonemap_custom_toe;
+}
+
+void Environment::set_tonemap_custom_shoulder(float p_shoulder) {
+	tonemap_custom_shoulder = p_shoulder;
+	_update_tonemap_custom();
+}
+
+float Environment::get_tonemap_custom_shoulder() const {
+	return tonemap_custom_shoulder;
+}
+
+void Environment::set_tonemap_custom_black_clip(float p_black_clip) {
+	tonemap_custom_black_clip = p_black_clip;
+	_update_tonemap_custom();
+}
+
+float Environment::get_tonemap_custom_black_clip() const {
+	return tonemap_custom_black_clip;
+}
+
+void Environment::set_tonemap_custom_white_clip(float p_white_clip) {
+	tonemap_custom_white_clip = p_white_clip;
+	_update_tonemap_custom();
+}
+
+float Environment::get_tonemap_custom_white_clip() const {
+	return tonemap_custom_white_clip;
+}
+
+void Environment::_update_tonemap_custom() {
+	RS::get_singleton()->environment_set_tonemap_custom(environment, tonemap_custom_slope, tonemap_custom_toe, tonemap_custom_shoulder, tonemap_custom_black_clip, tonemap_custom_white_clip);
+}
+
 // SSR
 
 void Environment::set_ssr_enabled(bool p_enabled) {
@@ -1635,8 +1686,15 @@ void Environment::_validate_property(PropertyInfo &p_property) const {
 		return;
 	}
 
+	if (p_property.name.begins_with("tonemap_custom_")) {
+		if (tone_mapper != TONE_MAPPER_CUSTOM) {
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+		}
+		return;
+	}
+
 	if (p_property.name == "tonemap_white") {
-		if (tone_mapper == TONE_MAPPER_LINEAR || tone_mapper == TONE_MAPPER_AGX) {
+		if (tone_mapper == TONE_MAPPER_LINEAR || tone_mapper == TONE_MAPPER_AGX || tone_mapper == TONE_MAPPER_CUSTOM) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
 		return;
@@ -1803,11 +1861,30 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_tonemap_agx_contrast"), &Environment::get_tonemap_agx_contrast);
 
 	ADD_GROUP("Tonemap", "tonemap_");
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "tonemap_mode", PROPERTY_HINT_ENUM, "Linear,Reinhard,Filmic,ACES,AgX"), "set_tonemapper", "get_tonemapper");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "tonemap_mode", PROPERTY_HINT_ENUM, "Linear,Reinhard,Filmic,ACES,AgX,Custom"), "set_tonemapper", "get_tonemapper");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonemap_exposure", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_tonemap_exposure", "get_tonemap_exposure");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonemap_white", PROPERTY_HINT_RANGE, "1,16,0.01,or_greater"), "set_tonemap_white", "get_tonemap_white");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonemap_agx_white", PROPERTY_HINT_RANGE, "2,16.5,0.01,or_greater"), "set_tonemap_agx_white", "get_tonemap_agx_white");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonemap_agx_contrast", PROPERTY_HINT_RANGE, "1.0,2.0,0.01,or_greater"), "set_tonemap_agx_contrast", "get_tonemap_agx_contrast");
+
+	// Custom tonemap
+
+	ClassDB::bind_method(D_METHOD("set_tonemap_custom_slope", "slope"), &Environment::set_tonemap_custom_slope);
+	ClassDB::bind_method(D_METHOD("get_tonemap_custom_slope"), &Environment::get_tonemap_custom_slope);
+	ClassDB::bind_method(D_METHOD("set_tonemap_custom_toe", "toe"), &Environment::set_tonemap_custom_toe);
+	ClassDB::bind_method(D_METHOD("get_tonemap_custom_toe"), &Environment::get_tonemap_custom_toe);
+	ClassDB::bind_method(D_METHOD("set_tonemap_custom_shoulder", "shoulder"), &Environment::set_tonemap_custom_shoulder);
+	ClassDB::bind_method(D_METHOD("get_tonemap_custom_shoulder"), &Environment::get_tonemap_custom_shoulder);
+	ClassDB::bind_method(D_METHOD("set_tonemap_custom_black_clip", "black_clip"), &Environment::set_tonemap_custom_black_clip);
+	ClassDB::bind_method(D_METHOD("get_tonemap_custom_black_clip"), &Environment::get_tonemap_custom_black_clip);
+	ClassDB::bind_method(D_METHOD("set_tonemap_custom_white_clip", "white_clip"), &Environment::set_tonemap_custom_white_clip);
+	ClassDB::bind_method(D_METHOD("get_tonemap_custom_white_clip"), &Environment::get_tonemap_custom_white_clip);
+
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonemap_custom_slope", PROPERTY_HINT_RANGE, "0.01,1.0,0.01"), "set_tonemap_custom_slope", "get_tonemap_custom_slope");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonemap_custom_toe", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_tonemap_custom_toe", "get_tonemap_custom_toe");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonemap_custom_shoulder", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_tonemap_custom_shoulder", "get_tonemap_custom_shoulder");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonemap_custom_black_clip", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_tonemap_custom_black_clip", "get_tonemap_custom_black_clip");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonemap_custom_white_clip", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_tonemap_custom_white_clip", "get_tonemap_custom_white_clip");
 
 	// SSR
 
@@ -2273,6 +2350,7 @@ void Environment::_bind_methods() {
 	BIND_ENUM_CONSTANT(TONE_MAPPER_FILMIC);
 	BIND_ENUM_CONSTANT(TONE_MAPPER_ACES);
 	BIND_ENUM_CONSTANT(TONE_MAPPER_AGX);
+	BIND_ENUM_CONSTANT(TONE_MAPPER_CUSTOM);
 
 	BIND_ENUM_CONSTANT(GLOW_BLEND_MODE_ADDITIVE);
 	BIND_ENUM_CONSTANT(GLOW_BLEND_MODE_SCREEN);
@@ -2304,6 +2382,7 @@ Environment::Environment() {
 
 	_update_ambient_light();
 	_update_tonemap();
+	_update_tonemap_custom();
 	_update_ssr();
 	_update_ssao();
 	_update_ssil();
