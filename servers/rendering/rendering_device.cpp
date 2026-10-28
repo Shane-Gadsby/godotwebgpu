@@ -1415,7 +1415,7 @@ Error RenderingDevice::buffer_clear(RID p_buffer, uint32_t p_offset, uint32_t p_
 	return OK;
 }
 
-Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset, uint32_t p_size) {
+Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset, uint32_t p_size, bool *r_not_ready) {
 	ERR_RENDER_THREAD_GUARD_V(Vector<uint8_t>());
 
 	Buffer *buffer = _get_buffer_from_owner(p_buffer);
@@ -1437,6 +1437,14 @@ Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset
 	if (driver->buffer_get_data_direct(buffer->driver_id, p_offset, p_size, direct_data)) {
 		return direct_data;
 	}
+#ifdef WEB_ENABLED
+	// The web's only RenderingDevice driver is WebGPU, whose buffer_get_data_direct() handles every readback and returns
+	// false only while its asynchronous map has not completed. The staging copy below then cannot be mapped either (no
+	// way to wait for wgpuBufferMapAsync() inside a synchronous call), so it returns zeros.
+	if (r_not_ready) {
+		*r_not_ready = true;
+	}
+#endif
 
 	_check_transfer_worker_buffer(buffer);
 
@@ -1467,6 +1475,25 @@ Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset
 	driver->buffer_free(tmp_buffer);
 
 	return buffer_data;
+}
+
+Vector<uint8_t> RenderingDevice::_buffer_get_data_bind(RID p_buffer, uint32_t p_offset, uint32_t p_size) {
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+	// A project tested natively gets zeros here on the web with nothing in the console to say why (work task 77; task 71
+	// did the same for Texture2D.get_image()). Once per buffer; an invalid buffer prints its own error and is not marked.
+	bool not_ready = false;
+	Vector<uint8_t> data = buffer_get_data(p_buffer, p_offset, p_size, &not_ready);
+	if (not_ready) {
+		Buffer *buffer = _get_buffer_from_owner(p_buffer);
+		if (buffer && !buffer->warned_sync_readback_pending) {
+			buffer->warned_sync_readback_pending = true;
+			WARN_PRINT(vformat("RenderingDevice.buffer_get_data() returned zeros for buffer of %d bytes: on the web, GPU data is read back asynchronously and had not arrived yet (once it has, a call returns what an earlier call copied). Use RenderingDevice.buffer_get_data_async() to wait for it. Shown once per buffer, in debug builds only.", buffer->size));
+		}
+	}
+	return data;
+#else
+	return buffer_get_data(p_buffer, p_offset, p_size);
+#endif
 }
 
 Error RenderingDevice::buffer_get_data_async(RID p_buffer, const Callable &p_callback, uint32_t p_offset, uint32_t p_size) {
@@ -3048,7 +3075,7 @@ void RenderingDevice::_texture_clear_depth_stencil(RID p_texture_rid, Texture *p
 	draw_graph.add_texture_clear_depth_stencil(p_texture->driver_id, p_texture->draw_tracker, p_depth, p_stencil, range);
 }
 
-Vector<uint8_t> RenderingDevice::texture_get_data(RID p_texture, uint32_t p_layer) {
+Vector<uint8_t> RenderingDevice::texture_get_data(RID p_texture, uint32_t p_layer, bool *r_not_ready) {
 	ERR_RENDER_THREAD_GUARD_V(Vector<uint8_t>());
 
 	Texture *tex = texture_owner.get_or_null(p_texture);
@@ -3075,7 +3102,11 @@ Vector<uint8_t> RenderingDevice::texture_get_data(RID p_texture, uint32_t p_laye
 		// per (texture, layer) and returns cached data once the async map fires.
 		// First call returns empty (not ready); subsequent calls return data.
 		// See: drivers/webgpu/rendering_device_driver_webgpu.cpp:texture_get_data
-		return driver->texture_get_data(tex->driver_id, p_layer);
+		Vector<uint8_t> data = driver->texture_get_data(tex->driver_id, p_layer);
+		if (r_not_ready) {
+			*r_not_ready = data.is_empty();
+		}
+		return data;
 	} else {
 		RDD::TextureAspect aspect = tex->read_aspect_flags.has_flag(RDD::TEXTURE_ASPECT_DEPTH_BIT) ? RDD::TEXTURE_ASPECT_DEPTH : RDD::TEXTURE_ASPECT_COLOR;
 		uint32_t mip_alignment = driver->api_trait_get(RDD::API_TRAIT_TEXTURE_TRANSFER_ALIGNMENT);
@@ -3173,6 +3204,26 @@ Vector<uint8_t> RenderingDevice::texture_get_data(RID p_texture, uint32_t p_laye
 
 		return buffer_data;
 	}
+}
+
+Vector<uint8_t> RenderingDevice::_texture_get_data_bind(RID p_texture, uint32_t p_layer) {
+#if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
+	// A project tested natively gets an empty array here on the web with nothing in the console to say why (work task 77;
+	// task 71 did the same for Texture2D.get_image()). Once per texture; a texture RenderingDevice refuses (invalid, no
+	// copy-from usage, bound, bad layer) prints its own error and is never "not ready".
+	bool not_ready = false;
+	Vector<uint8_t> data = texture_get_data(p_texture, p_layer, &not_ready);
+	if (not_ready) {
+		Texture *tex = texture_owner.get_or_null(p_texture);
+		if (tex && !tex->warned_sync_readback_pending) {
+			tex->warned_sync_readback_pending = true;
+			WARN_PRINT(vformat("RenderingDevice.texture_get_data() returned no data for texture %dx%d (layer %d): on the web, GPU pixels are read back asynchronously and had not arrived yet (each call starts a new copy). Use RenderingDevice.texture_get_data_async() to wait for them, or \"await texture.get_image_awaitable()\" for a Texture2D. Shown once per texture, in debug builds only.", tex->width, tex->height, p_layer));
+		}
+	}
+	return data;
+#else
+	return texture_get_data(p_texture, p_layer);
+#endif
 }
 
 Error RenderingDevice::texture_get_data_async(RID p_texture, uint32_t p_layer, const Callable &p_callback) {
@@ -9952,7 +10003,7 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("texture_create_from_extension", "type", "format", "samples", "usage_flags", "image", "width", "height", "depth", "layers", "mipmaps"), &RenderingDevice::texture_create_from_extension, DEFVAL(1));
 
 	ClassDB::bind_method(D_METHOD("texture_update", "texture", "layer", "data"), &RenderingDevice::texture_update);
-	ClassDB::bind_method(D_METHOD("texture_get_data", "texture", "layer"), &RenderingDevice::texture_get_data);
+	ClassDB::bind_method(D_METHOD("texture_get_data", "texture", "layer"), &RenderingDevice::_texture_get_data_bind);
 	ClassDB::bind_method(D_METHOD("texture_get_data_async", "texture", "layer", "callback"), &RenderingDevice::texture_get_data_async);
 
 	ClassDB::bind_method(D_METHOD("texture_is_format_supported_for_usage", "format", "usage_flags"), &RenderingDevice::texture_is_format_supported_for_usage);
@@ -10010,7 +10061,7 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("buffer_copy", "src_buffer", "dst_buffer", "src_offset", "dst_offset", "size"), &RenderingDevice::buffer_copy);
 	ClassDB::bind_method(D_METHOD("buffer_update", "buffer", "offset", "size_bytes", "data"), &RenderingDevice::_buffer_update_bind);
 	ClassDB::bind_method(D_METHOD("buffer_clear", "buffer", "offset", "size_bytes"), &RenderingDevice::buffer_clear);
-	ClassDB::bind_method(D_METHOD("buffer_get_data", "buffer", "offset_bytes", "size_bytes"), &RenderingDevice::buffer_get_data, DEFVAL(0), DEFVAL(0));
+	ClassDB::bind_method(D_METHOD("buffer_get_data", "buffer", "offset_bytes", "size_bytes"), &RenderingDevice::_buffer_get_data_bind, DEFVAL(0), DEFVAL(0));
 	ClassDB::bind_method(D_METHOD("buffer_get_data_async", "buffer", "callback", "offset_bytes", "size_bytes"), &RenderingDevice::buffer_get_data_async, DEFVAL(0), DEFVAL(0));
 	ClassDB::bind_method(D_METHOD("buffer_get_device_address", "buffer"), &RenderingDevice::buffer_get_device_address);
 

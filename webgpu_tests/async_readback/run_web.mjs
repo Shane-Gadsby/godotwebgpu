@@ -9,7 +9,9 @@
 //
 // Also counts the debug-only warning a synchronous get_image() prints when it returns null on the web (task 71): a
 // debug export (the project prints debug=true) must print it exactly once for each of the two textures the project
-// reads synchronously (w96 is 96x7, w333 is 333x7), and a release export never.
+// reads synchronously (w96 is 96x7, w333 is 333x7), and a release export never. Likewise RenderingDevice's own
+// synchronous texture_get_data() / buffer_get_data() (task 77): once for each of textures 41x5 and 17x3 and buffers of
+// 100 and 52 bytes in a debug export, never in release.
 //
 // And fails on any WebGPU validation message (work task 76: "[Buffer] used in submit while pending map" was printed
 // once per readback under load and went unnoticed) or any console error the project does not provoke on purpose.
@@ -95,11 +97,12 @@ try {
 		let result = null;
 		let debug = null;
 		const syncWarnings = [];
+		const rdWarnings = [];
 		const validation = [];
 		const unexpectedErrors = [];
 		// Errors main.gd provokes on purpose (_test_sync_invalid, the freed-texture checks) and the lines of their
 		// backtraces; anything else on console.error fails the run.
-		const EXPECTED_ERROR = /texture_2d_get|TEXTURE_USAGE_CAN_COPY_FROM_BIT|Texture requires|Parameter "tex" is null|^\s*at:? |GDScript backtrace|\[\d+\] /;
+		const EXPECTED_ERROR = /texture_2d_get|TEXTURE_USAGE_CAN_COPY_FROM_BIT|Texture requires|Parameter "tex" is null|Buffer is either invalid|^\s*at:? |GDScript backtrace|\[\d+\] /;
 		const finished = new Promise((resolve) => {
 			page.on('console', (m) => {
 				const t = m.text();
@@ -114,6 +117,9 @@ try {
 				}
 				if (t.includes('returned null for')) {
 					syncWarnings.push({ type: m.type(), text: t.split('\n')[0] });
+				}
+				if (/RenderingDevice\.(texture|buffer)_get_data\(\) returned/.test(t)) {
+					rdWarnings.push({ type: m.type(), text: t.split('\n')[0] });
 				}
 				if (/^W66|ERROR|error/.test(t)) {
 					lines.push(`[${m.type()}] ${t.split('\n')[0]}`);
@@ -163,6 +169,16 @@ try {
 			}
 			console.log(`sync readback warnings: ${syncWarnings.length} (${debug === null ? 'build kind unknown' : debug ? 'debug, expected one for each of 96x7 and 333x7' : 'release, expected none'}) -> ${warnOk ? 'ok' : 'FAIL'}`);
 			if (!warnOk) {
+				code = 1;
+			}
+			for (const w of rdWarnings) {
+				console.log(`RD sync readback warning [${w.type}]: ${w.text}`);
+			}
+			const rdWant = debug ? ['buffer of 100 bytes', 'buffer of 52 bytes', 'texture 17x3', 'texture 41x5'] : [];
+			const rdGot = rdWarnings.map((w) => (/returned [a-z ]+ for (texture \d+x\d+|buffer of \d+ bytes)/.exec(w.text) || [])[1] || w.text).sort();
+			const rdOk = debug !== null && JSON.stringify(rdGot) === JSON.stringify(rdWant) && rdWarnings.every((w) => w.type === 'warning');
+			console.log(`RD sync readback warnings: ${rdWarnings.length} (${debug === null ? 'build kind unknown' : debug ? 'debug, expected one for each of 41x5, 17x3, 100 and 52 bytes' : 'release, expected none'}) -> ${rdOk ? 'ok' : 'FAIL'}`);
+			if (!rdOk) {
 				code = 1;
 			}
 		}

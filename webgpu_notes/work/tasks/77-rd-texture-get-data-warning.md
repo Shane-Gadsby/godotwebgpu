@@ -1,8 +1,8 @@
 # 77-rd-texture-get-data-warning
 
-State: open
+State: claimed
 Owner: worker-77
-Claimed:
+Claimed: 2026-10-29 07:05
 Needs: build, browser
 Branch: work/77
 Results: webgpu_notes/work/results/77-rd-texture-get-data-warning/

@@ -75,7 +75,7 @@
 			<description>
 				Returns a copy of the data of the specified [param buffer], optionally [param offset_bytes] and [param size_bytes] can be set to copy only a portion of the buffer.
 				[b]Note:[/b] This method will block the GPU from working until the data is retrieved. Refer to [method buffer_get_data_async] for an alternative that returns the data in more performant way.
-				[b]Note:[/b] On the web (WebGPU), a read from the GPU cannot wait for the data: the first call for a buffer returns zeros, and a later call returns what the previous call copied, a frame or more old. Use [method buffer_get_data_async], which calls back once the data has arrived.
+				[b]Note:[/b] On the web (WebGPU), a read from the GPU cannot wait for the data: the first call for a buffer returns zeros, and a later call returns what the previous call copied, a frame or more old. Use [method buffer_get_data_async], which calls back once the data has arrived. Debug builds print a warning the first time this happens for a buffer.
 			</description>
 		</method>
 		<method name="buffer_get_data_async">
@@ -1188,7 +1188,7 @@
 				[b]Note:[/b] [param texture] can't be retrieved while a draw list that uses it as part of a framebuffer is being created. Ensure the draw list is finalized (and that the color/depth texture using it is not set to [constant FINAL_ACTION_CONTINUE]) to retrieve this texture. Otherwise, an error is printed and an empty [PackedByteArray] is returned.
 				[b]Note:[/b] [param texture] requires the [constant TEXTURE_USAGE_CAN_COPY_FROM_BIT] to be retrieved. Otherwise, an error is printed and an empty [PackedByteArray] is returned.
 				[b]Note:[/b] This method will block the GPU from working until the data is retrieved. Refer to [method texture_get_data_async] for an alternative that returns the data in more performant way.
-				[b]Note:[/b] On the web (WebGPU), a read from the GPU cannot wait for the data: the first call for a texture returns an empty array, and a later call returns what the previous call copied, a frame or more old. Use [method texture_get_data_async], which calls back once the data has arrived.
+				[b]Note:[/b] On the web (WebGPU), a read from the GPU cannot wait for the data: the first call for a texture returns an empty array, and a later call returns what the previous call copied, a frame or more old. Use [method texture_get_data_async], which calls back once the data has arrived. Debug builds print a warning the first time this happens for a texture.
 			</description>
 		</method>
 		<method name="texture_get_data_async">

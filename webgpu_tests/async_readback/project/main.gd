@@ -3,7 +3,10 @@ extends Node
 # Texture2D.get_image_awaitable() / RenderingServer.texture_2d_get_awaitable() (work task 71). Runs the same natively and
 # on the web; prints one "W66RESULT <json>" line and "W66DONE". The synchronous reads at frames 5-8 are also what the
 # runners count the web's debug-only "returned null for" warning on (one per texture: w96, w333; none for the invalid
-# RID or the texture without copy-from usage). User args (after --): mode=test (default),
+# RID or the texture without copy-from usage). The synchronous RenderingDevice.texture_get_data() / buffer_get_data() reads
+# at frames 5-7 are what they count the web's debug-only "RenderingDevice.*_get_data() returned" warning on (work task
+# 77: one per resource: textures 41x5 and 17x3, buffers of 100 and 52 bytes; none for an invalid RID or a texture
+# without copy-from usage). User args (after --): mode=test (default),
 # mode=perf_none or mode=perf_readback (a readback of the main viewport every frame, for gpu_time.mjs).
 # From frame 200, the load_* checks (work task 76): a 1920x1080 HDR 3D viewport read back every frame for 600 frames,
 # bursts of four reads in one frame, and its float values against native Vulkan's.
@@ -54,6 +57,7 @@ func _ready() -> void:
 	_add_black_vps()
 	if mode == "test":
 		_add_load_vps()
+		_add_sync_rd()
 	if mode.begins_with("perf"):
 		perf_t0 = Time.get_ticks_msec()
 		return
@@ -239,6 +243,7 @@ func _process(_delta: float) -> void:
 		return
 	match frame:
 		5, 6, 7:
+			_test_sync_rd()
 			# What the synchronous get_image() returns on its first calls (information, not a pass/fail check).
 			var img: Image = vps["w96"].vp.get_texture().get_image()
 			var kind := "null"
@@ -482,6 +487,55 @@ func _test_sync_invalid() -> void:
 	t2.get_image()
 	rd_textures.append(t2)
 	rd_textures.append(rid)
+	# The same through RenderingDevice's own synchronous reads (task 77), and invalid RIDs: errors, no warning.
+	rd.texture_get_data(rid, 0)
+	rd.texture_get_data(RID(), 0)
+	rd.buffer_get_data(RID())
+
+
+# --- Synchronous RenderingDevice reads (task 77): natively the data at once; on the web nothing at first, and a debug
+# build warns once per texture/buffer. Each resource is read on frames 5, 6 and 7 or on frame 5 only. ---
+
+var sync_rd := {} # name -> {rid, kind, bytes, frames}
+
+
+func _add_sync_rd() -> void:
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		return
+	for t in [["tex_41x5", 41, 5, [5, 6, 7]], ["tex_17x3", 17, 3, [5]]]:
+		var tf := RDTextureFormat.new()
+		tf.width = t[1]
+		tf.height = t[2]
+		tf.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
+		tf.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
+		var data := _rgba8_bytes(t[1], t[2])
+		var rid := rd.texture_create(tf, RDTextureView.new(), [data])
+		rd_textures.append(rid)
+		sync_rd[t[0]] = { "rid": rid, "kind": "texture", "bytes": data, "frames": t[3] }
+	for b in [["buf_100", 100, [5, 6, 7]], ["buf_52", 52, [5]]]:
+		var data := PackedByteArray()
+		data.resize(b[1])
+		for i in data.size():
+			data[i] = (i * 29 + 3) % 256
+		var rid := rd.storage_buffer_create(data.size(), data)
+		rd_textures.append(rid)
+		sync_rd[b[0]] = { "rid": rid, "kind": "buffer", "bytes": data, "frames": b[2] }
+
+
+func _test_sync_rd() -> void:
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		return
+	var web := OS.has_feature("web")
+	for n in sync_rd:
+		var s: Dictionary = sync_rd[n]
+		if not s.frames.has(frame):
+			continue
+		var got: PackedByteArray = rd.texture_get_data(s.rid, 0) if s.kind == "texture" else rd.buffer_get_data(s.rid)
+		var returned := "empty" if got.is_empty() else ("data" if got == s.bytes else ("zeros" if got.count(0) == got.size() else "other"))
+		# Natively a synchronous read returns the data every time. On the web, what it returns is information.
+		_record("sync_rd_%s_frame%d" % [n, frame], "" if web or returned == "data" else "returned %s, not the data" % returned, { "returned": returned })
 
 
 # --- The awaitable forms (task 71) ---

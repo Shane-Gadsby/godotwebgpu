@@ -22,4 +22,7 @@ echo "$out" | grep -q "^W66DONE" || { echo "no W66DONE (rc=$rc)" >&2; exit 1; }
 warns=$(echo "$out" | grep -c "returned null for")
 echo "sync readback warnings: $warns (native, expected 0)"
 [[ "$warns" == 0 ]] || exit 1
+rdwarns=$(echo "$out" | grep -cE "RenderingDevice\.(texture|buffer)_get_data\(\) returned")
+echo "RD sync readback warnings: $rdwarns (native, expected 0)"
+[[ "$rdwarns" == 0 ]] || exit 1
 exit $rc
