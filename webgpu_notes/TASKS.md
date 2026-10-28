@@ -2583,7 +2583,7 @@ Effort <0.5 session once the user has answered.
 
 ### 2.48 Survey: post-processing effects Godot lacks `SURVEYED 2026-10-28` *(user request; work task 41)*
 
-**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46), color grading §4.65 (task 45), Panini §4.66 (task 47); GTAO (48) in integration; custom tonemap curve and local exposure next.
+**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46), color grading §4.65 (task 45), Panini §4.66 (task 47), GTAO §4.68 (task 48); custom tonemap curve and local exposure next.
 
 Investigate which post-processing effects Godot's renderers (Forward+, Mobile, Compatibility; web included) do not
 have, the way the camera survey of 2026-10-28 found the camera attributes that became work tasks 33–38. **Exclude what
@@ -3267,6 +3267,11 @@ fullscreen and every following step fails as if the engine were wrong. Leave wit
 fullscreen document. Also seen the same day: Firefox now and then ignores a parent page's own `iframe.requestFullscreen()`
 in a long fullscreen sequence (lead's first run of `embed_test.mjs`: 6 checks failed with the game never reached, a
 rerun passed 59/59); a single fullscreen failure there is not an engine regression until it reproduces.
+
+89. **WGSL `clamp()` keeps NaN** (2026-10-28, work task 48). A non-finite value that a Vulkan driver's
+`clamp()`/`min()`/`max()` happens to scrub stays NaN in WGSL on Chrome, and an R8/RG8 store of NaN reads back as 0:
+GTAO's sky came out black on the web only (infinite background depth gave NaN denoiser weights). Keep linear depths
+finite (clamp to the storage format's range) and test background pixels with `!(x < limit)`, which is also true for NaN.
 
 ---
 
@@ -5152,6 +5157,21 @@ editor and web template 0 warnings; Chrome all checks pass; Firefox 59/59 on a r
 parent's own fullscreen request was ignored 6 times (§3 trap 88); resize test passes under all three policies. Not
 done: threads template, Safari, the export dialog by hand. Question `embed-request-option`. camera-sim's switch-over
 steps are in `results/54-web-embed-fullscreen-messages/for-tasks.md`.
+
+### 4.68 GTAO as an SSAO method (October 2026) *(work task 48; survey §2.48, `pp-gtao`)*
+
+`rendering/environment/ssao/method` (ASSAO default, or GTAO) and `RS.environment_set_ssao_method()`. `effects/gtao.glsl`
+ports XeGTAO (Intel, MIT; Jimenez et al. 2016) and writes the same AO texture ASSAO does, so the scene shader and the
+SSAO debug view are unchanged; §2.34's RT AO can be a third method writing it too. Reuses the Environment's SSAO
+settings (default intensity and power give XeGTAO's reference). Quality levels 2x2, 3x2, 3x3, 9x3 and 9-18x4 slices x
+steps (XeGTAO's two lowest presets darken open ground without TAA). Forward+ and web only (Mobile has no SSAO,
+Compatibility keeps its own). With TAA the noise changes per frame (XeGTAO's design; slight shimmer, question
+`gtao-taa-noise`). Worker: against a numpy ray-traced reference, GTAO Medium MAE 0.028 / correlation 0.90 / creases
++0.05 too light, against ASSAO's best 0.037 / 0.83 / +0.15; web within 0.001 of native; Medium at half size 0.31 ms at
+1080p (ASSAO default 0.29 ms), High full size 2.0 ms (native). Lead (merged tree with 54): default method AO buffer and
+final image 0 px against the pre-merge editor; the reference numbers reproduce (gtao q2 full 0.0275 / 0.902, web
+0.0275 / 0.902); smoke OK with the five GTAO modules added to the interface references; **full Forward+ matrix 99/99
+at parity, unbaked and baked** (new arm `gtao`). §3 trap 89.
 
 ## 5. References — retired docs
 

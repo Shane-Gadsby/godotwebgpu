@@ -21,7 +21,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 45 | post-processing: color grading on Environment (`pp-grading`) | 5 | worker-45 (retired); **merged `d3c42be832`**, verified, TASKS §4.65, trap 86; questions `grading-hdr`, `grading-look` |
 | 46 | post-processing: screen-space light shafts (`pp-light-shafts`) | 5 | worker-46 (retired); **merged `6d9a215a37`**, verified, TASKS §4.64, traps 84-85 |
 | 47 | post-processing: Panini projection (`pp-panini`) | 5 | worker-47 (retired); **merged `f49785ccf7`**, verified, TASKS §4.66, trap 87; questions `panini-*` |
-| 48 | post-processing: GTAO (`pp-gtao`) | 5 | worker-48 |
+| 48 | post-processing: GTAO (`pp-gtao`) | 5 | worker-48 (retired); **merged `9b98c505c7`**, verified, matrix 99/99 parity unbaked and baked, TASKS §4.68, trap 89 |
 | 49 | post-processing: micro shadows (`pp-micro-shadows`) | 5 | worker-49 (retired); **merged**, TASKS §4.59, matrix 98 arms, wiki page |
 | 50 | build scripts: no-threads non-dlink web templates first (TASKS §2.50) | 5 | worker-50 (retired); **merged**, TASKS §4.60, §3 trap 81 |
 | 51 | web Start button screen with customizable look (camera-sim spec + user styling; TASKS §2.51) | 5 | worker-51 (retired); **merged**, TASKS §4.61; questions `start-button-*` |

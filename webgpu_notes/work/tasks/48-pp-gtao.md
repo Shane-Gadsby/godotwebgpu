@@ -1,6 +1,6 @@
 # 48-pp-gtao
 
-State: ready-for-integration
+State: integrated (TASKS §4.68)
 Owner: worker-48
 Claimed: 2026-10-28
 Needs: build, gpu
