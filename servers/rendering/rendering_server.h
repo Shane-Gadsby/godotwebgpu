@@ -132,6 +132,12 @@ public:
 
 	virtual Ref<Image> texture_2d_get(RID p_texture) const = 0;
 	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) = 0;
+	// The awaitable form of texture_2d_get_async(): `var image = await RenderingServer.texture_2d_get_awaitable(rid)`.
+	Signal texture_2d_get_awaitable(RID p_texture);
+	// Shared by the awaitable image reads (this one and Texture2D::get_image_awaitable()): returns the "completed" signal
+	// of a new RefCounted request and, in r_callback, the Callable that emits it once with an Image. The request is
+	// kept alive by r_callback alone, so it lives exactly until the read calls back.
+	static Signal create_image_request(Callable &r_callback);
 	virtual Ref<Image> texture_2d_layer_get(RID p_texture, int p_layer) const = 0;
 	virtual Vector<Ref<Image>> texture_3d_get(RID p_texture) const = 0;
 

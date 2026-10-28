@@ -18,4 +18,8 @@ for k, v in sorted(r["results"].items()):
         print("FAIL %s: %s" % (k, v["error"]))
 print("%d/%d passed (native)" % (r["passed"], r["total"]))'
 echo "$out" | grep -q "^W66DONE" || { echo "no W66DONE (rc=$rc)" >&2; exit 1; }
+# The web's "not back yet" warning (task 71) is web-only: a synchronous read natively returns the pixels.
+warns=$(echo "$out" | grep -c "returned null for")
+echo "sync readback warnings: $warns (native, expected 0)"
+[[ "$warns" == 0 ]] || exit 1
 exit $rc

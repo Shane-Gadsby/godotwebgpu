@@ -81,6 +81,8 @@ public:
 	// override it with RenderingServer::texture_2d_get_async(), which waits for the readback rather than handing back
 	// a buffer that has not arrived (the web).
 	virtual void get_image_async(const Callable &p_callback) const;
+	// The awaitable form: `var image = await texture.get_image_awaitable()` (a Signal emitted once by get_image_async()).
+	Signal get_image_awaitable() const;
 
 	virtual Ref<Resource> create_placeholder() const;
 

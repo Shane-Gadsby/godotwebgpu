@@ -1,8 +1,8 @@
 # 71-async-readback-followups
 
-State: open
+State: ready-for-integration
 Owner: worker-71
-Claimed:
+Claimed: 2026-10-28 22:06
 Needs: build, browser
 Branch: work/71
 Results: webgpu_notes/work/results/71-async-readback-followups/

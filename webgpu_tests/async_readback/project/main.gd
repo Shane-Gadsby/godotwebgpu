@@ -1,6 +1,9 @@
 extends Node
-# Texture2D.get_image_async() / RenderingDevice.*_get_data_async() checks (work task 66). Runs the same natively and
-# on the web; prints one "W66RESULT <json>" line and "W66DONE". User args (after --): mode=test (default),
+# Texture2D.get_image_async() / RenderingDevice.*_get_data_async() checks (work task 66), and their awaitable forms
+# Texture2D.get_image_awaitable() / RenderingServer.texture_2d_get_awaitable() (work task 71). Runs the same natively and
+# on the web; prints one "W66RESULT <json>" line and "W66DONE". The synchronous reads at frames 5-8 are also what the
+# runners count the web's debug-only "returned null for" warning on (one per texture: w96, w333; none for the invalid
+# RID or the texture without copy-from usage). User args (after --): mode=test (default),
 # mode=perf_none or mode=perf_readback (a readback of the main viewport every frame, for gpu_time.mjs).
 
 const PATTERN_SHADER := """
@@ -38,7 +41,7 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("mode="):
 			mode = a.substr(5)
-	print("W66 platform=%s method=%s driver=%s mode=%s" % [OS.get_name(), RenderingServer.get_current_rendering_method(), RenderingServer.get_current_rendering_driver_name(), mode])
+	print("W66 platform=%s method=%s driver=%s mode=%s debug=%s" % [OS.get_name(), RenderingServer.get_current_rendering_method(), RenderingServer.get_current_rendering_driver_name(), mode, OS.is_debug_build()])
 	shader = Shader.new()
 	shader.code = PATTERN_SHADER
 	for w in WIDTHS:
@@ -149,6 +152,8 @@ func _check_pattern(img: Image, e: Dictionary, flip: bool, tolerance := 0) -> in
 func _verify(img: Image, e: Dictionary) -> String:
 	if e.kind == "null_ok":
 		return ""
+	if e.kind == "null_expected":
+		return "" if img == null else "an image, expected null"
 	if img == null:
 		return "null image"
 	if img.get_size() != Vector2i(e.size):
@@ -236,6 +241,10 @@ func _process(_delta: float) -> void:
 			if img != null:
 				kind = "empty" if img.is_empty() else ("zeros" if img.get_data().count(0) == img.get_data().size() else "data")
 			_record("info_sync_get_image_frame%d" % frame, "", { "returned": kind })
+			# A second texture read synchronously: the web's debug warning is once per texture, so it is counted twice.
+			vps["w333"].vp.get_texture().get_image()
+		8:
+			_test_sync_invalid()
 		10:
 			# A later frame, with a new pattern this frame: the readback must see this frame's draw.
 			for w in WIDTHS:
@@ -278,6 +287,8 @@ func _process(_delta: float) -> void:
 			_test_image_texture()
 		80:
 			_test_await()
+		90:
+			_test_awaitable()
 		200:
 			_finish()
 
@@ -447,6 +458,79 @@ func _test_await() -> void:
 	_record("await_signal", _verify(img, e), { "latency_frames": frame - f })
 
 
+# --- Synchronous reads that must not print the web's "not back yet" warning: they fail for a real reason ---
+
+func _test_sync_invalid() -> void:
+	# An invalid RID (an error of its own, and no warning).
+	RenderingServer.texture_2d_get(RID())
+	# An RD texture without TEXTURE_USAGE_CAN_COPY_FROM_BIT (RenderingDevice's own error, and no warning).
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		return
+	var tf := RDTextureFormat.new()
+	tf.width = 4
+	tf.height = 4
+	tf.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
+	tf.usage_bits = RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
+	var rid := rd.texture_create(tf, RDTextureView.new(), [_rgba8_bytes(4, 4)])
+	var t2 := Texture2DRD.new()
+	t2.texture_rd_rid = rid
+	t2.get_image()
+	rd_textures.append(t2)
+	rd_textures.append(rid)
+
+
+# --- The awaitable forms (task 71) ---
+
+# A Texture2D implemented in script: get_image_awaitable() goes through the base class's get_image_async().
+class ScriptTexture extends Texture2D:
+	var image: Image
+
+	func _get_image() -> Image:
+		return image
+
+	func _get_width() -> int:
+		return image.get_width()
+
+	func _get_height() -> int:
+		return image.get_height()
+
+
+var emissions := {} # test name -> how many times its signal was emitted
+
+
+func _await_one(p_test: String, p_signal: Signal, p_expect: Dictionary, p_frame: int) -> void:
+	emissions[p_test] = 0
+	p_signal.connect(func(_image: Image): emissions[p_test] += 1)
+	var img: Image = await p_signal
+	_record(p_test, _verify(img, p_expect), { "latency_frames": frame - p_frame, "null": img == null })
+
+
+func _test_awaitable() -> void:
+	for n in ["w96", "w333", "big"]:
+		_set_frame_id(n, 90)
+	var f := frame
+	# Several reads in flight at once, from several functions, two of them of the same texture: each has its own signal.
+	_await_one("awaitable_w96_a", vps["w96"].vp.get_texture().get_image_awaitable(), _expected_pattern("w96"), f)
+	_await_one("awaitable_w96_b", vps["w96"].vp.get_texture().get_image_awaitable(), _expected_pattern("w96"), f)
+	_await_one("awaitable_rs_w333", RenderingServer.texture_2d_get_awaitable(RenderingServer.viewport_get_texture(vps["w333"].vp.get_viewport_rid())), _expected_pattern("w333"), f)
+	_await_one("awaitable_rs_invalid_rid", RenderingServer.texture_2d_get_awaitable(RID()), { "kind": "null_expected" }, f)
+	var gone := SubViewport.new()
+	gone.size = Vector2i(17, 3)
+	gone.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(gone)
+	_await_one("awaitable_freed_same_frame", gone.get_texture().get_image_awaitable(), { "kind": "null_ok" }, f)
+	gone.queue_free()
+	var img := Image.create_empty(6, 2, false, Image.FORMAT_RGBA8)
+	img.fill(Color8(10, 200, 30, 255))
+	var st := ScriptTexture.new()
+	st.image = img
+	_await_one("awaitable_script_texture", st.get_image_awaitable(), { "kind": "bytes", "format": Image.FORMAT_RGBA8, "bytes": img.get_data(), "size": Vector2i(6, 2) }, f)
+	# The documented one-liner, typed.
+	var image: Image = await vps["big"].vp.get_texture().get_image_awaitable()
+	_record("awaitable_inline", _verify(image, _expected_pattern("big")), { "latency_frames": frame - f })
+
+
 func _finish() -> void:
 	done = true
 	for id in pending:
@@ -456,6 +540,9 @@ func _finish() -> void:
 		elif callbacks[id] > 1:
 			results[p.test].ok = false
 			results[p.test].error = "callback fired %d times" % callbacks[id]
+	for t in emissions:
+		if emissions[t] != 1:
+			_record(t + "_emitted_once", "signal emitted %d times" % emissions[t])
 	# The order_* requests (texture readbacks, three frames) must call back in the order they were made.
 	var order_ids := order_log.filter(func(i): return pending[i].test.begins_with("order_"))
 	var sorted := order_ids.duplicate()
