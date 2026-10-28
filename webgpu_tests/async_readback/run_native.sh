@@ -7,7 +7,7 @@ PROJ="$ROOT/webgpu_tests/async_readback/project"
 EDITOR="${EDITOR_BIN:-$ROOT/bin/godot.linuxbsd.editor.x86_64}"
 [[ -x "$EDITOR" ]] || { echo "no editor at $EDITOR" >&2; exit 2; }
 "$EDITOR" --headless --path "$PROJ" --import >/dev/null 2>&1 || true
-out=$(timeout 120 xvfb-run -a "$EDITOR" --path "$PROJ" --rendering-driver vulkan "$@" 2>&1)
+out=$(timeout 240 xvfb-run -a "$EDITOR" --path "$PROJ" --rendering-driver vulkan "$@" 2>&1)
 rc=$?
 echo "$out" | grep -E "^W66|ERROR|SCRIPT ERROR" | head -40
 echo "$out" | grep "^W66RESULT " | sed 's/^W66RESULT //' | python3 -c '

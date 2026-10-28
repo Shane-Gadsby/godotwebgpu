@@ -5,6 +5,8 @@ extends Node
 # runners count the web's debug-only "returned null for" warning on (one per texture: w96, w333; none for the invalid
 # RID or the texture without copy-from usage). User args (after --): mode=test (default),
 # mode=perf_none or mode=perf_readback (a readback of the main viewport every frame, for gpu_time.mjs).
+# From frame 200, the load_* checks (work task 76): a 1920x1080 HDR 3D viewport read back every frame for 600 frames,
+# bursts of four reads in one frame, and its float values against native Vulkan's.
 
 const PATTERN_SHADER := """
 shader_type canvas_item;
@@ -50,6 +52,8 @@ func _ready() -> void:
 	_add_pattern_vp("hdr", Vector2i(333, 7), 9)
 	vps["hdr"].vp.use_hdr_2d = true
 	_add_black_vps()
+	if mode == "test":
+		_add_load_vps()
 	if mode.begins_with("perf"):
 		perf_t0 = Time.get_ticks_msec()
 		return
@@ -290,7 +294,7 @@ func _process(_delta: float) -> void:
 		90:
 			_test_awaitable()
 		200:
-			_finish()
+			_run_load_phase()
 
 
 # --- RenderingDevice textures: RGBA8 and RGBA16F at odd widths, through Texture2DRD and RD directly ---
@@ -556,3 +560,250 @@ func _finish() -> void:
 	print("W66DONE")
 	if not OS.has_feature("web"):
 		get_tree().quit(0 if passed == results.size() else 1)
+
+
+# --- Readback under load (work task 76) ---
+# A 1920x1080 HDR viewport is 16.6 MB of RGBA16F: on WebGPU, more than the whole download staging ring (16 MB), so one
+# read used to flush the frame half-way through and lose everything copied before the flush (the picture came back ~11x
+# darker), and the blocks that flush left mapping were written again at once ("[Buffer] used in submit while pending
+# map"), which dropped the frame's commands and stopped the callbacks. Every image here must be whole (no texel with
+# alpha 0: the viewport is opaque) and equal to the static scene's settled value.
+
+const LOAD_SIZE := Vector2i(1920, 1080)
+const LOAD_FRAMES := 600
+const LOAD_BURSTS := 10
+const LOAD_BURST_SIZE := 4
+# Native Vulkan, Forward+ (RTX 4080 SUPER): the scene's mean luminance on a 32x18 grid, and the probe's two patches
+# (unshaded ALBEDO through the Linear tonemapper into an HDR viewport). The web must match them.
+const NATIVE_LOAD_LUM := 0.27155
+const NATIVE_PROBE := [Color(0.6, 0.3, 0.15, 1.0), Color(3.0, 1.5, 0.05, 1.0)]
+const LOAD_LUM_TOLERANCE := 0.03 # Relative: shadow filtering and the sky differ slightly between the backends.
+const PROBE_TOLERANCE := 0.005
+
+var load_vp: SubViewport
+var probe_vp: SubViewport
+
+
+func _add_load_vps() -> void:
+	load_vp = SubViewport.new()
+	load_vp.size = LOAD_SIZE
+	load_vp.use_hdr_2d = true
+	load_vp.own_world_3d = true
+	load_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	var env := Environment.new()
+	env.background_mode = Environment.BG_SKY
+	env.sky = Sky.new()
+	env.sky.sky_material = ProceduralSkyMaterial.new()
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	var cam := Camera3D.new()
+	cam.position = Vector3(0, 4, 12)
+	cam.rotation_degrees = Vector3(-15, 0, 0)
+	cam.environment = env
+	load_vp.add_child(cam)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-50, 30, 0)
+	sun.shadow_enabled = true
+	load_vp.add_child(sun)
+	var ground := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(80, 80)
+	ground.mesh = pm
+	var gm := StandardMaterial3D.new()
+	gm.albedo_color = Color(0.6, 0.5, 0.4)
+	ground.material_override = gm
+	load_vp.add_child(ground)
+	for i in 24:
+		var s := MeshInstance3D.new()
+		s.mesh = SphereMesh.new()
+		s.position = Vector3((i % 6) * 3.0 - 7.5, 1.0, -(i / 6) * 3.0)
+		var sm := StandardMaterial3D.new()
+		sm.albedo_color = Color.from_hsv(i / 24.0, 0.5, 0.9)
+		sm.roughness = 0.4
+		s.material_override = sm
+		load_vp.add_child(s)
+	for i in 8:
+		var l := OmniLight3D.new()
+		l.position = Vector3((i % 4) * 5.0 - 7.5, 1.5, -(i / 4) * 6.0 + 2.0)
+		l.omni_range = 6.0
+		l.light_color = Color.from_hsv(i / 8.0, 0.6, 1.0)
+		load_vp.add_child(l)
+	add_child(load_vp)
+
+	# Two flat patches of known linear value, one above 1.0: what a float readback of an HDR viewport must return.
+	probe_vp = SubViewport.new()
+	probe_vp.size = Vector2i(64, 32)
+	probe_vp.use_hdr_2d = true
+	probe_vp.own_world_3d = true
+	probe_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	var penv := Environment.new()
+	penv.background_mode = Environment.BG_COLOR
+	penv.background_color = Color(0, 0, 0)
+	penv.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	var pcam := Camera3D.new()
+	pcam.projection = Camera3D.PROJECTION_ORTHOGONAL
+	pcam.size = 1.0
+	pcam.position = Vector3(0, 0, 1)
+	pcam.environment = penv
+	probe_vp.add_child(pcam)
+	var quad := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	qm.size = Vector2(4, 4)
+	quad.mesh = qm
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+void fragment() {
+	ALBEDO = SCREEN_UV.x < 0.5 ? vec3(0.6, 0.3, 0.15) : vec3(3.0, 1.5, 0.05);
+}
+"""
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	quad.material_override = mat
+	probe_vp.add_child(quad)
+	add_child(probe_vp)
+
+
+func _luminance(c: Color) -> float:
+	return c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722
+
+
+# Mean luminance on a 32x18 grid, and how many of those texels have alpha 0 (a region the readback never filled).
+func _grid_stats(img: Image) -> Dictionary:
+	var s := 0.0
+	var holes := 0
+	for gy in 18:
+		for gx in 32:
+			var c := img.get_pixel(int((gx + 0.5) * img.get_width() / 32.0), int((gy + 0.5) * img.get_height() / 18.0))
+			if c.a == 0.0:
+				holes += 1
+			s += _luminance(c)
+	return { "lum": s / (32 * 18), "holes": holes }
+
+
+func _load_image_error(img: Image) -> String:
+	if img == null:
+		return "null image"
+	if img.is_empty():
+		return "empty image"
+	if img.get_size() != LOAD_SIZE:
+		return "size %s" % img.get_size()
+	if not img.get_format() in [Image.FORMAT_RGBAH, Image.FORMAT_RGBH]:
+		return "format %d, not half float" % img.get_format()
+	return ""
+
+
+func _load_read() -> Image:
+	load_vp.get_texture().get_image_async(image_read.emit)
+	return await image_read
+
+
+func _run_load_phase() -> void:
+	load_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	probe_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	# Settle: shader compiles (asynchronous on the web) until two reads 30 frames apart agree.
+	var settled := -1.0
+	var previous := -1.0
+	for attempt in 40:
+		for i in 30:
+			await get_tree().process_frame
+		var img: Image = await _load_read()
+		if _load_image_error(img) != "":
+			continue
+		var g0 := _grid_stats(img)
+		if g0.holes == 0 and previous > 0.0 and absf(g0.lum - previous) < 0.0005 * previous:
+			settled = g0.lum
+			break
+		previous = g0.lum
+	print("W66 load settled lum=%f (native %f)" % [settled, NATIVE_LOAD_LUM])
+	if settled < 0.0:
+		_record("load_settle", "the 1920x1080 HDR viewport never gave two whole, equal reads 30 frames apart (last lum %f)" % previous)
+		_finish()
+		return
+
+	# One read every frame for LOAD_FRAMES frames.
+	var st := { "got": 0, "bad": [], "lat_max": 0, "order_ok": true, "last": -1 }
+	var t0 := Time.get_ticks_msec()
+	for i in LOAD_FRAMES:
+		var f := frame
+		var idx := i
+		load_vp.get_texture().get_image_async(func(img: Image) -> void:
+			st.got += 1
+			st.lat_max = maxi(st.lat_max, frame - f)
+			if idx != st.last + 1:
+				st.order_ok = false
+			st.last = idx
+			var e1 := _load_image_error(img)
+			if e1 == "":
+				var g := _grid_stats(img)
+				if g.holes > 0:
+					e1 = "%d of 576 grid texels unfilled" % g.holes
+				elif absf(g.lum - settled) > 0.002 * settled:
+					e1 = "lum %f, settled %f" % [g.lum, settled]
+			if e1 != "" and st.bad.size() < 5:
+				st.bad.append("read %d: %s" % [idx, e1]))
+		await get_tree().process_frame
+	for i in 300:
+		if st.got >= LOAD_FRAMES:
+			break
+		await get_tree().process_frame
+	var secs := (Time.get_ticks_msec() - t0) / 1000.0
+	var err := ""
+	if st.got != LOAD_FRAMES:
+		err = "%d of %d callbacks" % [st.got, LOAD_FRAMES]
+	elif not st.bad.is_empty():
+		err = "; ".join(st.bad)
+	elif not st.order_ok:
+		err = "callbacks out of order"
+	_record("load_every_frame_1920x1080_hdr", err, { "callbacks": st.got, "latency_max_frames": st.lat_max, "secs": snappedf(secs, 0.1) })
+
+	# Bursts: LOAD_BURST_SIZE reads of the same frame in flight at once (66 MB of staging on the web).
+	var bt := { "got": 0, "bad": [], "lums": {} }
+	for b in LOAD_BURSTS:
+		var expect := (b + 1) * LOAD_BURST_SIZE
+		for k in LOAD_BURST_SIZE:
+			var key := "%d_%d" % [b, k]
+			load_vp.get_texture().get_image_async(func(img: Image) -> void:
+				bt.got += 1
+				var e := _load_image_error(img)
+				if e == "":
+					var g := _grid_stats(img)
+					if g.holes > 0:
+						e = "%d of 576 grid texels unfilled" % g.holes
+					elif absf(g.lum - settled) > 0.002 * settled:
+						e = "lum %f, settled %f" % [g.lum, settled]
+				if e != "" and bt.bad.size() < 5:
+					bt.bad.append("burst read %s: %s" % [key, e]))
+		for i in 120:
+			await get_tree().process_frame
+			if bt.got >= expect:
+				break
+		if bt.got < expect:
+			break
+	var berr := ""
+	if bt.got != LOAD_BURSTS * LOAD_BURST_SIZE:
+		berr = "%d of %d callbacks" % [bt.got, LOAD_BURSTS * LOAD_BURST_SIZE]
+	elif not bt.bad.is_empty():
+		berr = "; ".join(bt.bad)
+	_record("load_bursts_4_in_flight", berr, { "callbacks": bt.got })
+
+	# Float values against native Vulkan.
+	if NATIVE_LOAD_LUM > 0.0:
+		var rel := absf(settled - NATIVE_LOAD_LUM) / NATIVE_LOAD_LUM
+		_record("load_hdr_lum_vs_native", "" if rel <= LOAD_LUM_TOLERANCE else "lum %f, native %f (%.1f%% off)" % [settled, NATIVE_LOAD_LUM, rel * 100.0], { "lum": settled, "native": NATIVE_LOAD_LUM })
+	else:
+		_record("load_hdr_lum_vs_native", "no native value stored", { "lum": settled })
+	probe_vp.get_texture().get_image_async(image_read.emit)
+	var pimg: Image = await image_read
+	var perr := "null image" if pimg == null else ""
+	var got_probe := []
+	if perr == "":
+		for k in 2:
+			var c := pimg.get_pixel(16 + k * 32, 16)
+			got_probe.append([snappedf(c.r, 0.0001), snappedf(c.g, 0.0001), snappedf(c.b, 0.0001), snappedf(c.a, 0.0001)])
+			var want: Color = NATIVE_PROBE[k]
+			for ch in 3:
+				if absf(c[ch] - want[ch]) > PROBE_TOLERANCE * maxf(want[ch], 1.0):
+					perr = "patch %d is %s, native %s" % [k, c, want]
+	_record("load_hdr_probe_vs_native", perr, { "probe": got_probe, "format": pimg.get_format() if pimg != null else -1 })
+	_finish()

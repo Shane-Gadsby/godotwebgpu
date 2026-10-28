@@ -10,6 +10,9 @@
 // Also counts the debug-only warning a synchronous get_image() prints when it returns null on the web (task 71): a
 // debug export (the project prints debug=true) must print it exactly once for each of the two textures the project
 // reads synchronously (w96 is 96x7, w333 is 333x7), and a release export never.
+//
+// And fails on any WebGPU validation message (work task 76: "[Buffer] used in submit while pending map" was printed
+// once per readback under load and went unnoticed) or any console error the project does not provoke on purpose.
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import fs from 'fs';
@@ -22,7 +25,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i !== -1 ? process.argv[i + 1] : d; };
 const DIR = path.resolve(here, arg('dir', 'exports/web'));
 const BROWSER = arg('browser', 'chrome');
-const TIMEOUT = +arg('timeout', 90000);
+const TIMEOUT = +arg('timeout', 240000);
 
 // Playwright from scene_smoketest's node_modules, or the main checkout's when this is a worktree without one.
 function loadPlaywright() {
@@ -92,12 +95,22 @@ try {
 		let result = null;
 		let debug = null;
 		const syncWarnings = [];
+		const validation = [];
+		const unexpectedErrors = [];
+		// Errors main.gd provokes on purpose (_test_sync_invalid, the freed-texture checks) and the lines of their
+		// backtraces; anything else on console.error fails the run.
+		const EXPECTED_ERROR = /texture_2d_get|TEXTURE_USAGE_CAN_COPY_FROM_BIT|Texture requires|Parameter "tex" is null|^\s*at:? |GDScript backtrace|\[\d+\] /;
 		const finished = new Promise((resolve) => {
 			page.on('console', (m) => {
 				const t = m.text();
 				const debugMatch = /^W66 .* debug=(true|false)/.exec(t);
 				if (debugMatch) {
 					debug = debugMatch[1] === 'true';
+				}
+				if (/used in submit|while pending map|GPUValidationError|\[Invalid |\[Buffer\]|validation error/i.test(t)) {
+					validation.push(`[${m.type()}] ${t.split('\n')[0].slice(0, 300)}`);
+				} else if (m.type() === 'error' && !EXPECTED_ERROR.test(t.split('\n')[0])) {
+					unexpectedErrors.push(t.split('\n')[0].slice(0, 300));
 				}
 				if (t.includes('returned null for')) {
 					syncWarnings.push({ type: m.type(), text: t.split('\n')[0] });
@@ -137,6 +150,17 @@ try {
 			const want = debug ? ['render target 333x7', 'render target 96x7'] : [];
 			const got = syncWarnings.map((w) => (/returned null for (render target \d+x\d+)/.exec(w.text) || [])[1] || w.text).sort();
 			const warnOk = debug !== null && JSON.stringify(got) === JSON.stringify(want) && syncWarnings.every((w) => w.type === 'warning');
+			console.log(`WebGPU validation messages: ${validation.length} -> ${validation.length ? 'FAIL' : 'ok'}`);
+			for (const v of validation.slice(0, 5)) {
+				console.log(`  ${v}`);
+			}
+			console.log(`unexpected console errors: ${unexpectedErrors.length} -> ${unexpectedErrors.length ? 'FAIL' : 'ok'}`);
+			for (const v of unexpectedErrors.slice(0, 10)) {
+				console.log(`  ${v}`);
+			}
+			if (validation.length || unexpectedErrors.length) {
+				code = 1;
+			}
 			console.log(`sync readback warnings: ${syncWarnings.length} (${debug === null ? 'build kind unknown' : debug ? 'debug, expected one for each of 96x7 and 333x7' : 'release, expected none'}) -> ${warnOk ? 'ok' : 'FAIL'}`);
 			if (!warnOk) {
 				code = 1;
