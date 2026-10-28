@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Parent page</title></head>
+<body style="margin:0;font-family:sans-serif;background:#ddd">
+<p style="margin:8px"><button id="sim-fullscreen" style="font-size:20px">Fullscreen</button></p>
+<iframe id="camera-sim" src="http://127.0.0.1:8702/index.html" allow="fullscreen"
+	style="width:1000px;height:585px;border:0"></iframe>
+<script>
+(function () {
+	const GAME_ORIGIN = 'http://127.0.0.1:8702'; // where the game is hosted
+	const frame = document.getElementById('camera-sim');
+	const button = document.getElementById('sim-fullscreen');
+
+	button.addEventListener('click', function () {
+		if (document.fullscreenElement) {
+			document.exitFullscreen();
+		} else {
+			frame.requestFullscreen().catch(function () {});
+		}
+	});
+
+	// Tell the game whether its iframe is fullscreen: whenever that changes
+	// (including Esc), and when the game asks once it has started.
+	function sendFullscreenState() {
+		frame.contentWindow.postMessage(
+			{ type: 'camera-sim:fullscreen', on: document.fullscreenElement === frame }, GAME_ORIGIN);
+	}
+	document.addEventListener('fullscreenchange', sendFullscreenState);
+
+	window.addEventListener('message', function (event) {
+		if (event.source !== frame.contentWindow || !event.data) {
+			return;
+		}
+		if (event.data.type === 'camera-sim:ready') {
+			sendFullscreenState();
+		} else if (event.data.type === 'camera-sim:exit-fullscreen' && document.fullscreenElement) {
+			// The game's own Exit Fullscreen button asks the page to leave.
+			document.exitFullscreen();
+		}
+	});
+}());
+</script>
+</body>
+</html>
