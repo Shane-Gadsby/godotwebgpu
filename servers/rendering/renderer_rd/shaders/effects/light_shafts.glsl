@@ -25,17 +25,18 @@ void main() {
 // Screen-space light shafts (Environment.light_shafts_*, from the DirectionalLight3D with light_shafts_enabled), after
 // Mitchell, "Volumetric Light Scattering as a Post-Process", GPU Gems 3 ch. 13 (2007): a mask of the sky that is bright
 // enough to scatter, blurred radially toward the sun's position on screen, added to the scene light. The radial blur is
-// reformulated so its result does not depend on the sample count or the resolution (servers/rendering/storage/environment_storage.cpp has the model):
+// reformulated so its result does not depend on the sample count or the resolution (the model is in
+// servers/rendering/storage/environment_storage.cpp):
 //
-//   S(p) = decay * integral_0^L exp(-decay t) M(p + t u) dt + exp(-decay L) M(p + L u)
+//   S(p) = integral_0^L exp(-decay t) M(p + t u) dt / integral_0^L exp(-decay t) dt
 //
-// with u the unit direction from p toward the sun and t measured in frame heights. L is the distance to the sun, or the
-// march's cutoff when that is nearer (or the sun is a direction, for orthogonal cameras); the second term continues the
-// ray at the sun itself, so the weights always sum to 1 and a pixel on the sun keeps the sun's own brightness.
+// with u the unit direction from p toward the sun and t measured in frame heights: the mean of the mask along the way
+// to the sun, weighted by an extinction with distance. L is the distance to the sun, or the march's cutoff when that is
+// nearer (or the sun is a direction, for orthogonal cameras).
 //
 // Passes, in order, at a quarter of the frame's width and height except the last:
 //   MODE_MASK(_RESOLVED_DEPTH)  sky pixels above the threshold (scene-linear), 4x4 box-filtered.
-//   MODE_BLUR                   S(p): the integral by stratified exponential importance sampling (equal weights).
+//   MODE_BLUR                   S(p): stratified exponential importance sampling, so S is the samples' plain mean.
 //   MODE_COMPOSITE              S upsampled and added to the frame's color (additive blend, so no copy), times
 //                               intensity, tint, the sun's fade and the luminance multiplier.
 
@@ -105,13 +106,10 @@ float interleaved_gradient_noise(vec2 p_pos) {
 }
 
 vec3 sample_mask(vec2 p_pos) {
-	// p_pos is in frame-height units. Outside the frame nothing is known of the sky, so it contributes nothing: an
-	// off-screen sun's shafts come only from the sky the frame shows (and fade with the sun, light_shafts_compute_sun()).
-	vec2 uv = vec2(p_pos.x / params.sun.w, p_pos.y);
-	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
-		return vec3(0.0);
-	}
-	return textureLod(mask_texture, uv, 0.0).rgb;
+	// p_pos is in frame-height units. Beyond the frame the sky is taken to continue as it is at the edge (the sampler
+	// clamps): with nothing there instead, the sun would drop out of the march the moment it crossed the edge and the
+	// shafts would pop. An off-screen sun's shafts fade out with it instead (light_shafts_compute_sun()).
+	return textureLod(mask_texture, vec2(p_pos.x / params.sun.w, p_pos.y), 0.0).rgb;
 }
 
 void main() {
@@ -133,19 +131,19 @@ void main() {
 	vec2 dir = to_sun / length(to_sun);
 	float march = min(distance_to_sun, params.max_length);
 
-	// t = -ln(1 - v (1 - exp(-decay L))) / decay has density decay exp(-decay t) / (1 - exp(-decay L)) on [0, L], so
-	// samples at stratified v all weigh (1 - exp(-decay L)) / N. The jitter turns the banding of a fixed pattern into
-	// noise finer than the bilinear upsample.
-	float tail = exp(-params.decay * march);
+	// t = -ln(1 - v (1 - exp(-decay L))) / decay has density decay exp(-decay t) / (1 - exp(-decay L)) on [0, L], the
+	// normalized weight itself, so the weighted mean is the plain mean of samples at stratified v. The jitter turns the
+	// banding of a fixed pattern into noise finer than the bilinear upsample.
+	float scale = 1.0 - exp(-params.decay * march);
 	float jitter = interleaved_gradient_noise(gl_FragCoord.xy);
 	float n = float(params.sample_count);
 	vec3 sum = vec3(0.0);
 	for (uint i = 0u; i < params.sample_count; i++) {
 		float v = (float(i) + jitter) / n;
-		float t = -log(1.0 - v * (1.0 - tail)) / params.decay;
+		float t = -log(1.0 - v * scale) / params.decay;
 		sum += sample_mask(pos + dir * t);
 	}
-	vec3 shaft = sum * ((1.0 - tail) / n) + sample_mask(pos + dir * march) * tail;
+	vec3 shaft = sum / n;
 	frag_color = vec4(shaft, 1.0);
 }
 

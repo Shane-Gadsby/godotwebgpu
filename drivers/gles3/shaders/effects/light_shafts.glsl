@@ -82,11 +82,8 @@ float interleaved_gradient_noise(vec2 p_pos) {
 }
 
 vec3 sample_mask(vec2 p_pos) {
-	vec2 uv = vec2(p_pos.x / sun.w, p_pos.y);
-	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
-		return vec3(0.0);
-	}
-	return textureLod(mask_texture, uv, 0.0).rgb;
+	// Beyond the frame the sky continues as at its edge (the texture clamps), as in the RD shader.
+	return textureLod(mask_texture, vec2(p_pos.x / sun.w, p_pos.y), 0.0).rgb;
 }
 
 void main() {
@@ -108,17 +105,18 @@ void main() {
 	vec2 dir = to_sun / length(to_sun);
 	float march = min(distance_to_sun, max_length);
 
-	float tail = exp(-decay * march);
+	// The weighted mean of the mask along the way to the sun, as the RD shader.
+	float scale = 1.0 - exp(-decay * march);
 	float jitter = interleaved_gradient_noise(gl_FragCoord.xy);
 	float n = float(sample_count);
 	vec3 sum = vec3(0.0);
 	for (int i = 0; i < sample_count; i++) {
 		float v = (float(i) + jitter) / n;
-		float t = -log(1.0 - v * (1.0 - tail)) / decay;
+		float t = -log(1.0 - v * scale) / decay;
 		sum += sample_mask(pos + dir * t);
 	}
 	// The mask is already scaled by encode_scale, and so is this.
-	frag_color = vec4(sum * ((1.0 - tail) / n) + sample_mask(pos + dir * march) * tail, 1.0);
+	frag_color = vec4(sum / n, 1.0);
 }
 
 #endif

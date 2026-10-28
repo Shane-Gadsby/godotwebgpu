@@ -619,18 +619,23 @@ void RendererEnvironmentStorage::environment_set_light_shafts_quality(RSE::Envir
 
 /* Light shafts
  *
- * Mitchell's radial blur (GPU Gems 3 ch. 13, 2007) sums N mask samples spaced along the segment to the sun, weighted by
- * decay^i. Its look therefore changes with the sample count and with the sun's distance on screen. Here the same idea
- * is a fixed integral over screen distance t, in frame heights so it is the same at every resolution:
+ * Mitchell's radial blur (GPU Gems 3 ch. 13, 2007) averages N mask samples spaced along the segment to the sun,
+ * weighted by decay^i. Its look therefore changes with the sample count and with the sun's distance on screen. Here the
+ * same idea is a weighted mean over screen distance t, in frame heights so it is the same at every resolution:
  *
- *   S(p) = decay * integral_0^L exp(-decay t) M(p + t u) dt + exp(-decay L) M(p + L u)
+ *   S(p) = integral_0^L exp(-decay t) M(p + t u) dt / integral_0^L exp(-decay t) dt
  *
- * M is the sky above the threshold, u the direction toward the sun and L the distance to it. The weights integrate to
- * 1: a uniform sky gives S = M, a pixel on the sun keeps the sun's brightness, and sky an occluder hides from the ray
- * darkens it in proportion to its weight. decay is an extinction coefficient (Beer-Lambert): the share of a shaft that
- * reaches distance t is exp(-decay t), so 1 / decay is the shafts' mean length in frame heights. The march stops where
- * the weight falls below 1/1000 (L <= ln(1000) / decay). The shader evaluates the integral by importance sampling, which
- * converges to the same value at every sample count; the quality setting only changes the noise.
+ * M is the sky above the threshold, u the direction toward the sun and L the distance to it. A uniform sky gives S = M,
+ * a pixel on the sun keeps the sun's brightness, and sky that an occluder hides from the ray darkens it in proportion
+ * to its weight. decay is an extinction coefficient (Beer-Lambert) on the way from the pixel toward the sun, so 1 / decay
+ * is how far, in frame heights, the shafts reach from the bright sky: past a disk of radius r at distance D, S falls as
+ * M (exp(-decay (D - r)) - exp(-decay D)) / (1 - exp(-decay D)), i.e. as exp(-decay D) far out. The march stops where
+ * the weight falls below 1/1000 of its start (L <= ln(1000) / decay). The shader evaluates the mean by importance
+ * sampling, which converges to the same value at every sample count; the quality setting only changes the noise.
+ *
+ * (A first version added the sun's own mask past the end of the march, exp(-decay L) M(sun), so the weights summed to
+ * 1 over an infinite ray. It treated a small bright sun disk as an infinite one: the disk bloomed over the whole frame,
+ * through every occluder.)
  */
 
 // The fade as the sun leaves the frame, in frame heights outside its edge: a look choice. Shafts from an off-screen
