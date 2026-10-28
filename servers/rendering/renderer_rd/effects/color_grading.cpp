@@ -30,6 +30,7 @@
 
 #include "color_grading.h"
 
+#include "core/os/os.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
@@ -119,7 +120,9 @@ RID ColorGrading::get_lut(RID p_environment, RID p_user_lut, bool p_user_lut_1d,
 			return RID();
 		}
 		// The bake, on the CPU: ~36k grades, about a millisecond, once per change.
+		const uint64_t bake_start = OS::get_singleton()->get_ticks_usec();
 		const Vector<uint8_t> data = environment_storage->environment_bake_color_grading(p_environment);
+		print_verbose(vformat("Color grading LUT baked in %.2f ms.", (OS::get_singleton()->get_ticks_usec() - bake_start) / 1000.0));
 		if (entry->grading.is_null()) {
 			entry->grading = _create_lut_texture(RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT, data);
 		} else {

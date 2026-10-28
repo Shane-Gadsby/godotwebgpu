@@ -102,16 +102,36 @@ static float _luma(float p_r, float p_g, float p_b) {
 	return LUMA_R * p_r + LUMA_G * p_g + LUMA_B * p_b;
 }
 
-Color RendererColorGrading::grade(const Params &p_params, const Color &p_srgb) {
-	const Params &p = p_params;
+// The parameters' colors in linear light, computed once per bake rather than per lattice point.
+struct ColorGradingLinear {
+	float filter[3];
+	float shadows[3];
+	float midtones[3];
+	float highlights[3];
+
+	explicit ColorGradingLinear(const RendererColorGrading::Params &p_params) {
+		const Color *colors[4] = { &p_params.color_filter, &p_params.shadows, &p_params.midtones, &p_params.highlights };
+		float *dest[4] = { filter, shadows, midtones, highlights };
+		for (int i = 0; i < 4; i++) {
+			dest[i][0] = _srgb_to_linear(colors[i]->r);
+			dest[i][1] = _srgb_to_linear(colors[i]->g);
+			dest[i][2] = _srgb_to_linear(colors[i]->b);
+		}
+	}
+};
+
+static Color _grade(const RendererColorGrading::Params &p_params, const ColorGradingLinear &p_linear, const Color &p_srgb) {
+	using CG = RendererColorGrading;
+	const CG::Params &p = p_params;
+	const ColorGradingLinear &pl = p_linear;
 	float r = _srgb_to_linear(p_srgb.r);
 	float g = _srgb_to_linear(p_srgb.g);
 	float b = _srgb_to_linear(p_srgb.b);
 
 	// 2. Color filter. Colors are sRGB-encoded like every Color in the inspector: the multiplier is the linear value.
-	r *= _srgb_to_linear(p.color_filter.r);
-	g *= _srgb_to_linear(p.color_filter.g);
-	b *= _srgb_to_linear(p.color_filter.b);
+	r *= pl.filter[0];
+	g *= pl.filter[1];
+	b *= pl.filter[2];
 
 	// 3. Channel mixer.
 	{
@@ -129,9 +149,9 @@ Color RendererColorGrading::grade(const Params &p_params, const Color &p_srgb) {
 		const float fs = 1.0f - _smoothstep(p.shadows_start, p.shadows_end, luma);
 		const float fh = _smoothstep(p.highlights_start, p.highlights_end, luma);
 		const float fm = 1.0f - fs - fh;
-		r *= _srgb_to_linear(p.shadows.r) * fs + _srgb_to_linear(p.midtones.r) * fm + _srgb_to_linear(p.highlights.r) * fh;
-		g *= _srgb_to_linear(p.shadows.g) * fs + _srgb_to_linear(p.midtones.g) * fm + _srgb_to_linear(p.highlights.g) * fh;
-		b *= _srgb_to_linear(p.shadows.b) * fs + _srgb_to_linear(p.midtones.b) * fm + _srgb_to_linear(p.highlights.b) * fh;
+		r *= pl.shadows[0] * fs + pl.midtones[0] * fm + pl.highlights[0] * fh;
+		g *= pl.shadows[1] * fs + pl.midtones[1] * fm + pl.highlights[1] * fh;
+		b *= pl.shadows[2] * fs + pl.midtones[2] * fm + pl.highlights[2] * fh;
 	}
 
 	// 5. Back to the encoded values.
@@ -162,10 +182,10 @@ Color RendererColorGrading::grade(const Params &p_params, const Color &p_srgb) {
 	}
 
 	// 8. Hue and saturation.
-	const bool use_hue_vs_hue = !p.curves[CURVE_HUE_VS_HUE].is_empty();
-	const bool use_hue_vs_sat = !p.curves[CURVE_HUE_VS_SAT].is_empty();
-	const bool use_sat_vs_sat = !p.curves[CURVE_SAT_VS_SAT].is_empty();
-	const bool use_lum_vs_sat = !p.curves[CURVE_LUM_VS_SAT].is_empty();
+	const bool use_hue_vs_hue = !p.curves[CG::CURVE_HUE_VS_HUE].is_empty();
+	const bool use_hue_vs_sat = !p.curves[CG::CURVE_HUE_VS_SAT].is_empty();
+	const bool use_sat_vs_sat = !p.curves[CG::CURVE_SAT_VS_SAT].is_empty();
+	const bool use_lum_vs_sat = !p.curves[CG::CURVE_LUM_VS_SAT].is_empty();
 	if (p.hue_shift != 0.0f || use_hue_vs_hue || use_hue_vs_sat || use_sat_vs_sat || use_lum_vs_sat) {
 		// HSV of the clamped color (hue and saturation are only defined there).
 		Color hsv_color(CLAMP(c[0], 0.0f, 1.0f), CLAMP(c[1], 0.0f, 1.0f), CLAMP(c[2], 0.0f, 1.0f));
@@ -175,7 +195,7 @@ Color RendererColorGrading::grade(const Params &p_params, const Color &p_srgb) {
 
 		float new_hue = hue + p.hue_shift / 360.0f;
 		if (use_hue_vs_hue) {
-			new_hue += _sample_curve(p.curves[CURVE_HUE_VS_HUE], hue) - 0.5f;
+			new_hue += _sample_curve(p.curves[CG::CURVE_HUE_VS_HUE], hue) - 0.5f;
 		}
 		if (new_hue != hue) {
 			new_hue -= Math::floor(new_hue);
@@ -187,13 +207,13 @@ Color RendererColorGrading::grade(const Params &p_params, const Color &p_srgb) {
 
 		float sat_mult = 1.0f;
 		if (use_hue_vs_sat) {
-			sat_mult *= 2.0f * _sample_curve(p.curves[CURVE_HUE_VS_SAT], hue);
+			sat_mult *= 2.0f * _sample_curve(p.curves[CG::CURVE_HUE_VS_SAT], hue);
 		}
 		if (use_sat_vs_sat) {
-			sat_mult *= 2.0f * _sample_curve(p.curves[CURVE_SAT_VS_SAT], sat);
+			sat_mult *= 2.0f * _sample_curve(p.curves[CG::CURVE_SAT_VS_SAT], sat);
 		}
 		if (use_lum_vs_sat) {
-			sat_mult *= 2.0f * _sample_curve(p.curves[CURVE_LUM_VS_SAT], lum);
+			sat_mult *= 2.0f * _sample_curve(p.curves[CG::CURVE_LUM_VS_SAT], lum);
 		}
 		if (sat_mult != 1.0f) {
 			const float l = _luma(c[0], c[1], c[2]);
@@ -213,12 +233,12 @@ Color RendererColorGrading::grade(const Params &p_params, const Color &p_srgb) {
 	}
 
 	// 9. Curves: master, then each channel's own.
-	const Vector<float> &master = p.curves[CURVE_MASTER];
+	const Vector<float> &master = p.curves[CG::CURVE_MASTER];
 	for (int i = 0; i < 3; i++) {
 		if (!master.is_empty()) {
 			c[i] = _sample_curve(master, c[i]);
 		}
-		const Vector<float> &channel = p.curves[CURVE_RED + i];
+		const Vector<float> &channel = p.curves[CG::CURVE_RED + i];
 		if (!channel.is_empty()) {
 			c[i] = _sample_curve(channel, c[i]);
 		}
@@ -227,16 +247,21 @@ Color RendererColorGrading::grade(const Params &p_params, const Color &p_srgb) {
 	return Color(CLAMP(c[0], 0.0f, 1.0f), CLAMP(c[1], 0.0f, 1.0f), CLAMP(c[2], 0.0f, 1.0f), 1.0f);
 }
 
+Color RendererColorGrading::grade(const Params &p_params, const Color &p_srgb) {
+	return _grade(p_params, ColorGradingLinear(p_params), p_srgb);
+}
+
 Vector<uint8_t> RendererColorGrading::bake(const Params &p_params) {
 	const int n = LUT_SIZE;
 	Vector<uint8_t> data;
 	data.resize(n * n * n * 4 * sizeof(uint16_t));
 	uint16_t *w = reinterpret_cast<uint16_t *>(data.ptrw());
 	const float step = 1.0f / float(n - 1);
+	const ColorGradingLinear linear(p_params);
 	for (int k = 0; k < n; k++) {
 		for (int j = 0; j < n; j++) {
 			for (int i = 0; i < n; i++) {
-				const Color graded = grade(p_params, Color(i * step, j * step, k * step));
+				const Color graded = _grade(p_params, linear, Color(i * step, j * step, k * step));
 				*w++ = Math::make_half_float(graded.r);
 				*w++ = Math::make_half_float(graded.g);
 				*w++ = Math::make_half_float(graded.b);
