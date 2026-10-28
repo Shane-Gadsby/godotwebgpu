@@ -31,6 +31,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 55 | glare chain calibrated per lod: exact halation/diffusion/flare sizes at every resolution (`glare-lod-calibration`: Recalibrate) | 6 | worker-55 |
 | 56 | post-processing: custom tonemap curve on Environment (`pp-custom-tonemap`) | 7 | worker-56 |
 | 57 | post-processing: local exposure on CameraAttributes (`pp-local-exposure`) | 7 | worker-57 |
+| 58 | small web correctness items: TASKS §2.44 (invalid probe), §2.43 (swizzled views), §2.42 (FSR2 depth fallback) | 7 | worker-58 |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 
