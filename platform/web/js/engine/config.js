@@ -140,6 +140,21 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		fullscreenOnFirstTap: false,
 		/**
+		 * Fullscreen driven by the page that iframes the game, from the export preset's
+		 * ``html/embed_fullscreen/*`` options: ``{ enabled, allowedOrigins }``. When ``enabled`` and
+		 * the game runs in an iframe, the engine listens for ``{type: 'godot:fullscreen', on}``
+		 * messages from its parent window (from ``allowedOrigins`` only, unless that list is empty)
+		 * and treats the window as fullscreen while the parent holds the iframe in fullscreen. It
+		 * posts ``{type: 'godot:ready'}`` once it listens, and asks the parent with
+		 * ``{type: 'godot:exit-fullscreen'}`` / ``{type: 'godot:request-fullscreen'}`` when the game
+		 * leaves or enters fullscreen. ``null`` or ``enabled: false`` adds no listener.
+		 *
+		 * @memberof EngineConfig
+		 * @type {?{enabled: boolean, allowedOrigins: Array<string>}}
+		 * @default
+		 */
+		embedFullscreen: null,
+		/**
 		 * The start screen, from the export preset's ``html/start_button/*`` options. When
 		 * ``enabled``, the default shell opens on the splash with a Start button and runs
 		 * nothing of the engine (no compile of the engine, no GPU device, no audio) until
@@ -443,6 +458,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.experimentalVK = parse('experimentalVK', this.experimentalVK);
 		this.focusCanvas = parse('focusCanvas', this.focusCanvas);
 		this.fullscreenOnFirstTap = parse('fullscreenOnFirstTap', this.fullscreenOnFirstTap);
+		this.embedFullscreen = parse('embedFullscreen', this.embedFullscreen);
 		this.startButton = parse('startButton', this.startButton);
 		this.serviceWorker = parse('serviceWorker', this.serviceWorker);
 		this.gdextensionLibs = parse('gdextensionLibs', this.gdextensionLibs);
@@ -552,6 +568,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 			'godotPoolSize': this.godotPoolSize,
 			'focusCanvas': this.focusCanvas,
 			'fullscreenOnFirstTap': this.fullscreenOnFirstTap,
+			'embedFullscreen': this.embedFullscreen,
 			'debugPort': this.debugPort,
 			'onExecute': this.onExecute,
 			'onTerminatePID': this.onTerminatePID,

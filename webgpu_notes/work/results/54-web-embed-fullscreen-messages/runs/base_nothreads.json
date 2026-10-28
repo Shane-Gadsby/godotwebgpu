@@ -1,0 +1,996 @@
+{
+ "label": "base_nothreads",
+ "adapter": {
+  "vendor": "nvidia",
+  "architecture": "lovelace",
+  "fallback": false,
+  "maxSampled": 48
+ },
+ "policies": {
+  "0": {
+   "steps": [
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 1,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "",
+      ""
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 0,
+     "scale": null,
+     "center": [
+      1152,
+      720
+     ],
+     "name": "start"
+    },
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 1,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "",
+      ""
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 0,
+     "scale": null,
+     "center": [
+      1152,
+      720
+     ],
+     "name": "button_800x600"
+    },
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 1,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "",
+      ""
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 0,
+     "scale": null,
+     "center": [
+      1152,
+      720
+     ],
+     "name": "set_back"
+    },
+    {
+     "godot": {
+      "control": [
+       700,
+       500
+      ],
+      "corner_label": [
+       700,
+       500
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 2,
+      "tag": "report",
+      "visible_rect": [
+       700,
+       500
+      ],
+      "window": [
+       700,
+       500
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "",
+      ""
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 0,
+     "scale": null,
+     "center": [
+      1152,
+      720
+     ],
+     "name": "window_size_700x500"
+    },
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 3,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "",
+      ""
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 0,
+     "scale": null,
+     "center": [
+      1152,
+      720
+     ],
+     "name": "window_size_back"
+    },
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 3,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "",
+      ""
+     ],
+     "dpr": 1,
+     "inner": [
+      1000,
+      700
+     ],
+     "policy": 0,
+     "scale": null,
+     "center": [
+      1012,
+      670
+     ],
+     "name": "browser_1000x700"
+    },
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 3,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "",
+      ""
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 0,
+     "scale": null,
+     "center": [
+      1152,
+      720
+     ],
+     "name": "browser_1280x800"
+    }
+   ],
+   "warnings": []
+  },
+  "1": {
+   "steps": [
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 0,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "1024px",
+      "640px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 1,
+     "scale": 1.25,
+     "center": [
+      640,
+      400
+     ],
+     "name": "start"
+    },
+    {
+     "godot": {
+      "control": [
+       800,
+       600
+      ],
+      "corner_label": [
+       800,
+       600
+      ],
+      "ds": [
+       800,
+       600
+      ],
+      "signals": 1,
+      "tag": "report",
+      "visible_rect": [
+       800,
+       600
+      ],
+      "window": [
+       800,
+       600
+      ]
+     },
+     "canvas": [
+      800,
+      600
+     ],
+     "css": [
+      "800px",
+      "600px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 1,
+     "scale": 1.25,
+     "center": [
+      640,
+      400
+     ],
+     "name": "button_800x600"
+    },
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 2,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "1024px",
+      "640px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 1,
+     "scale": 1.25,
+     "center": [
+      640,
+      400
+     ],
+     "name": "set_back"
+    },
+    {
+     "godot": {
+      "control": [
+       700,
+       500
+      ],
+      "corner_label": [
+       700,
+       500
+      ],
+      "ds": [
+       700,
+       500
+      ],
+      "signals": 3,
+      "tag": "report",
+      "visible_rect": [
+       700,
+       500
+      ],
+      "window": [
+       700,
+       500
+      ]
+     },
+     "canvas": [
+      700,
+      500
+     ],
+     "css": [
+      "700px",
+      "500px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 1,
+     "scale": 1.25,
+     "center": [
+      640,
+      400
+     ],
+     "name": "window_size_700x500"
+    },
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 4,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "1024px",
+      "640px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 1,
+     "scale": 1.25,
+     "center": [
+      640,
+      400
+     ],
+     "name": "window_size_back"
+    },
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 4,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "1024px",
+      "640px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1000,
+      700
+     ],
+     "policy": 1,
+     "scale": 0.976562,
+     "center": [
+      500,
+      350
+     ],
+     "name": "browser_1000x700"
+    },
+    {
+     "godot": {
+      "control": [
+       1024,
+       640
+      ],
+      "corner_label": [
+       1024,
+       640
+      ],
+      "ds": [
+       1024,
+       640
+      ],
+      "signals": 4,
+      "tag": "report",
+      "visible_rect": [
+       1024,
+       640
+      ],
+      "window": [
+       1024,
+       640
+      ]
+     },
+     "canvas": [
+      1024,
+      640
+     ],
+     "css": [
+      "1024px",
+      "640px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 1,
+     "scale": 1.25,
+     "center": [
+      640,
+      400
+     ],
+     "name": "browser_1280x800"
+    }
+   ],
+   "warnings": []
+  },
+  "2": {
+   "steps": [
+    {
+     "godot": {
+      "control": [
+       1280,
+       800
+      ],
+      "corner_label": [
+       1280,
+       800
+      ],
+      "ds": [
+       1280,
+       800
+      ],
+      "signals": 0,
+      "tag": "report",
+      "visible_rect": [
+       1280,
+       800
+      ],
+      "window": [
+       1280,
+       800
+      ]
+     },
+     "canvas": [
+      1280,
+      800
+     ],
+     "css": [
+      "1280px",
+      "800px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 2,
+     "scale": 1,
+     "center": [
+      0,
+      0
+     ],
+     "name": "start"
+    },
+    {
+     "godot": {
+      "control": [
+       1280,
+       800
+      ],
+      "corner_label": [
+       1280,
+       800
+      ],
+      "ds": [
+       1280,
+       800
+      ],
+      "signals": 0,
+      "tag": "report",
+      "visible_rect": [
+       1280,
+       800
+      ],
+      "window": [
+       1280,
+       800
+      ]
+     },
+     "canvas": [
+      1280,
+      800
+     ],
+     "css": [
+      "1280px",
+      "800px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 2,
+     "scale": 1,
+     "center": [
+      0,
+      0
+     ],
+     "name": "button_800x600"
+    },
+    {
+     "godot": {
+      "control": [
+       1280,
+       800
+      ],
+      "corner_label": [
+       1280,
+       800
+      ],
+      "ds": [
+       1280,
+       800
+      ],
+      "signals": 0,
+      "tag": "report",
+      "visible_rect": [
+       1280,
+       800
+      ],
+      "window": [
+       1280,
+       800
+      ]
+     },
+     "canvas": [
+      1280,
+      800
+     ],
+     "css": [
+      "1280px",
+      "800px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 2,
+     "scale": 1,
+     "center": [
+      0,
+      0
+     ],
+     "name": "set_back"
+    },
+    {
+     "godot": {
+      "control": [
+       700,
+       500
+      ],
+      "corner_label": [
+       700,
+       500
+      ],
+      "ds": [
+       1280,
+       800
+      ],
+      "signals": 1,
+      "tag": "report",
+      "visible_rect": [
+       700,
+       500
+      ],
+      "window": [
+       700,
+       500
+      ]
+     },
+     "canvas": [
+      1280,
+      800
+     ],
+     "css": [
+      "1280px",
+      "800px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 2,
+     "scale": 1,
+     "center": [
+      0,
+      0
+     ],
+     "name": "window_size_700x500"
+    },
+    {
+     "godot": {
+      "control": [
+       1280,
+       800
+      ],
+      "corner_label": [
+       1280,
+       800
+      ],
+      "ds": [
+       1280,
+       800
+      ],
+      "signals": 2,
+      "tag": "report",
+      "visible_rect": [
+       1280,
+       800
+      ],
+      "window": [
+       1280,
+       800
+      ]
+     },
+     "canvas": [
+      1280,
+      800
+     ],
+     "css": [
+      "1280px",
+      "800px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 2,
+     "scale": 1,
+     "center": [
+      0,
+      0
+     ],
+     "name": "window_size_back"
+    },
+    {
+     "godot": {
+      "control": [
+       1000,
+       700
+      ],
+      "corner_label": [
+       1000,
+       700
+      ],
+      "ds": [
+       1000,
+       700
+      ],
+      "signals": 3,
+      "tag": "report",
+      "visible_rect": [
+       1000,
+       700
+      ],
+      "window": [
+       1000,
+       700
+      ]
+     },
+     "canvas": [
+      1000,
+      700
+     ],
+     "css": [
+      "1000px",
+      "700px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1000,
+      700
+     ],
+     "policy": 2,
+     "scale": 0.78125,
+     "center": [
+      0,
+      0
+     ],
+     "name": "browser_1000x700"
+    },
+    {
+     "godot": {
+      "control": [
+       1280,
+       800
+      ],
+      "corner_label": [
+       1280,
+       800
+      ],
+      "ds": [
+       1280,
+       800
+      ],
+      "signals": 4,
+      "tag": "report",
+      "visible_rect": [
+       1280,
+       800
+      ],
+      "window": [
+       1280,
+       800
+      ]
+     },
+     "canvas": [
+      1280,
+      800
+     ],
+     "css": [
+      "1280px",
+      "800px"
+     ],
+     "dpr": 1,
+     "inner": [
+      1280,
+      800
+     ],
+     "policy": 2,
+     "scale": 1.14286,
+     "center": [
+      0,
+      0
+     ],
+     "name": "browser_1280x800"
+    }
+   ],
+   "warnings": []
+  }
+ },
+ "failures": [
+  "p1 button_800x600: shell scale 1.25 (fit 1.3333, css 800px,600px) center 640.0,400.0 of 1280,800",
+  "p1 window_size_700x500: shell scale 1.25 (fit 1.6000, css 700px,500px) center 640.0,400.0 of 1280,800"
+ ]
+}

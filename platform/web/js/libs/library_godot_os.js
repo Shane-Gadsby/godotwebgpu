@@ -61,6 +61,7 @@ const GodotConfig = {
 		canvas_resize_policy: 2, // Adaptive
 		virtual_keyboard: false,
 		fullscreen_on_first_tap: false,
+		embed_fullscreen: null, // { enabled, allowedOrigins }, html/embed_fullscreen/*.
 		godot_pool_size: 4,
 		debug_port: null,
 		on_execute: null,
@@ -76,6 +77,7 @@ const GodotConfig = {
 			GodotConfig.locale = p_opts['locale'] || GodotConfig.locale;
 			GodotConfig.virtual_keyboard = p_opts['virtualKeyboard'];
 			GodotConfig.fullscreen_on_first_tap = !!p_opts['fullscreenOnFirstTap'];
+			GodotConfig.embed_fullscreen = p_opts['embedFullscreen'] || null;
 			GodotConfig.godot_pool_size = p_opts['godotPoolSize'];
 			GodotConfig.debug_port = p_opts['debugPort'];
 			GodotConfig.pid = p_opts['pid'];
@@ -99,6 +101,7 @@ const GodotConfig = {
 			GodotConfig.canvas_resize_policy = 2;
 			GodotConfig.virtual_keyboard = false;
 			GodotConfig.fullscreen_on_first_tap = false;
+			GodotConfig.embed_fullscreen = null;
 			GodotConfig.debug_port = null;
 			GodotConfig.on_execute = null;
 			GodotConfig.on_exit = null;

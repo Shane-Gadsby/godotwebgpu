@@ -275,6 +275,9 @@ const GodotDisplayScreen = {
 			if (elem) {
 				return elem === GodotConfig.canvas;
 			}
+			if (GodotDisplayScreen.embedHoldsFullscreen()) {
+				return true;
+			}
 			// But maybe knowing the element is not supported.
 			return document.fullscreen || document.mozFullScreen
 				|| document.webkitIsFullscreen;
@@ -308,6 +311,11 @@ const GodotDisplayScreen = {
 		exitFullscreen: function () {
 			if (!GodotDisplayScreen.isFullscreen()) {
 				return 0;
+			}
+			if (GodotDisplayScreen.embedHoldsFullscreen()) {
+				// document.exitFullscreen() would reject: nothing in this document is fullscreen.
+				GodotDisplayScreen.embedPost('godot:exit-fullscreen');
+				return 2; // Pending until the parent's {on: false}.
 			}
 			try {
 				const promise = document.exitFullscreen();
@@ -379,6 +387,138 @@ const GodotDisplayScreen = {
 		},
 
 		/*
+		 * Fullscreen held by the page that iframes the game (export option html/embed_fullscreen/*).
+		 * A click in a parent on another origin is not user activation inside the iframe, so the
+		 * parent cannot put the canvas in fullscreen; it fullscreens the iframe instead and says so:
+		 *   parent -> game  {type: 'godot:fullscreen', on}  on every fullscreenchange, and in answer to
+		 *   game -> parent  {type: 'godot:ready'}           posted once the engine listens;
+		 *   game -> parent  {type: 'godot:exit-fullscreen'} window_set_mode(WINDOWED) while it holds it;
+		 *   game -> parent  {type: 'godot:request-fullscreen'} window_set_mode(FULLSCREEN), see requestEmbedFullscreen.
+		 * While the parent holds it, isFullscreen() is true, so updateSize() sizes the canvas to the
+		 * iframe (tracking it every frame while it grows) and window_get_mode() reports FULLSCREEN.
+		 * Only messages from window.parent count, and only from allowedOrigins when that is set.
+		 * The game's own canvas fullscreen also makes the parent see its iframe as fullscreen; that
+		 * echo is ignored (echo) and the canvas path handles it as before.
+		 */
+		embed: null, // null unless enabled and iframed: { allowed, origin, parent_on, echo, reported, request_timer }
+		fullscreen_cb: null, // The C++ fullscreen callback (godot_js_display_fullscreen_cb).
+		documentFullscreenElement: function () {
+			return document.fullscreenElement || document.mozFullscreenElement
+				|| document.webkitFullscreenElement || document.msFullscreenElement || null;
+		},
+		embedHoldsFullscreen: function () {
+			const embed = GodotDisplayScreen.embed;
+			return !!embed && embed.parent_on && !embed.echo && !GodotDisplayScreen.documentFullscreenElement();
+		},
+		embedPost: function (p_type) {
+			const embed = GodotDisplayScreen.embed;
+			// The origin the parent's last accepted message came from: a parent that navigated away
+			// (or one that never spoke) gets nothing. A sandboxed parent's origin is 'null', which
+			// postMessage() cannot target.
+			if (!embed || !embed.origin) {
+				return false;
+			}
+			try {
+				window.parent.postMessage({ 'type': p_type }, embed.origin === 'null' ? '*' : embed.origin);
+			} catch (e) {
+				return false;
+			}
+			return true;
+		},
+		reportFullscreen: function () {
+			const embed = GodotDisplayScreen.embed;
+			const fullscreen = !!GodotDisplayScreen.isFullscreen();
+			if (embed) {
+				if (fullscreen === embed.reported) {
+					return;
+				}
+				embed.reported = fullscreen;
+			}
+			if (GodotDisplayScreen.fullscreen_cb) {
+				GodotDisplayScreen.fullscreen_cb(fullscreen ? 1 : 0);
+			}
+		},
+		initEmbed: function () {
+			const opts = GodotConfig.embed_fullscreen;
+			if (!opts || !opts['enabled'] || window.parent === window) {
+				return; // Off, or not in a frame: no listener at all.
+			}
+			const allowed = opts['allowedOrigins'];
+			const embed = {
+				allowed: Array.isArray(allowed) && allowed.length ? allowed : null,
+				origin: null,
+				parent_on: false,
+				echo: false,
+				reported: !!GodotDisplayScreen.isFullscreen(),
+				request_timer: null,
+			};
+			GodotDisplayScreen.embed = embed;
+			GodotEventListeners.add(window, 'message', function (event) {
+				if (event.source !== window.parent || window.parent === window) {
+					return;
+				}
+				if (embed.allowed && embed.allowed.indexOf(event.origin) === -1) {
+					return;
+				}
+				const data = event.data;
+				if (!data || typeof data !== 'object' || data['type'] !== 'godot:fullscreen') {
+					return;
+				}
+				embed.origin = event.origin;
+				const on = !!data['on'];
+				if (on && !embed.parent_on && GodotDisplayScreen.documentFullscreenElement()) {
+					embed.echo = true; // The parent only reports the canvas fullscreen we asked for.
+				} else if (!on) {
+					embed.echo = false;
+				}
+				embed.parent_on = on;
+				if (on) {
+					GodotDisplayScreen.first_tap_done = true;
+					if (embed.request_timer !== null) {
+						clearTimeout(embed.request_timer);
+						embed.request_timer = null;
+					}
+				}
+				GodotDisplayScreen.reportFullscreen();
+			}, false);
+			GodotEventListeners.add(document, 'fullscreenchange', function () {
+				// The canvas went fullscreen on its own: the parent's {on: true} that follows is its echo.
+				if (GodotDisplayScreen.documentFullscreenElement() && !embed.parent_on) {
+					embed.echo = true;
+				}
+				GodotDisplayScreen.reportFullscreen();
+			}, false);
+			// Carries no data, so any origin may hear it; the parent answers with the current state,
+			// which picks up a fullscreen entered on the start screen or while loading.
+			window.parent.postMessage({ 'type': 'godot:ready' }, '*');
+		},
+		/*
+		 * window_set_mode(FULLSCREEN) while embedded: ask the parent to fullscreen the iframe, so its
+		 * own page state (button, fullscreenchange) stays consistent. The click inside the iframe that
+		 * led here is user activation for the parent too (activation propagates to ancestor frames).
+		 * If no {on: true} comes back within a second (a parent without that handler), the canvas
+		 * request runs as before; a request that failed in the parent did not consume the activation.
+		 */
+		requestEmbedFullscreen: function () {
+			const embed = GodotDisplayScreen.embed;
+			if (!embed || !embed.origin || GodotDisplayScreen.isFullscreen() || GodotDisplayScreen.documentFullscreenElement()) {
+				return GodotDisplayScreen.requestFullscreen();
+			}
+			if (!GodotDisplayScreen.embedPost('godot:request-fullscreen')) {
+				return GodotDisplayScreen.requestFullscreen();
+			}
+			if (embed.request_timer === null) {
+				embed.request_timer = setTimeout(function () {
+					embed.request_timer = null;
+					if (!embed.parent_on) {
+						GodotDisplayScreen.requestFullscreen();
+					}
+				}, 1000);
+			}
+			return 0;
+		},
+
+		/*
 		 * Screen Wake Lock (screen_set_keep_on) and orientation lock (screen_set_orientation).
 		 * Both are requests the browser may refuse for reasons that are normal, not errors: no API
 		 * (an older browser, an insecure context), a hidden page, a desktop that cannot rotate, an
@@ -411,6 +551,7 @@ const GodotDisplayScreen = {
 				}
 			};
 			GodotEventListeners.add(document, 'fullscreenchange', fullscreen_cb, false);
+			GodotDisplayScreen.initEmbed();
 			// Fullscreen on the first tap (export option html/fullscreen_on_first_tap), so a phone gets the
 			// whole screen and the orientation lock without game code. Requested on touchend: the end of a
 			// touch is user activation, its start is not, so Chrome refuses a request made on touchstart.
@@ -419,12 +560,18 @@ const GodotDisplayScreen = {
 			if (GodotConfig.fullscreen_on_first_tap && GodotDisplayScreen.hasFullscreen() && typeof window.matchMedia === 'function'
 				&& window.matchMedia('(pointer: coarse)').matches) {
 				GodotEventListeners.add(GodotConfig.canvas, 'touchend', function () {
-					if (!GodotDisplayScreen.first_tap_done && !GodotDisplayScreen.documentIsFullscreen()) {
+					if (!GodotDisplayScreen.first_tap_done && !GodotDisplayScreen.documentIsFullscreen() && !GodotDisplayScreen.embedHoldsFullscreen()) {
 						GodotDisplayScreen.requestFullscreen();
 					}
 				}, false);
 			}
 			GodotOS.atexit(function (resolve, reject) {
+				const embed = GodotDisplayScreen.embed;
+				if (embed && embed.request_timer !== null) {
+					clearTimeout(embed.request_timer);
+				}
+				GodotDisplayScreen.embed = null; // Its listeners go with GodotEventListeners.clear().
+				GodotDisplayScreen.fullscreen_cb = null;
 				GodotDisplayScreen.keep_on = false;
 				GodotDisplayScreen.releaseWakeLock();
 				resolve();
@@ -677,7 +824,7 @@ const GodotDisplay = {
 	godot_js_display_fullscreen_request__proxy: 'sync',
 	godot_js_display_fullscreen_request__sig: 'i',
 	godot_js_display_fullscreen_request: function () {
-		return GodotDisplayScreen.requestFullscreen();
+		return GodotDisplayScreen.requestEmbedFullscreen();
 	},
 
 	godot_js_display_fullscreen_exit__proxy: 'sync',
@@ -913,9 +1060,14 @@ const GodotDisplay = {
 	godot_js_display_fullscreen_cb: function (callback) {
 		const canvas = GodotConfig.canvas;
 		const func = GodotRuntime.get_func(callback);
+		GodotDisplayScreen.fullscreen_cb = func;
 		function change_cb(evt) {
 			if (evt.target === canvas) {
-				func(GodotDisplayScreen.isFullscreen());
+				if (GodotDisplayScreen.embed) {
+					GodotDisplayScreen.reportFullscreen(); // Deduplicated against the parent's messages.
+				} else {
+					func(GodotDisplayScreen.isFullscreen());
+				}
 			}
 		}
 		GodotEventListeners.add(document, 'fullscreenchange', change_cb, false);

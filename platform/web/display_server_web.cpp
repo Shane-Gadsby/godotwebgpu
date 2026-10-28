@@ -1791,7 +1791,11 @@ void DisplayServerWeb::window_set_mode(DisplayServerEnums::WindowMode p_mode, Di
 	switch (p_mode) {
 		case DisplayServerEnums::WINDOW_MODE_WINDOWED: {
 			if (window_mode == DisplayServerEnums::WINDOW_MODE_FULLSCREEN) {
-				godot_js_display_fullscreen_exit();
+				// 2: the page that iframes the game holds the fullscreen (html/embed_fullscreen), and has
+				// been asked to leave it. The mode changes when it says it has (fullscreen_change_callback).
+				if (godot_js_display_fullscreen_exit() == 2) {
+					break;
+				}
 			}
 			window_mode = DisplayServerEnums::WINDOW_MODE_WINDOWED;
 		} break;

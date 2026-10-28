@@ -285,6 +285,25 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	start_button["preloadProgress"] = start_preload && p_preset->get("html/start_button/preload_progress").operator bool();
 	config["startButton"] = start_button;
 
+	// Fullscreen driven by the page that iframes the game (GodotDisplayScreen's embed messages,
+	// platform/web/js/libs/library_godot_display.js). An empty origin list accepts any parent.
+	Dictionary embed_fullscreen;
+	const bool embed_enabled = p_preset->get("html/embed_fullscreen/enabled");
+	embed_fullscreen["enabled"] = embed_enabled;
+	Array embed_origins;
+	if (embed_enabled) {
+		const Vector<String> origins = p_preset->get("html/embed_fullscreen/allowed_origins").operator String().split(",", false);
+		for (const String &origin : origins) {
+			// A message's origin never ends in a slash, so a pasted "https://site.example/" would never match.
+			const String trimmed = origin.strip_edges().trim_suffix("/");
+			if (!trimmed.is_empty()) {
+				embed_origins.push_back(trimmed);
+			}
+		}
+	}
+	embed_fullscreen["allowedOrigins"] = embed_origins;
+	config["embedFullscreen"] = embed_fullscreen;
+
 	config["godotPoolSize"] = p_preset->get("threads/godot_pool_size");
 	config["emscriptenPoolSize"] = p_preset->get("threads/emscripten_pool_size");
 
@@ -593,6 +612,11 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload"), true, true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload_progress"), true));
 
+	// Lets the page that iframes the game put it in fullscreen through postMessage; the origins are
+	// shown only while it is enabled.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/embed_fullscreen/enabled"), false, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/embed_fullscreen/allowed_origins", PROPERTY_HINT_PLACEHOLDER_TEXT, "Any page (e.g. https://lms.example.edu, https://site.example.com)"), ""));
+
 	// The progress bar's toggle and colors (see web_progress_bar_colors above);
 	// the colors are shown only while the bar is.
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "loading_screen/progress_bar/enabled"), true, true));
@@ -695,6 +719,10 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 			return enabled && p_preset->get("html/start_button/preload").operator bool();
 		}
 		return enabled;
+	}
+
+	if (p_option == "html/embed_fullscreen/allowed_origins") {
+		return p_preset->get("html/embed_fullscreen/enabled").operator bool();
 	}
 
 	if (p_option == "progressive_web_app/orientation") {

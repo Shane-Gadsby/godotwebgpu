@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Parent page</title></head>
+<body style="margin:0;font-family:sans-serif;background:#ddd">
+<p style="margin:8px"><button id="game-fullscreen" style="font-size:20px">Fullscreen</button></p>
+<iframe id="game" allow="fullscreen" style="width:1000px;height:585px;border:0"></iframe>
+<iframe id="evil" src="evil.html" style="width:200px;height:40px;border:0"></iframe>
+<script>
+// The task's parent-page snippet, plus a log and switches for the test:
+//   ?game=<export dir>  ?norequest (no godot:request-fullscreen handler)  ?silent (no protocol at all)
+const q = new URLSearchParams(location.search);
+const GAME_ORIGIN = 'http://127.0.0.1:8702';
+const frame = document.getElementById('game');
+frame.src = `${GAME_ORIGIN}/${q.get('game')}/index.html`;
+window.__parentLog = [];
+const log = (what) => window.__parentLog.push({ t: performance.now(), what, fs: document.fullscreenElement ? document.fullscreenElement.id : null });
+document.getElementById('game-fullscreen').addEventListener('click', () => {
+	document.fullscreenElement ? document.exitFullscreen() : frame.requestFullscreen().catch((e) => log('request rejected ' + e.name));
+});
+if (!q.has('silent')) {
+	function sendState() {
+		const on = document.fullscreenElement === frame;
+		log('send on=' + on);
+		frame.contentWindow.postMessage({ type: 'godot:fullscreen', on }, GAME_ORIGIN);
+	}
+	document.addEventListener('fullscreenchange', sendState);
+	window.addEventListener('message', (event) => {
+		if (event.source !== frame.contentWindow || !event.data) return;
+		log('got ' + event.data.type + ' from ' + event.origin);
+		if (event.data.type === 'godot:ready') sendState();
+		else if (event.data.type === 'godot:exit-fullscreen' && document.fullscreenElement) document.exitFullscreen();
+		else if (event.data.type === 'godot:request-fullscreen' && !document.fullscreenElement && !q.has('norequest')) {
+			frame.requestFullscreen().then(() => log('request ok'), (e) => log('request rejected ' + e.name));
+		}
+	});
+} else {
+	document.addEventListener('fullscreenchange', () => log('fullscreenchange'));
+}
+</script>
+</body>
+</html>
