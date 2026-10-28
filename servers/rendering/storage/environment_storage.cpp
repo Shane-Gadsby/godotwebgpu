@@ -551,6 +551,42 @@ float RendererEnvironmentStorage::environment_get_volumetric_fog_ambient_inject(
 	return env->volumetric_fog_ambient_inject;
 }
 
+// GLARE
+
+void RendererEnvironmentStorage::environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->glare.lens_flare_enabled = p_enable;
+	env->glare.lens_flare_intensity = MAX(p_intensity, 0.0f);
+	env->glare.lens_flare_threshold = MAX(p_threshold, 0.0f);
+	env->glare.lens_flare_ghost_count = CLAMP(p_ghost_count, 0, 8);
+	env->glare.lens_flare_halo_intensity = MAX(p_halo_intensity, 0.0f);
+	env->glare.lens_flare_chromatic_aberration = MAX(p_chromatic_aberration, 0.0f);
+}
+
+void RendererEnvironmentStorage::environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->glare.veiling_glare_enabled = p_enable;
+	env->glare.veiling_glare_strength = MAX(p_strength, 0.0f);
+}
+
+void RendererEnvironmentStorage::environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->glare.diffusion_filter_enabled = p_enable;
+	env->glare.diffusion_filter_strength = MAX(p_strength, 0.0f);
+	env->glare.diffusion_filter_black = p_black;
+}
+
+CameraGlareEnvironment RendererEnvironmentStorage::environment_get_camera_glare(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	if (!env) {
+		return CameraGlareEnvironment(); // No Environment: no glare.
+	}
+	return env->glare;
+}
+
 // GLOW
 
 void RendererEnvironmentStorage::environment_set_glow(RID p_env, bool p_enable, Vector<float> p_levels, float p_intensity, float p_strength, float p_mix, float p_bloom_threshold, RSE::EnvironmentGlowBlendMode p_blend_mode, float p_hdr_bleed_threshold, float p_hdr_bleed_scale, float p_hdr_luminance_cap, float p_glow_map_strength, RID p_glow_map) {

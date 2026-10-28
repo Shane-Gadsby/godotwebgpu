@@ -48,6 +48,8 @@ layout(set = 0, binding = 0) uniform SAMPLER_FORMAT source_color;
 layout(set = 1, binding = 0) uniform sampler2D source_auto_exposure;
 layout(set = 2, binding = 0) uniform SAMPLER_FORMAT source_glow;
 layout(set = 2, binding = 1) uniform sampler2D glow_map; // TODO needs multiview support
+// The glare chain (camera_glare_inc.glsl), a mip chain of the frame; black when no glare is on.
+layout(set = 2, binding = 2) uniform SAMPLER_FORMAT source_glare;
 
 #ifdef USE_1D_LUT
 layout(set = 3, binding = 0) uniform sampler2D source_color_correction;
@@ -73,6 +75,14 @@ layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 #define CAMERA_EXPOSURE_SET 1
 #define CAMERA_EXPOSURE_BINDING 2
 #include "camera_exposure_inc.glsl"
+
+#ifdef USE_MULTIVIEW
+#define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, vec3(m_uv, ViewIndex), m_lod).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) (textureGrad(source_glare, vec3(m_uv, ViewIndex), m_dx, m_dy).rgb * params.luminance_multiplier)
+#else
+#define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, m_uv, m_lod).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) (textureGrad(source_glare, m_uv, m_dx, m_dy).rgb * params.luminance_multiplier)
+#endif
 
 #define FLAG_USE_BCS (1 << 0)
 #define FLAG_USE_GLOW (1 << 1)
@@ -115,6 +125,8 @@ layout(push_constant, std430) uniform Params {
 params;
 
 layout(location = 0) out vec4 frag_color;
+
+#include "camera_glare_inc.glsl"
 
 // CameraAttributes white balance: a von Kries adaptation in Bradford cone space. The CPU computes the
 // three cone gains (RendererCameraAttributes::white_balance_compute_gains()); these matrices are
@@ -951,6 +963,12 @@ void main() {
 		} else {
 			color.rgb = apply_glow(color.rgb, glow, params.white);
 		}
+	}
+
+	// Glare (camera_glare_inc.glsl): flare, veiling glare, diffusion, starbursts and halation, read where the lens takes
+	// this pixel from, before vignetting, which darkens the light they add as it does the rest.
+	if (camera_effects.header.y != 0u) {
+		color.rgb = camera_glare_apply(color.rgb, lens_uv, exposure);
 	}
 
 	// Vignetting: the lens passes less light toward the frame's edges, glow included (it is scene light here).

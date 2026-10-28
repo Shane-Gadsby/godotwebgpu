@@ -193,6 +193,9 @@ private:
 	} tonemap_mobile;
 
 	RID default_camera_effects_buffer; // All zeros: no CameraEffects effect runs.
+	// The glare chain's sampler: trilinear, and anisotropic so that the starburst's textureGrad() reads integrate along
+	// a spike while staying thin across it. Reads with an explicit lod are unaffected.
+	RID glare_sampler;
 
 public:
 	ToneMapper(bool p_use_mobile_version);
@@ -229,6 +232,7 @@ public:
 		RID camera_lut_texture; // A 3D texture; the default 3D white texture when there is none.
 
 		RID camera_effects_buffer; // The CameraEffects uniform buffer; the default all-zero one when invalid.
+		RID glare_texture; // The glare chain (whole mip chain) when glare is on; a black texture when invalid.
 		RID auto_white_balance_texture; // CameraMetering's state (gains in texel 0); read when the buffer says so.
 
 		bool use_bcs = false;

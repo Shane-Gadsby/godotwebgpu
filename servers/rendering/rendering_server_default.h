@@ -887,6 +887,10 @@ public:
 	FUNC13(environment_set_glow, RID, bool, Vector<float>, float, float, float, float, RSE::EnvironmentGlowBlendMode, float, float, float, float, RID)
 	FUNC1(environment_glow_set_use_bicubic_upscale, bool)
 
+	FUNC7(environment_set_lens_flare, RID, bool, float, float, int, float, float)
+	FUNC3(environment_set_veiling_glare, RID, bool, float)
+	FUNC4(environment_set_diffusion_filter, RID, bool, float, bool)
+
 	FUNC4(environment_set_tonemap, RID, RSE::EnvironmentToneMapper, float, float)
 	FUNC2(environment_set_tonemap_agx_contrast, RID, float)
 
@@ -953,6 +957,12 @@ public:
 	FUNC6(camera_attributes_set_lens_distortion, RID, bool, bool, float, float, bool)
 	FUNC3(camera_attributes_set_chromatic_aberration, RID, bool, float)
 	FUNC3(camera_attributes_set_diffraction, RID, bool, float)
+
+	FUNC5(camera_attributes_set_aperture, RID, bool, int, float, float)
+	FUNC3(camera_attributes_set_cats_eye, RID, bool, float)
+	FUNC4(camera_attributes_set_tilt_shift, RID, bool, float, float)
+	FUNC3(camera_attributes_set_starburst, RID, bool, float)
+	FUNC4(camera_attributes_set_halation, RID, bool, float, float)
 
 	/* SCENARIO API */
 

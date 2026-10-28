@@ -150,6 +150,23 @@ protected:
 	float white_balance_auto_max_temperature = 10000.0;
 	void _update_auto_white_balance();
 
+	// Aperture, bokeh, starburst and halation (CameraAttributesPhysical adds tilt-shift).
+	bool aperture_enabled = false;
+	int aperture_blade_count = 6; // 0 = circular.
+	float aperture_blade_curvature = 0.0;
+	float aperture_rotation = 0.0; // In degrees.
+	void _update_aperture();
+	bool cats_eye_enabled = false;
+	float cats_eye_strength = 1.0;
+	void _update_cats_eye();
+	bool starburst_enabled = false;
+	float starburst_strength = 1.0;
+	void _update_starburst();
+	bool halation_enabled = false;
+	float halation_strength = 1.0;
+	float halation_radius = 1.0;
+	void _update_halation();
+
 public:
 	virtual RID get_rid() const override;
 	virtual float calculate_exposure_normalization() const { return 1.0; }
@@ -264,6 +281,29 @@ public:
 	void set_chromatic_aberration_strength(float p_strength);
 	float get_chromatic_aberration_strength() const;
 
+	void set_aperture_enabled(bool p_value);
+	bool is_aperture_enabled() const;
+	void set_aperture_blade_count(int p_value);
+	int get_aperture_blade_count() const;
+	void set_aperture_blade_curvature(float p_value);
+	float get_aperture_blade_curvature() const;
+	void set_aperture_rotation(float p_value);
+	float get_aperture_rotation() const;
+	void set_cats_eye_enabled(bool p_value);
+	bool is_cats_eye_enabled() const;
+	void set_cats_eye_strength(float p_value);
+	float get_cats_eye_strength() const;
+	void set_starburst_enabled(bool p_value);
+	bool is_starburst_enabled() const;
+	void set_starburst_strength(float p_value);
+	float get_starburst_strength() const;
+	void set_halation_enabled(bool p_value);
+	bool is_halation_enabled() const;
+	void set_halation_strength(float p_value);
+	float get_halation_strength() const;
+	void set_halation_radius(float p_value);
+	float get_halation_radius() const;
+
 	CameraAttributes();
 	~CameraAttributes();
 };
@@ -351,6 +391,12 @@ private:
 	void _update_lens();
 	void _update_diffraction();
 
+	// Tilt-shift: the lens tilted against the sensor, so the plane of focus tilts (Scheimpflug).
+	bool tilt_shift_enabled = false;
+	float tilt_shift_tilt = 0.0; // In degrees.
+	float tilt_shift_axis = 0.0; // In degrees.
+	void _update_tilt_shift();
+
 	// Exposure
 	float exposure_aperture = 16.0; // In f-stops;
 	float exposure_shutter_speed = 100.0; // In 1 / seconds;
@@ -419,6 +465,13 @@ public:
 	bool is_diffraction_enabled() const;
 	void set_diffraction_strength(float p_strength);
 	float get_diffraction_strength() const;
+
+	void set_tilt_shift_enabled(bool p_enabled);
+	bool is_tilt_shift_enabled() const;
+	void set_tilt_shift_tilt(float p_degrees);
+	float get_tilt_shift_tilt() const;
+	void set_tilt_shift_axis(float p_degrees);
+	float get_tilt_shift_axis() const;
 
 	void set_auto_exposure_min_exposure_value(float p_min);
 	float get_auto_exposure_min_exposure_value() const;

@@ -595,6 +595,136 @@ void CameraAttributes::_update_chromatic_aberration() {
 	RS::get_singleton()->camera_attributes_set_chromatic_aberration(camera_attributes, chromatic_aberration_enabled, chromatic_aberration_strength);
 }
 
+void CameraAttributes::set_aperture_enabled(bool p_value) {
+	aperture_enabled = p_value;
+	_update_aperture();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_aperture_enabled() const {
+	return aperture_enabled;
+}
+
+void CameraAttributes::set_aperture_blade_count(int p_value) {
+	aperture_blade_count = p_value < 3 ? 0 : MIN(p_value, 32);
+	_update_aperture();
+	emit_changed();
+}
+
+int CameraAttributes::get_aperture_blade_count() const {
+	return aperture_blade_count;
+}
+
+void CameraAttributes::set_aperture_blade_curvature(float p_value) {
+	aperture_blade_curvature = CLAMP(p_value, 0.0f, 1.0f);
+	_update_aperture();
+	emit_changed();
+}
+
+float CameraAttributes::get_aperture_blade_curvature() const {
+	return aperture_blade_curvature;
+}
+
+void CameraAttributes::set_aperture_rotation(float p_value) {
+	aperture_rotation = p_value;
+	_update_aperture();
+	emit_changed();
+}
+
+float CameraAttributes::get_aperture_rotation() const {
+	return aperture_rotation;
+}
+
+void CameraAttributes::set_cats_eye_enabled(bool p_value) {
+	cats_eye_enabled = p_value;
+	_update_cats_eye();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_cats_eye_enabled() const {
+	return cats_eye_enabled;
+}
+
+void CameraAttributes::set_cats_eye_strength(float p_value) {
+	cats_eye_strength = CLAMP(p_value, 0.0f, 2.0f);
+	_update_cats_eye();
+	emit_changed();
+}
+
+float CameraAttributes::get_cats_eye_strength() const {
+	return cats_eye_strength;
+}
+
+void CameraAttributes::set_starburst_enabled(bool p_value) {
+	starburst_enabled = p_value;
+	_update_starburst();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_starburst_enabled() const {
+	return starburst_enabled;
+}
+
+void CameraAttributes::set_starburst_strength(float p_value) {
+	starburst_strength = MAX(p_value, 0.0f);
+	_update_starburst();
+	emit_changed();
+}
+
+float CameraAttributes::get_starburst_strength() const {
+	return starburst_strength;
+}
+
+void CameraAttributes::set_halation_enabled(bool p_value) {
+	halation_enabled = p_value;
+	_update_halation();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributes::is_halation_enabled() const {
+	return halation_enabled;
+}
+
+void CameraAttributes::set_halation_strength(float p_value) {
+	halation_strength = CLAMP(p_value, 0.0f, 12.0f);
+	_update_halation();
+	emit_changed();
+}
+
+float CameraAttributes::get_halation_strength() const {
+	return halation_strength;
+}
+
+void CameraAttributes::set_halation_radius(float p_value) {
+	halation_radius = MAX(p_value, 0.01f);
+	_update_halation();
+	emit_changed();
+}
+
+float CameraAttributes::get_halation_radius() const {
+	return halation_radius;
+}
+
+void CameraAttributes::_update_aperture() {
+	RS::get_singleton()->camera_attributes_set_aperture(camera_attributes, aperture_enabled, aperture_blade_count, aperture_blade_curvature, aperture_rotation);
+}
+
+void CameraAttributes::_update_cats_eye() {
+	RS::get_singleton()->camera_attributes_set_cats_eye(camera_attributes, cats_eye_enabled, cats_eye_strength);
+}
+
+void CameraAttributes::_update_starburst() {
+	RS::get_singleton()->camera_attributes_set_starburst(camera_attributes, starburst_enabled, starburst_strength);
+}
+
+void CameraAttributes::_update_halation() {
+	RS::get_singleton()->camera_attributes_set_halation(camera_attributes, halation_enabled, halation_strength, halation_radius);
+}
+
 RID CameraAttributes::get_rid() const {
 	return camera_attributes;
 }
@@ -654,6 +784,15 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 	if ((p_property.name.begins_with("vignetting_") && p_property.name != "vignetting_enabled" && !vignetting_enabled) ||
 			(p_property.name.begins_with("distortion_") && p_property.name != "distortion_enabled" && !distortion_enabled) ||
 			(p_property.name.begins_with("chromatic_aberration_") && p_property.name != "chromatic_aberration_enabled" && !chromatic_aberration_enabled)) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+		return;
+	}
+
+	// The starburst follows the aperture's blades, so they show when either is on.
+	if ((p_property.name.begins_with("aperture_") && p_property.name != "aperture_enabled" && !aperture_enabled && !starburst_enabled) ||
+			(p_property.name.begins_with("cats_eye_") && p_property.name != "cats_eye_enabled" && !cats_eye_enabled) ||
+			(p_property.name.begins_with("starburst_") && p_property.name != "starburst_enabled" && !starburst_enabled) ||
+			(p_property.name.begins_with("halation_") && p_property.name != "halation_enabled" && !halation_enabled)) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
 	}
@@ -829,6 +968,48 @@ void CameraAttributes::_bind_methods() {
 	ADD_GROUP("Chromatic Aberration", "chromatic_aberration_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "chromatic_aberration_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_chromatic_aberration_enabled", "is_chromatic_aberration_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "chromatic_aberration_strength", PROPERTY_HINT_RANGE, "-10,10,0.01,or_greater,or_less"), "set_chromatic_aberration_strength", "get_chromatic_aberration_strength");
+
+	ClassDB::bind_method(D_METHOD("set_aperture_enabled", "enabled"), &CameraAttributes::set_aperture_enabled);
+	ClassDB::bind_method(D_METHOD("is_aperture_enabled"), &CameraAttributes::is_aperture_enabled);
+	ClassDB::bind_method(D_METHOD("set_aperture_blade_count", "count"), &CameraAttributes::set_aperture_blade_count);
+	ClassDB::bind_method(D_METHOD("get_aperture_blade_count"), &CameraAttributes::get_aperture_blade_count);
+	ClassDB::bind_method(D_METHOD("set_aperture_blade_curvature", "curvature"), &CameraAttributes::set_aperture_blade_curvature);
+	ClassDB::bind_method(D_METHOD("get_aperture_blade_curvature"), &CameraAttributes::get_aperture_blade_curvature);
+	ClassDB::bind_method(D_METHOD("set_aperture_rotation", "degrees"), &CameraAttributes::set_aperture_rotation);
+	ClassDB::bind_method(D_METHOD("get_aperture_rotation"), &CameraAttributes::get_aperture_rotation);
+	ClassDB::bind_method(D_METHOD("set_cats_eye_enabled", "enabled"), &CameraAttributes::set_cats_eye_enabled);
+	ClassDB::bind_method(D_METHOD("is_cats_eye_enabled"), &CameraAttributes::is_cats_eye_enabled);
+	ClassDB::bind_method(D_METHOD("set_cats_eye_strength", "strength"), &CameraAttributes::set_cats_eye_strength);
+	ClassDB::bind_method(D_METHOD("get_cats_eye_strength"), &CameraAttributes::get_cats_eye_strength);
+	ClassDB::bind_method(D_METHOD("set_starburst_enabled", "enabled"), &CameraAttributes::set_starburst_enabled);
+	ClassDB::bind_method(D_METHOD("is_starburst_enabled"), &CameraAttributes::is_starburst_enabled);
+	ClassDB::bind_method(D_METHOD("set_starburst_strength", "strength"), &CameraAttributes::set_starburst_strength);
+	ClassDB::bind_method(D_METHOD("get_starburst_strength"), &CameraAttributes::get_starburst_strength);
+	ClassDB::bind_method(D_METHOD("set_halation_enabled", "enabled"), &CameraAttributes::set_halation_enabled);
+	ClassDB::bind_method(D_METHOD("is_halation_enabled"), &CameraAttributes::is_halation_enabled);
+	ClassDB::bind_method(D_METHOD("set_halation_strength", "strength"), &CameraAttributes::set_halation_strength);
+	ClassDB::bind_method(D_METHOD("get_halation_strength"), &CameraAttributes::get_halation_strength);
+	ClassDB::bind_method(D_METHOD("set_halation_radius", "radius"), &CameraAttributes::set_halation_radius);
+	ClassDB::bind_method(D_METHOD("get_halation_radius"), &CameraAttributes::get_halation_radius);
+
+	ADD_GROUP("Aperture", "aperture_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "aperture_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_aperture_enabled", "is_aperture_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "aperture_blade_count", PROPERTY_HINT_RANGE, "0,16,1,or_greater"), "set_aperture_blade_count", "get_aperture_blade_count");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "aperture_blade_curvature", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_aperture_blade_curvature", "get_aperture_blade_curvature");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "aperture_rotation", PROPERTY_HINT_RANGE, "-180,180,0.1,degrees"), "set_aperture_rotation", "get_aperture_rotation");
+
+	ADD_GROUP("Cat's Eye", "cats_eye_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "cats_eye_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_cats_eye_enabled", "is_cats_eye_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "cats_eye_strength", PROPERTY_HINT_RANGE, "0,2,0.01"), "set_cats_eye_strength", "get_cats_eye_strength");
+
+	ADD_GROUP("Starburst", "starburst_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "starburst_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_starburst_enabled", "is_starburst_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "starburst_strength", PROPERTY_HINT_RANGE, "0,100,0.01,or_greater,exp"), "set_starburst_strength", "get_starburst_strength");
+
+	ADD_GROUP("Halation", "halation_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "halation_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_halation_enabled", "is_halation_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "halation_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_halation_strength", "get_halation_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "halation_radius", PROPERTY_HINT_RANGE, "0.1,8,0.01,or_greater"), "set_halation_radius", "get_halation_radius");
 
 	ADD_GROUP("Motion Blur", "motion_blur_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "motion_blur_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_motion_blur_enabled", "is_motion_blur_enabled");
@@ -1343,6 +1524,42 @@ void CameraAttributesPhysical::_update_diffraction() {
 	RS::get_singleton()->camera_attributes_set_diffraction(get_rid(), diffraction_enabled, diffraction_strength);
 }
 
+void CameraAttributesPhysical::set_tilt_shift_enabled(bool p_enabled) {
+	tilt_shift_enabled = p_enabled;
+	_update_tilt_shift();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+bool CameraAttributesPhysical::is_tilt_shift_enabled() const {
+	return tilt_shift_enabled;
+}
+
+void CameraAttributesPhysical::set_tilt_shift_tilt(float p_degrees) {
+	// Tilt-shift lenses tilt up to 8-15 degrees; past 45 the plane of focus lies along the line of sight.
+	tilt_shift_tilt = CLAMP(p_degrees, -45.0f, 45.0f);
+	_update_tilt_shift();
+	emit_changed();
+}
+
+float CameraAttributesPhysical::get_tilt_shift_tilt() const {
+	return tilt_shift_tilt;
+}
+
+void CameraAttributesPhysical::set_tilt_shift_axis(float p_degrees) {
+	tilt_shift_axis = p_degrees;
+	_update_tilt_shift();
+	emit_changed();
+}
+
+float CameraAttributesPhysical::get_tilt_shift_axis() const {
+	return tilt_shift_axis;
+}
+
+void CameraAttributesPhysical::_update_tilt_shift() {
+	RS::get_singleton()->camera_attributes_set_tilt_shift(get_rid(), tilt_shift_enabled, tilt_shift_tilt, tilt_shift_axis);
+}
+
 void CameraAttributesPhysical::set_auto_exposure_min_exposure_value(float p_min) {
 	auto_exposure_min = p_min;
 	_update_auto_exposure();
@@ -1392,6 +1609,9 @@ void CameraAttributesPhysical::_validate_property(PropertyInfo &property) const 
 		property.usage |= PROPERTY_USAGE_READ_ONLY;
 	}
 	if (property.name == "diffraction_strength" && !diffraction_enabled) {
+		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
+	}
+	if ((property.name == "tilt_shift_tilt" || property.name == "tilt_shift_axis") && !tilt_shift_enabled) {
 		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 	}
 }
@@ -1444,6 +1664,13 @@ void CameraAttributesPhysical::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_diffraction_strength", "strength"), &CameraAttributesPhysical::set_diffraction_strength);
 	ClassDB::bind_method(D_METHOD("get_diffraction_strength"), &CameraAttributesPhysical::get_diffraction_strength);
 
+	ClassDB::bind_method(D_METHOD("set_tilt_shift_enabled", "enabled"), &CameraAttributesPhysical::set_tilt_shift_enabled);
+	ClassDB::bind_method(D_METHOD("is_tilt_shift_enabled"), &CameraAttributesPhysical::is_tilt_shift_enabled);
+	ClassDB::bind_method(D_METHOD("set_tilt_shift_tilt", "degrees"), &CameraAttributesPhysical::set_tilt_shift_tilt);
+	ClassDB::bind_method(D_METHOD("get_tilt_shift_tilt"), &CameraAttributesPhysical::get_tilt_shift_tilt);
+	ClassDB::bind_method(D_METHOD("set_tilt_shift_axis", "degrees"), &CameraAttributesPhysical::set_tilt_shift_axis);
+	ClassDB::bind_method(D_METHOD("get_tilt_shift_axis"), &CameraAttributesPhysical::get_tilt_shift_axis);
+
 	ADD_GROUP("Sensor", "sensor_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "sensor_format", PROPERTY_HINT_ENUM, "Full Frame (36x24 mm),APS-C (23.6x15.6 mm),Super 35 (24.89x18.66 mm),Micro Four Thirds (17.3x13 mm),Medium Format (44x33 mm),1-inch (13.2x8.8 mm),Custom"), "set_sensor_format", "get_sensor_format");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "sensor_size", PROPERTY_HINT_NONE, "suffix:mm"), "set_sensor_size", "get_sensor_size");
@@ -1457,6 +1684,11 @@ void CameraAttributesPhysical::_bind_methods() {
 	ADD_GROUP("Diffraction", "diffraction_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "diffraction_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_diffraction_enabled", "is_diffraction_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "diffraction_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_diffraction_strength", "get_diffraction_strength");
+
+	ADD_GROUP("Tilt-Shift", "tilt_shift_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "tilt_shift_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_tilt_shift_enabled", "is_tilt_shift_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tilt_shift_tilt", PROPERTY_HINT_RANGE, "-15,15,0.01,or_greater,or_less,degrees"), "set_tilt_shift_tilt", "get_tilt_shift_tilt");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tilt_shift_axis", PROPERTY_HINT_RANGE, "-180,180,0.1,degrees"), "set_tilt_shift_axis", "get_tilt_shift_axis");
 
 	ADD_GROUP("Frustum", "frustum_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "frustum_focus_distance", PROPERTY_HINT_RANGE, "0.01,4000.0,0.01,suffix:m"), "set_focus_distance", "get_focus_distance");

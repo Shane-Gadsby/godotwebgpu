@@ -68,8 +68,31 @@ private:
 
 		float blur_size_near;
 		float blur_size_far;
-		uint32_t pad[2];
+
+		// The aperture's shape, cat's eye and tilt-shift (bokeh_dof_inc.glsl reads them; half floats are packed in
+		// pairs, low half first).
+		uint32_t shape_flags; // Bits 0-7: blade count (0 = circular); BOKEH_SHAPE_* above them.
+		uint32_t blade_shape; // Blade curvature, rotation (radians).
+		uint32_t cats_eye; // Barrel offset per frame unit, barrel radius (both in aperture radii).
+		uint32_t frame_half_extent; // Frame half extents in frame units.
+		uint32_t squeeze_focal_length; // Anamorphic squeeze, focal length (meters).
+		uint32_t view_ray_scale; // View ray x / -z, y / -z per NDC unit.
+		uint32_t view_ray_offset; // ...and at NDC 0 (an off-center projection).
+		float tilt_normal_x; // The plane of focus's normal in view space; z is positive.
+		float tilt_normal_y;
+		uint32_t pad;
 	};
+	static_assert(sizeof(BokehPushConstant) == 128, "The bokeh push constant must stay within Vulkan's guaranteed 128 bytes.");
+
+	enum BokehShapeFlags : uint32_t {
+		BOKEH_SHAPE_CUSTOM = 1 << 8,
+		BOKEH_SHAPE_CATS_EYE = 1 << 9,
+		BOKEH_SHAPE_TILT = 1 << 10,
+	};
+
+	// Fills the push constant's shape fields from the camera attributes; returns whether the bokeh has a custom
+	// shape, which only the circular gather can draw.
+	bool _setup_bokeh_shape(RID p_camera_attributes, const Size2i &p_size, const Projection &p_projection, bool p_orthogonal);
 
 	enum BokehMode {
 		BOKEH_GEN_BLUR_SIZE,
@@ -124,8 +147,8 @@ public:
 	BokehDOF(bool p_prefer_raster_effects);
 	~BokehDOF();
 
-	void bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, bool p_msaa_resolved_depth = false);
-	void bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal);
+	void bokeh_dof_compute(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection, bool p_msaa_resolved_depth = false);
+	void bokeh_dof_raster(const BokehBuffers &p_buffers, RID p_camera_attributes, float p_cam_znear, float p_cam_zfar, bool p_cam_orthogonal, const Projection &p_cam_projection);
 };
 
 } // namespace RendererRD

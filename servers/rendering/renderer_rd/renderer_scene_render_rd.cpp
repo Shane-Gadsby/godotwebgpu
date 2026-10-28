@@ -476,6 +476,60 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 	RD::get_singleton()->draw_command_end_label();
 }
 
+// The glare chain (camera_glare_inc.glsl): the whole scene-linear frame at reduced resolution, blurred, and every mip
+// below it blurred and halved again, down to one texel (its mean). Unlike glow's chain it has no threshold and no
+// firefly suppression, as glare is the lens's point spread function acting on all light. RGBA16F whatever the
+// buffers' format, since highlights far above 1 are what glare is made of. Built with glow's passes: Forward+'s
+// compute Gaussian at half resolution, the raster path's gather at quarter resolution (its first pass always reduces
+// by four). Returns the texture with all its mips and layers, or an invalid RID when the frame is too small; r_sigma is
+// the blur of lod L in lod 0 texels per 2^L, measured with a single bright texel (task 35's halation renders).
+static RID _render_camera_glare_chain(const Ref<RenderSceneBuffersRD> &p_render_buffers, RendererRD::CopyEffects *p_copy_effects, RID p_source_override, const Size2i &p_source_size, bool p_can_use_storage, Size2i &r_size, int &r_mipmaps, float &r_sigma) {
+	static const StringName context = SNAME("CameraGlare");
+	static const StringName name = SNAME("chain");
+	const int reduction = p_can_use_storage ? 1 : 2;
+	const Size2i size = Size2i(p_source_size.x >> reduction, p_source_size.y >> reduction);
+	r_sigma = p_can_use_storage ? 2.68 : 0.80;
+	if (size.x < 2 || size.y < 2) {
+		return RID();
+	}
+	int mipmaps = 1;
+	while (MAX(size.x >> (mipmaps - 1), size.y >> (mipmaps - 1)) > 1) {
+		mipmaps++;
+	}
+	const uint32_t usage = RD::TEXTURE_USAGE_SAMPLING_BIT | (p_can_use_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT);
+	if (p_render_buffers->has_texture(context, name) && p_render_buffers->get_texture_slice_size(context, name, 0) != size) {
+		p_render_buffers->clear_context(context);
+	}
+	const RID chain = p_render_buffers->create_texture(context, name, RD::DATA_FORMAT_R16G16B16A16_SFLOAT, usage, RD::TEXTURE_SAMPLES_1, size, p_render_buffers->get_view_count(), mipmaps, true, true);
+
+	// Whole image: no threshold (bloom 1), no exposure, and a luminance cap at the format's maximum.
+	const float cap = 65504.0;
+	const float luminance_multiplier = p_render_buffers->get_luminance_multiplier();
+	for (uint32_t v = 0; v < p_render_buffers->get_view_count(); v++) {
+		RID source = p_source_override.is_valid() ? p_source_override : p_render_buffers->get_internal_texture(v);
+		RID dest = p_render_buffers->get_texture_slice(context, name, v, 0);
+		if (p_can_use_storage) {
+			p_copy_effects->gaussian_glow(source, dest, size, 1.0, true, cap, 1.0, 1.0, cap, 1.0);
+			for (int i = 1; i < mipmaps; i++) {
+				source = dest;
+				dest = p_render_buffers->get_texture_slice(context, name, v, i);
+				p_copy_effects->gaussian_glow(source, dest, p_render_buffers->get_texture_slice_size(context, name, i), 1.0);
+			}
+		} else {
+			p_copy_effects->gaussian_glow_downsample_raster(source, dest, luminance_multiplier, p_source_size, 1.0, true, cap, 1.0, 1.0, cap, 1.0);
+			for (int i = 1; i < mipmaps; i++) {
+				const Size2i source_size = p_render_buffers->get_texture_slice_size(context, name, i - 1);
+				source = dest;
+				dest = p_render_buffers->get_texture_slice(context, name, v, i);
+				p_copy_effects->gaussian_glow_downsample_raster(source, dest, luminance_multiplier, source_size, 1.0);
+			}
+		}
+	}
+	r_size = size;
+	r_mipmaps = mipmaps;
+	return chain;
+}
+
 // The CameraAttributes LUT for a tonemap pass. The texture is always bound, so it falls back to the default 3D
 // texture, and the LUT stays off unless the camera's texture is a real 3D texture.
 static void _setup_camera_lut(RendererRD::ToneMapper::TonemapSettings &r_tonemap, RID p_camera_attributes, bool p_can_use_effects) {
@@ -571,7 +625,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				// In stereo p_render_data->z_near and p_render_data->z_far can be offset for our combined frustum.
 				float z_near = p_render_data->scene_data->view_projection[i].get_z_near();
 				float z_far = p_render_data->scene_data->view_projection[i].get_z_far();
-				bokeh_dof->bokeh_dof_compute(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal, msaa_resolved_depth);
+				bokeh_dof->bokeh_dof_compute(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal, p_render_data->scene_data->view_projection[i], msaa_resolved_depth);
 			};
 		} else {
 			// Set framebuffers.
@@ -594,7 +648,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				// In stereo p_render_data->z_near and p_render_data->z_far can be offset for our combined frustum.
 				float z_near = p_render_data->scene_data->view_projection[i].get_z_near();
 				float z_far = p_render_data->scene_data->view_projection[i].get_z_far();
-				bokeh_dof->bokeh_dof_raster(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal);
+				bokeh_dof->bokeh_dof_raster(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal, p_render_data->scene_data->view_projection[i]);
 			}
 		}
 		RD::get_singleton()->draw_command_end_label();
@@ -799,6 +853,20 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		}
 	}
 
+	// Glare (CameraAttributes starburst and halation, Environment lens flare, veiling glare and diffusion filter): the
+	// tonemap pass reads it from its own mip chain of the frame, built here after DOF and motion blur.
+	const CameraGlareEnvironment glare_environment = p_render_data->environment.is_valid() ? environment_get_camera_glare(p_render_data->environment) : CameraGlareEnvironment();
+	RID glare_chain;
+	Size2i glare_chain_size;
+	int glare_chain_mipmaps = 0;
+	float glare_chain_sigma = 1.0;
+	if (can_use_effects && RSG::camera_attributes->camera_attributes_uses_glare(p_render_data->camera_attributes, glare_environment)) {
+		RENDER_TIMESTAMP("Camera Glare");
+		RD::get_singleton()->draw_command_begin_label("Camera Glare");
+		glare_chain = _render_camera_glare_chain(rb, copy_effects, use_upscaled_texture ? rb->get_upscaled_texture() : RID(), color_size, can_use_storage, glare_chain_size, glare_chain_mipmaps, glare_chain_sigma);
+		RD::get_singleton()->draw_command_end_label();
+	}
+
 	{
 		RENDER_TIMESTAMP("Tonemap");
 		RD::get_singleton()->draw_command_begin_label("Tonemap");
@@ -936,6 +1004,13 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			camera_effects_context.source_size = color_size;
 			camera_effects_context.output_size = tonemap.dest_texture_size;
 			camera_effects_context.frame = RSG::rasterizer->get_frame_number();
+			camera_effects_context.glare_environment = glare_environment;
+			if (glare_chain.is_valid()) {
+				camera_effects_context.glare_chain_size = glare_chain_size;
+				camera_effects_context.glare_chain_mipmaps = glare_chain_mipmaps;
+				camera_effects_context.glare_chain_sigma = glare_chain_sigma;
+				tonemap.glare_texture = glare_chain;
+			}
 			camera_effects_context.auto_white_balance = auto_white_balance_state.is_valid();
 			tonemap.camera_effects_buffer = tone_mapper->get_camera_effects_buffer(rb, p_render_data->camera_attributes, camera_effects_context);
 			tonemap.auto_white_balance_texture = auto_white_balance_state;

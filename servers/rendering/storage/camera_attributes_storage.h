@@ -41,7 +41,8 @@
 // servers/rendering/renderer_rd/shaders/effects/camera_effects_inc.glsl and its Compatibility copy, so keep the three in
 // step. Each region belongs to one group of effects, and its header word says which of them run:
 // - header[0], lens[8]: lens optics (camera_lens_inc.glsl): distortion, chromatic aberration, diffraction, vignetting.
-// - header[1], glare[6]: reserved for lens flare, veiling glare and diffusion filters (task 35).
+// - header[1], glare[6]: glare (camera_glare_inc.glsl): lens flare, veiling glare, diffusion filters, starbursts and
+//   halation, all read from the glare chain (a mip chain of the scene).
 // - header[2], exposure[2]: reserved for exposure automation (task 36).
 // - header[3], reserved[15]: free; grow a region into it rather than reordering.
 // An all-zero header means no effect runs.
@@ -54,12 +55,33 @@ struct CameraEffectsUBO {
 };
 static_assert(sizeof(CameraEffectsUBO) == 512, "CameraEffectsUBO must match the 512-byte std140 block in camera_effects_inc.glsl.");
 
+// The Environment's glare settings (scene look: lens flare, veiling glare, diffusion filter), copied in by the renderer
+// so the camera attributes storage needs no access to the environment storage.
+struct CameraGlareEnvironment {
+	bool lens_flare_enabled = false;
+	float lens_flare_intensity = 1.0;
+	float lens_flare_threshold = 1.0;
+	int lens_flare_ghost_count = 4;
+	float lens_flare_halo_intensity = 1.0;
+	float lens_flare_chromatic_aberration = 1.0;
+	bool veiling_glare_enabled = false;
+	float veiling_glare_strength = 1.0;
+	bool diffusion_filter_enabled = false;
+	float diffusion_filter_strength = 0.25;
+	bool diffusion_filter_black = false;
+};
+
 // What a tonemap pass knows about itself when it fills the buffer. Effects that need more (the Environment for glare,
 // the previous frame for exposure) add members here rather than parameters to the fill function.
 struct CameraEffectsContext {
 	Size2i source_size; // The texture the pass reads, in pixels: lens resampling works in its texels.
 	Size2i output_size; // The pixels the pass writes.
 	uint64_t frame = 0;
+	// Glare: the Environment's settings and the glare chain the renderer built for this pass (zero size when none).
+	CameraGlareEnvironment glare_environment;
+	Size2i glare_chain_size; // Mip 0 of the glare chain, in texels.
+	int glare_chain_mipmaps = 0;
+	float glare_chain_sigma = 1.0; // Blur sigma of the chain's lod L is this times 2^L, in texels of lod 0 (measured).
 	// Exposure automation: the renderer ran the auto white balance passes this frame, so the tonemapper can read their
 	// gains. Only Forward+ does (they need compute); elsewhere the manual white balance applies alone.
 	bool auto_white_balance = false;
@@ -79,6 +101,16 @@ public:
 	// Bits of CameraEffectsUBO::header[2]; camera_exposure_inc.glsl has the same values.
 	enum ExposureBits : uint32_t {
 		EXPOSURE_AUTO_WHITE_BALANCE = 1,
+	};
+
+	// Bits of CameraEffectsUBO::header[1]; camera_glare_inc.glsl has the same values.
+	enum GlareBits : uint32_t {
+		GLARE_LENS_FLARE = 1,
+		GLARE_VEILING = 2,
+		GLARE_DIFFUSION = 4,
+		GLARE_DIFFUSION_BLACK = 8,
+		GLARE_STARBURST = 16,
+		GLARE_HALATION = 32,
 	};
 
 private:
@@ -175,11 +207,29 @@ private:
 		float auto_white_balance_min_temperature = 2500.0; // In Kelvin.
 		float auto_white_balance_max_temperature = 10000.0;
 		uint64_t auto_white_balance_version = 0;
+
+		// Aperture, bokeh, starburst and halation. Off by default: the DOF keeps the project's bokeh shape, and the
+		// glare chain is not built.
+		bool aperture_enabled = false;
+		int aperture_blade_count = 6; // 0 = circular.
+		float aperture_blade_curvature = 0.0; // 0 = straight blades, 1 = a round opening.
+		float aperture_rotation = 0.0; // In degrees.
+		bool cats_eye_enabled = false;
+		float cats_eye_strength = 1.0;
+		bool tilt_shift_enabled = false; // CameraAttributesPhysical only (it needs the focal length).
+		float tilt_shift_tilt = 0.0; // Lens tilt, in degrees.
+		float tilt_shift_axis = 0.0; // Direction of the tilt axis in the frame, in degrees (0 = horizontal).
+		bool starburst_enabled = false;
+		float starburst_strength = 1.0;
+		bool halation_enabled = false;
+		float halation_strength = 1.0;
+		float halation_radius = 1.0;
 	};
 
 	static uint32_t _lens_requested_bits(const CameraAttributes &p_attributes);
 	static void _fill_effects_lens(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
-	static void _fill_effects_glare(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static void _fill_effects_glare(const CameraAttributes *p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
+	static uint32_t _glare_requested_bits(const CameraAttributes *p_attributes, const CameraGlareEnvironment &p_environment);
 	static void _fill_effects_exposure(const CameraAttributes &p_attributes, const CameraEffectsContext &p_context, CameraEffectsUBO &r_ubo);
 	static uint64_t auto_white_balance_counter;
 
@@ -219,7 +269,8 @@ public:
 	_FORCE_INLINE_ bool camera_attributes_uses_dof(RID p_camera_attributes) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 
-		return cam_attributes && (cam_attributes->dof_blur_near_enabled || cam_attributes->dof_blur_far_enabled) && cam_attributes->dof_blur_amount > 0.0;
+		// Tilt-shift tilts the plane of focus, so the DOF runs even where the hyperfocal test turned both sides off.
+		return cam_attributes && (cam_attributes->dof_blur_near_enabled || cam_attributes->dof_blur_far_enabled || (cam_attributes->tilt_shift_enabled && cam_attributes->tilt_shift_tilt != 0.0f && cam_attributes->lens_focal_length > 0.0f)) && cam_attributes->dof_blur_amount > 0.0;
 	}
 
 	void camera_attributes_set_exposure(RID p_camera_attributes, float p_multiplier, float p_exposure_normalization);
@@ -361,9 +412,42 @@ public:
 
 	/* CameraEffects uniform buffer */
 
-	_FORCE_INLINE_ bool camera_attributes_uses_effects_buffer(RID p_camera_attributes) {
+	/* Aperture, bokeh, tilt-shift, starburst and halation */
+
+	// What the DOF pass needs to shape its bokeh, worked out from the attributes (see the .cpp for the models).
+	struct BokehShape {
+		bool custom = false; // False: the project's bokeh shape, unchanged.
+		uint32_t blade_count = 0; // 0 = circular.
+		float blade_curvature = 0.0;
+		float rotation = 0.0; // In radians.
+		float squeeze = 1.0; // Anamorphic squeeze: the bokeh is this many times taller than wide.
+		// Cat's eye: the bokeh is the overlap of the aperture (unit circle) with the barrel's circle of this radius,
+		// offset toward the frame's center by cats_eye_offset times the position in frame units.
+		float cats_eye_offset = 0.0;
+		float cats_eye_radius = 1.0;
+		Vector2 frame_half_extent = Vector2(1.0, 1.0); // Frame half extents in frame units (corner at |q| = 1).
+		// Tilt-shift: the plane of sharp focus, in view space (normal, unit), through (0, 0, -focus distance).
+		bool tilt = false;
+		Vector3 focus_plane_normal = Vector3(0.0, 0.0, 1.0);
+		float focal_length = 0.0; // In meters.
+	};
+
+	void camera_attributes_set_aperture(RID p_camera_attributes, bool p_enable, int p_blade_count, float p_blade_curvature, float p_rotation);
+	void camera_attributes_set_cats_eye(RID p_camera_attributes, bool p_enable, float p_strength);
+	void camera_attributes_set_tilt_shift(RID p_camera_attributes, bool p_enable, float p_tilt, float p_axis);
+	void camera_attributes_set_starburst(RID p_camera_attributes, bool p_enable, float p_strength);
+	void camera_attributes_set_halation(RID p_camera_attributes, bool p_enable, float p_strength, float p_radius);
+	// The bokeh for a DOF pass whose frame is p_aspect wide per unit of height.
+	BokehShape camera_attributes_get_bokeh_shape(RID p_camera_attributes, float p_aspect);
+	// Tilt-shift makes every pixel's focus distance differ, so the DOF must run even where the untilted lens would be
+	// sharp everywhere.
+	bool camera_attributes_uses_tilt_shift(RID p_camera_attributes);
+	// Whether the tonemap pass needs the glare chain: the camera's starburst or halation, or the Environment's glare.
+	bool camera_attributes_uses_glare(RID p_camera_attributes, const CameraGlareEnvironment &p_environment);
+
+	_FORCE_INLINE_ bool camera_attributes_uses_effects_buffer(RID p_camera_attributes, const CameraGlareEnvironment &p_environment = CameraGlareEnvironment()) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
-		return cam_attributes && _lens_requested_bits(*cam_attributes) != 0;
+		return (cam_attributes && _lens_requested_bits(*cam_attributes) != 0) || _glare_requested_bits(cam_attributes, p_environment) != 0;
 	}
 	// Fills the buffer for one tonemap pass. Returns false, with the buffer all zeros, when no effect uses it: the
 	// renderers then bind a shared zero buffer, and the output is bit-identical to having no buffer at all.

@@ -1030,9 +1030,9 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 			using_subpass_post_process = false;
 		}
 
-		if (RSG::camera_attributes->camera_attributes_uses_effects_buffer(p_render_data->camera_attributes)) {
-			// Can't do blit subpass: the CameraEffects buffer must be updated before the pass, and lens effects read
-			// other pixels than the one a subpass input gives.
+		if (RSG::camera_attributes->camera_attributes_uses_effects_buffer(p_render_data->camera_attributes, p_render_data->environment.is_valid() ? environment_get_camera_glare(p_render_data->environment) : CameraGlareEnvironment())) {
+			// Can't do blit subpass: the CameraEffects buffer must be updated before the pass, and lens effects and glare
+			// read other pixels than the one a subpass input gives.
 			using_subpass_post_process = false;
 		}
 

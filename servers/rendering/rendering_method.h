@@ -248,6 +248,11 @@ public:
 	virtual void environment_set_glow(RID p_env, bool p_enable, Vector<float> p_levels, float p_intensity, float p_strength, float p_mix, float p_bloom_threshold, RSE::EnvironmentGlowBlendMode p_blend_mode, float p_hdr_bleed_threshold, float p_hdr_bleed_scale, float p_hdr_luminance_cap, float p_glow_map_strength, RID p_glow_map) = 0;
 
 	virtual bool environment_get_glow_enabled(RID p_env) const = 0;
+
+	// Glare (camera_glare_inc.glsl)
+	virtual void environment_set_lens_flare(RID p_env, bool p_enable, float p_intensity, float p_threshold, int p_ghost_count, float p_halo_intensity, float p_chromatic_aberration) = 0;
+	virtual void environment_set_veiling_glare(RID p_env, bool p_enable, float p_strength) = 0;
+	virtual void environment_set_diffusion_filter(RID p_env, bool p_enable, float p_strength, bool p_black) = 0;
 	virtual Vector<float> environment_get_glow_levels(RID p_env) const = 0;
 	virtual float environment_get_glow_intensity(RID p_env) const = 0;
 	virtual float environment_get_glow_strength(RID p_env) const = 0;

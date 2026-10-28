@@ -51,6 +51,17 @@
 				[b]Note:[/b] The equivalent resource is [CameraAttributes].
 			</description>
 		</method>
+		<method name="camera_attributes_set_aperture">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="blade_count" type="int" />
+			<param index="3" name="blade_curvature" type="float" />
+			<param index="4" name="rotation" type="float" />
+			<description>
+				Sets the aperture of the camera attributes: whether its shape replaces the project's bokeh shape, the [param blade_count] (0 = round), the [param blade_curvature] (0 = straight, 1 = round) and the [param rotation] in degrees. See [member CameraAttributes.aperture_enabled].
+			</description>
+		</method>
 		<method name="camera_attributes_set_auto_exposure">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -83,6 +94,15 @@
 			<param index="4" name="max_temperature" type="float" />
 			<description>
 				Sets the auto white balance of the camera attributes: [param enable] turns it on, [param speed] is the inverse of its time constant in seconds and [param min_temperature] and [param max_temperature] limit the estimated light, in Kelvin. These take on the same meaning as the [code]white_balance_auto*[/code] properties of [CameraAttributes].
+			</description>
+		</method>
+		<method name="camera_attributes_set_cats_eye">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the cat's eye bokeh of the camera attributes: whether it is enabled and its [param strength]. See [member CameraAttributes.cats_eye_enabled].
 			</description>
 		</method>
 		<method name="camera_attributes_set_chromatic_aberration">
@@ -163,6 +183,16 @@
 				Sets the grain of the camera attributes: whether it is enabled, its [param type], [param intensity] and [param size] multipliers, and the ISO [param sensitivity] of the film or sensor. These parameters take on the same meaning as [member CameraAttributes.grain_enabled], [member CameraAttributes.grain_type], [member CameraAttributes.grain_intensity], [member CameraAttributes.grain_size] and [member CameraAttributes.exposure_sensitivity].
 			</description>
 		</method>
+		<method name="camera_attributes_set_halation">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<param index="3" name="radius" type="float" />
+			<description>
+				Sets the halation of the camera attributes: whether it is enabled, its [param strength] and its [param radius] multiplier. See [member CameraAttributes.halation_enabled].
+			</description>
+		</method>
 		<method name="camera_attributes_set_lens">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -200,27 +230,6 @@
 				Sets the LUT of the camera attributes: whether it is enabled, the 3D [param texture] (a [Texture3D]'s RID), what the LUT expects as its [param input], and its [param strength]. These parameters take on the same meaning as [member CameraAttributes.lut_enabled], [member CameraAttributes.lut_texture], [member CameraAttributes.lut_input] and [member CameraAttributes.lut_strength].
 			</description>
 		</method>
-		<method name="camera_attributes_set_noise_reduction">
-			<return type="void" />
-			<param index="0" name="camera_attributes" type="RID" />
-			<param index="1" name="enable" type="bool" />
-			<param index="2" name="strength" type="float" />
-			<param index="3" name="chroma_only" type="bool" />
-			<description>
-				Sets the in-camera noise reduction of the [param camera_attributes]. See [member CameraAttributes.noise_reduction_enabled], [member CameraAttributes.noise_reduction_strength] and [member CameraAttributes.noise_reduction_chroma_only].
-			</description>
-		</method>
-		<method name="camera_attributes_set_sharpening">
-			<return type="void" />
-			<param index="0" name="camera_attributes" type="RID" />
-			<param index="1" name="enable" type="bool" />
-			<param index="2" name="amount" type="float" />
-			<param index="3" name="radius" type="float" />
-			<param index="4" name="halo" type="float" />
-			<description>
-				Sets the in-camera sharpening of the [param camera_attributes]. [param radius] is in pixels of a 1080-line frame. See [member CameraAttributes.sharpening_enabled], [member CameraAttributes.sharpening_amount], [member CameraAttributes.sharpening_radius] and [member CameraAttributes.sharpening_halo].
-			</description>
-		</method>
 		<method name="camera_attributes_set_motion_blur">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -240,6 +249,16 @@
 				Sets the number of samples motion blur takes per pixel. See [member ProjectSettings.rendering/camera/motion_blur/motion_blur_quality].
 			</description>
 		</method>
+		<method name="camera_attributes_set_noise_reduction">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<param index="3" name="chroma_only" type="bool" />
+			<description>
+				Sets the in-camera noise reduction of the [param camera_attributes]. See [member CameraAttributes.noise_reduction_enabled], [member CameraAttributes.noise_reduction_strength] and [member CameraAttributes.noise_reduction_chroma_only].
+			</description>
+		</method>
 		<method name="camera_attributes_set_rolling_shutter">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -247,6 +266,36 @@
 			<param index="2" name="readout_time" type="float" />
 			<description>
 				Sets the rolling shutter of the camera attributes: whether it is enabled and the sensor's [param readout_time] in milliseconds. See [member CameraAttributes.rolling_shutter_enabled] and [member CameraAttributes.rolling_shutter_readout_time].
+			</description>
+		</method>
+		<method name="camera_attributes_set_sharpening">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="amount" type="float" />
+			<param index="3" name="radius" type="float" />
+			<param index="4" name="halo" type="float" />
+			<description>
+				Sets the in-camera sharpening of the [param camera_attributes]. [param radius] is in pixels of a 1080-line frame. See [member CameraAttributes.sharpening_enabled], [member CameraAttributes.sharpening_amount], [member CameraAttributes.sharpening_radius] and [member CameraAttributes.sharpening_halo].
+			</description>
+		</method>
+		<method name="camera_attributes_set_starburst">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the starburst (diffraction spikes) of the camera attributes: whether it is enabled and its [param strength]. See [member CameraAttributes.starburst_enabled].
+			</description>
+		</method>
+		<method name="camera_attributes_set_tilt_shift">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="tilt" type="float" />
+			<param index="3" name="axis" type="float" />
+			<description>
+				Sets the tilt-shift of the camera attributes: whether it is enabled, the lens's [param tilt] in degrees and the direction of its [param axis] in degrees. Only physical camera attributes (with a focal length) use it. See [member CameraAttributesPhysical.tilt_shift_enabled].
 			</description>
 		</method>
 		<method name="camera_attributes_set_vignetting">
@@ -1569,6 +1618,16 @@
 				Sets the maximum layer to use if using Canvas background mode.
 			</description>
 		</method>
+		<method name="environment_set_diffusion_filter">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<param index="3" name="black" type="bool" />
+			<description>
+				Sets the diffusion filter of the environment: whether it is enabled, its [param strength] (the filter's grade) and whether it is a [param black] filter. See [member Environment.diffusion_filter_enabled].
+			</description>
+		</method>
 		<method name="environment_set_fog">
 			<return type="void" />
 			<param index="0" name="env" type="RID" />
@@ -1613,6 +1672,19 @@
 			<param index="12" name="glow_map" type="RID" />
 			<description>
 				Configures glow for the specified environment RID. See [code]glow_*[/code] properties in [Environment] for more information.
+			</description>
+		</method>
+		<method name="environment_set_lens_flare">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="intensity" type="float" />
+			<param index="3" name="threshold" type="float" />
+			<param index="4" name="ghost_count" type="int" />
+			<param index="5" name="halo_intensity" type="float" />
+			<param index="6" name="chromatic_aberration" type="float" />
+			<description>
+				Sets the lens flare of the environment: whether it is enabled, the ghosts' [param intensity], the [param threshold] above which light makes flare, the [param ghost_count], the [param halo_intensity] and the ghosts' [param chromatic_aberration]. See [member Environment.lens_flare_enabled].
 			</description>
 		</method>
 		<method name="environment_set_sdfgi">
@@ -1758,6 +1830,15 @@
 			<param index="1" name="agx_contrast" type="float" />
 			<description>
 				See [member Environment.tonemap_agx_contrast] for more details.
+			</description>
+		</method>
+		<method name="environment_set_veiling_glare">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="enable" type="bool" />
+			<param index="2" name="strength" type="float" />
+			<description>
+				Sets the veiling glare of the environment: whether it is enabled and its [param strength]. See [member Environment.veiling_glare_enabled].
 			</description>
 		</method>
 		<method name="environment_set_volumetric_fog">

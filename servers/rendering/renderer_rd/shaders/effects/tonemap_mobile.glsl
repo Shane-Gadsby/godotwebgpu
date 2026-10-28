@@ -61,6 +61,12 @@ layout(set = 0, binding = 3) uniform sampler3D source_color_correction;
 #endif
 layout(set = 0, binding = 4) uniform sampler3D camera_lut;
 
+#ifndef SUBPASS
+// The glare chain (camera_glare_inc.glsl), a mip chain of the frame; black when no glare is on. Glare makes the renderer
+// skip the subpass post-process, so the subpass variant has none.
+layout(set = 0, binding = 6) uniform SAMPLER_FORMAT source_glare;
+#endif
+
 // CameraAttributes effects with more parameters than the push constant holds. Features that resample the image make
 // the renderer skip the subpass post-process, so the subpass variant only ever sees vignetting.
 #define CAMERA_EFFECTS_SET 0
@@ -136,6 +142,17 @@ layout(push_constant, std430) uniform Params {
 	float pad[2];
 }
 params;
+
+#ifndef SUBPASS
+#ifdef USE_MULTIVIEW
+#define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, vec3(m_uv, ViewIndex), m_lod).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) (textureGrad(source_glare, vec3(m_uv, ViewIndex), m_dx, m_dy).rgb * params.luminance_multiplier)
+#else
+#define CAMERA_GLARE_FETCH(m_uv, m_lod) (textureLod(source_glare, m_uv, m_lod).rgb * params.luminance_multiplier)
+#define CAMERA_GLARE_FETCH_GRAD(m_uv, m_dx, m_dy) (textureGrad(source_glare, m_uv, m_dx, m_dy).rgb * params.luminance_multiplier)
+#endif
+#include "camera_glare_inc.glsl"
+#endif
 
 layout(location = 0) out vec4 frag_color;
 
@@ -823,6 +840,14 @@ void main() {
 		} else {
 			color.rgb = apply_glow(color.rgb, glow, params.white);
 		}
+	}
+#endif
+
+#ifndef SUBPASS
+	// Glare (camera_glare_inc.glsl): flare, veiling glare, diffusion, starbursts and halation, read where the lens takes
+	// this pixel from, before vignetting, which darkens the light they add as it does the rest.
+	if (camera_effects.header.y != 0u) {
+		color.rgb = camera_glare_apply(color.rgb, lens_uv, params.exposure);
 	}
 #endif
 

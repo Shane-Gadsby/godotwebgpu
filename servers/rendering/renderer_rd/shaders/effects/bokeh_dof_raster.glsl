@@ -73,23 +73,35 @@ float get_depth_at_pos(vec2 uv) {
 	return depth;
 }
 
-float get_blur_size(float depth) {
-	if (params.blur_near_active && depth < params.blur_near_begin) {
+float get_blur_size(float depth, vec2 uv) {
+	float near_begin = params.blur_near_begin;
+	float far_begin = params.blur_far_begin;
+	float size_near = params.blur_size_near;
+	float size_far = params.blur_size_far;
+	if ((params.shape_flags & BOKEH_SHAPE_TILT) != 0u) {
+		// Tilt-shift: every pixel has its own focus distance (bokeh_dof_inc.glsl).
+		float scale;
+		far_begin = bokeh_tilt_focus_distance(uv, params.blur_far_begin, scale);
+		near_begin = far_begin;
+		size_near *= scale;
+		size_far *= scale;
+	}
+	if (params.blur_near_active && depth < near_begin) {
 		if (params.use_physical_near) {
 			// Physically-based.
-			float d = abs(params.blur_near_begin - depth);
-			return -(d / (params.blur_near_begin - d)) * params.blur_size_near - DEPTH_GAP; // Near blur is negative.
+			float d = abs(near_begin - depth);
+			return -(d / (near_begin - d)) * size_near - DEPTH_GAP; // Near blur is negative.
 		} else {
 			// Non-physically-based.
 			return -(1.0 - smoothstep(params.blur_near_end, params.blur_near_begin, depth)) * params.blur_size - DEPTH_GAP; // Near blur is negative.
 		}
 	}
 
-	if (params.blur_far_active && depth > params.blur_far_begin) {
+	if (params.blur_far_active && depth > far_begin) {
 		if (params.use_physical_far) {
 			// Physically-based.
-			float d = abs(params.blur_far_begin - depth);
-			return (d / (params.blur_far_begin + d)) * params.blur_size_far + DEPTH_GAP;
+			float d = abs(far_begin - depth);
+			return (d / (far_begin + d)) * size_far + DEPTH_GAP;
 		} else {
 			// Non-physically-based.
 			return smoothstep(params.blur_far_begin, params.blur_far_end, depth) * params.blur_size + DEPTH_GAP;
@@ -155,7 +167,7 @@ void main() {
 #ifdef MODE_GEN_BLUR_SIZE
 	uv += pixel_size * 0.5;
 	float center_depth = get_depth_at_pos(uv);
-	weight = get_blur_size(center_depth);
+	weight = get_blur_size(center_depth, uv);
 #endif
 
 #ifdef MODE_BOKEH_BOX
@@ -239,6 +251,10 @@ void main() {
 
 		limit -= DEPTH_GAP;
 
+		if ((params.shape_flags & BOKEH_SHAPE_CUSTOM) != 0u) {
+			// The sample's bokeh reaches this pixel only if it lies inside the aperture's shape.
+			limit *= bokeh_shape_extent(-vec2(cos(ang), sin(ang)), uv_adj, sample_color.a < 0.0);
+		}
 		float m = smoothstep(radius - 0.5, radius + 0.5, limit);
 		color_accum += mix(color_accum / accum, sample_color, m);
 		accum += 1.0;

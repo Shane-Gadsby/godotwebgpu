@@ -178,6 +178,22 @@ private:
 	Ref<Texture> glow_map;
 	void _update_glow();
 
+	// Glare
+	bool lens_flare_enabled = false;
+	float lens_flare_intensity = 1.0;
+	float lens_flare_threshold = 1.0;
+	int lens_flare_ghost_count = 4;
+	float lens_flare_halo_intensity = 1.0;
+	float lens_flare_chromatic_aberration = 1.0;
+	void _update_lens_flare();
+	bool veiling_glare_enabled = false;
+	float veiling_glare_strength = 1.0;
+	void _update_veiling_glare();
+	bool diffusion_filter_enabled = false;
+	float diffusion_filter_strength = 0.25;
+	bool diffusion_filter_black = false;
+	void _update_diffusion_filter();
+
 	// Fog
 	bool fog_enabled = false;
 	FogMode fog_mode = FOG_MODE_EXPONENTIAL;
@@ -376,6 +392,30 @@ public:
 	float get_glow_map_strength() const;
 	void set_glow_map(Ref<Texture> p_glow_map);
 	Ref<Texture> get_glow_map() const;
+
+	// Glare: lens flare, veiling glare and diffusion filter (applied with the camera's glare in the tonemap pass).
+	void set_lens_flare_enabled(bool p_value);
+	bool is_lens_flare_enabled() const;
+	void set_lens_flare_intensity(float p_value);
+	float get_lens_flare_intensity() const;
+	void set_lens_flare_threshold(float p_value);
+	float get_lens_flare_threshold() const;
+	void set_lens_flare_ghost_count(int p_value);
+	int get_lens_flare_ghost_count() const;
+	void set_lens_flare_halo_intensity(float p_value);
+	float get_lens_flare_halo_intensity() const;
+	void set_lens_flare_chromatic_aberration(float p_value);
+	float get_lens_flare_chromatic_aberration() const;
+	void set_veiling_glare_enabled(bool p_value);
+	bool is_veiling_glare_enabled() const;
+	void set_veiling_glare_strength(float p_value);
+	float get_veiling_glare_strength() const;
+	void set_diffusion_filter_enabled(bool p_value);
+	bool is_diffusion_filter_enabled() const;
+	void set_diffusion_filter_strength(float p_value);
+	float get_diffusion_filter_strength() const;
+	void set_diffusion_filter_black(bool p_value);
+	bool is_diffusion_filter_black() const;
 
 	// Fog
 

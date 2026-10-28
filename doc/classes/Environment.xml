@@ -82,6 +82,16 @@
 		<member name="background_mode" type="int" setter="set_background" getter="get_background" enum="Environment.BGMode" default="0">
 			The background mode.
 		</member>
+		<member name="diffusion_filter_black" type="bool" setter="set_diffusion_filter_black" getter="is_diffusion_filter_black" default="false">
+			If [code]true[/code], a "black" diffusion filter (such as a Black Pro-Mist): it scatters half as much light into a tighter halo, so highlights still bloom but the shadows stay dark.
+		</member>
+		<member name="diffusion_filter_enabled" type="bool" setter="set_diffusion_filter_enabled" getter="is_diffusion_filter_enabled" default="false">
+			If [code]true[/code], a diffusion filter (such as a Pro-Mist) sits in front of the lens: it scatters a fraction of all light into a wide, soft halo, so highlights bloom and the shadows around them lift. The light is spread, not added: a flat field is unchanged.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="diffusion_filter_strength" type="float" setter="set_diffusion_filter_strength" getter="get_diffusion_filter_strength" default="0.25">
+			The filter's grade, as on the filters themselves (1/8, 1/4, 1/2, 1, 2): [code]0.25[/code] is a 1/4 filter. Each grade scatters 15% of the light (7.5% for [member diffusion_filter_black]).
+		</member>
 		<member name="fog_aerial_perspective" type="float" setter="set_fog_aerial_perspective" getter="get_fog_aerial_perspective" default="0.0">
 			If set above [code]0.0[/code] (exclusive), blends between the fog's color and the color of the background [Sky], as read from the radiance cubemap. This has a small performance cost when set above [code]0.0[/code]. Must have [member background_mode] set to [constant BG_SKY].
 			This is useful to simulate [url=https://en.wikipedia.org/wiki/Aerial_perspective]aerial perspective[/url] in large scenes with low density fog. However, it is not very useful for high-density fog, as the sky will shine through. When set to [code]1.0[/code], the fog color comes completely from the [Sky]. If set to [code]0.0[/code], aerial perspective is disabled.
@@ -199,6 +209,25 @@
 		<member name="glow_strength" type="float" setter="set_glow_strength" getter="get_glow_strength" default="1.0">
 			The strength that is used when blurring across the screen to generate the glow effect. This affects the distance and intensity of the blur. When using the Mobile rendering method, this should be increased to compensate for the lower dynamic range.
 			[b]Note:[/b] [member glow_strength] has no effect when using the Compatibility rendering method, due to this rendering method using a simpler glow implementation optimized for low-end devices.
+		</member>
+		<member name="lens_flare_chromatic_aberration" type="float" setter="set_lens_flare_chromatic_aberration" getter="get_lens_flare_chromatic_aberration" default="1.0">
+			How much the ghosts' size differs per color, fringing them red and blue; [code]1.0[/code] is a 2% difference.
+		</member>
+		<member name="lens_flare_enabled" type="bool" setter="set_lens_flare_enabled" getter="is_lens_flare_enabled" default="false">
+			If [code]true[/code], bright light in the frame makes lens flare: ghosts (light reflected twice between lens surfaces) along the line from the source through the frame's center, mirrored and scaled, each tinted by its coatings, and a halo ring around the center. Only light brighter than [member lens_flare_threshold] makes it. Flare is computed from the frame itself, so it follows every visible light source, emissive material and sky.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="lens_flare_ghost_count" type="int" setter="set_lens_flare_ghost_count" getter="get_lens_flare_ghost_count" default="4">
+			The number of ghosts, up to 8.
+		</member>
+		<member name="lens_flare_halo_intensity" type="float" setter="set_lens_flare_halo_intensity" getter="get_lens_flare_halo_intensity" default="1.0">
+			The light in the halo ring, on the same scale as [member lens_flare_intensity].
+		</member>
+		<member name="lens_flare_intensity" type="float" setter="set_lens_flare_intensity" getter="get_lens_flare_intensity" default="1.0">
+			The light in each ghost. [code]1.0[/code] is 0.1% of the source's light per ghost, an older single-coated lens; modern multicoating would be about a tenth of that.
+		</member>
+		<member name="lens_flare_threshold" type="float" setter="set_lens_flare_threshold" getter="get_lens_flare_threshold" default="1.0">
+			Only light brighter than this, in the exposed image where [code]1.0[/code] is display white, makes flare.
 		</member>
 		<member name="reflected_light_source" type="int" setter="set_reflection_source" getter="get_reflection_source" enum="Environment.ReflectionSource" default="0">
 			The reflected (specular) light source.
@@ -334,6 +363,13 @@
 			The white reference value for tonemapping, which indicates where bright white is located in the scale of values provided to the tonemapper. For photorealistic lighting, it is recommended to set [member tonemap_white] to at least [code]6.0[/code]. Higher values result in less blown out highlights, but may make the scene appear lower contrast. [member tonemap_agx_white] will be used instead when using the [constant TONE_MAPPER_AGX] tonemapper. See also [member tonemap_exposure].
 			[b]Note:[/b] [member tonemap_white] must be set to [code]2.0[/code] or lower on the Mobile renderer to produce bright images.
 			[b]Note:[/b] [member tonemap_white] is ignored when using [constant TONE_MAPPER_LINEAR] and will be dynamically adjusted at runtime to never be less than the parent window's [method Window.get_output_max_linear_value] when using [constant TONE_MAPPER_REINHARDT] with [member Viewport.use_hdr_2d].
+		</member>
+		<member name="veiling_glare_enabled" type="bool" setter="set_veiling_glare_enabled" getter="is_veiling_glare_enabled" default="false">
+			If [code]true[/code], light scattered inside the lens spreads evenly over the frame, lifting the blacks by a fraction of the frame's mean brightness: the contrast loss a bright scene (a window, the sky) causes in the shadows of the whole picture. It is measured on real lenses as the veiling glare index (ISO 9358).
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="veiling_glare_strength" type="float" setter="set_veiling_glare_strength" getter="get_veiling_glare_strength" default="1.0">
+			[code]1.0[/code] spreads 2% of the frame's light, typical of a modern camera lens; old or uncoated lenses reach 5-10.
 		</member>
 		<member name="volumetric_fog_albedo" type="Color" setter="set_volumetric_fog_albedo" getter="get_volumetric_fog_albedo" default="Color(1, 1, 1, 1)">
 			The [Color] of the volumetric fog when interacting with lights. Mist and fog have an albedo close to [code]Color(1, 1, 1, 1)[/code] while smoke has a darker albedo.

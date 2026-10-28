@@ -729,6 +729,117 @@ Ref<Texture> Environment::get_glow_map() const {
 	return glow_map;
 }
 
+void Environment::set_lens_flare_enabled(bool p_value) {
+	lens_flare_enabled = p_value;
+	_update_lens_flare();
+}
+
+bool Environment::is_lens_flare_enabled() const {
+	return lens_flare_enabled;
+}
+
+void Environment::set_lens_flare_intensity(float p_value) {
+	lens_flare_intensity = MAX(p_value, 0.0f);
+	_update_lens_flare();
+}
+
+float Environment::get_lens_flare_intensity() const {
+	return lens_flare_intensity;
+}
+
+void Environment::set_lens_flare_threshold(float p_value) {
+	lens_flare_threshold = MAX(p_value, 0.0f);
+	_update_lens_flare();
+}
+
+float Environment::get_lens_flare_threshold() const {
+	return lens_flare_threshold;
+}
+
+void Environment::set_lens_flare_ghost_count(int p_value) {
+	lens_flare_ghost_count = CLAMP(p_value, 0, 8);
+	_update_lens_flare();
+}
+
+int Environment::get_lens_flare_ghost_count() const {
+	return lens_flare_ghost_count;
+}
+
+void Environment::set_lens_flare_halo_intensity(float p_value) {
+	lens_flare_halo_intensity = MAX(p_value, 0.0f);
+	_update_lens_flare();
+}
+
+float Environment::get_lens_flare_halo_intensity() const {
+	return lens_flare_halo_intensity;
+}
+
+void Environment::set_lens_flare_chromatic_aberration(float p_value) {
+	lens_flare_chromatic_aberration = MAX(p_value, 0.0f);
+	_update_lens_flare();
+}
+
+float Environment::get_lens_flare_chromatic_aberration() const {
+	return lens_flare_chromatic_aberration;
+}
+
+void Environment::set_veiling_glare_enabled(bool p_value) {
+	veiling_glare_enabled = p_value;
+	_update_veiling_glare();
+}
+
+bool Environment::is_veiling_glare_enabled() const {
+	return veiling_glare_enabled;
+}
+
+void Environment::set_veiling_glare_strength(float p_value) {
+	veiling_glare_strength = MAX(p_value, 0.0f);
+	_update_veiling_glare();
+}
+
+float Environment::get_veiling_glare_strength() const {
+	return veiling_glare_strength;
+}
+
+void Environment::set_diffusion_filter_enabled(bool p_value) {
+	diffusion_filter_enabled = p_value;
+	_update_diffusion_filter();
+}
+
+bool Environment::is_diffusion_filter_enabled() const {
+	return diffusion_filter_enabled;
+}
+
+void Environment::set_diffusion_filter_strength(float p_value) {
+	diffusion_filter_strength = MAX(p_value, 0.0f);
+	_update_diffusion_filter();
+}
+
+float Environment::get_diffusion_filter_strength() const {
+	return diffusion_filter_strength;
+}
+
+void Environment::set_diffusion_filter_black(bool p_value) {
+	diffusion_filter_black = p_value;
+	_update_diffusion_filter();
+}
+
+bool Environment::is_diffusion_filter_black() const {
+	return diffusion_filter_black;
+}
+
+void Environment::_update_lens_flare() {
+	RS::get_singleton()->environment_set_lens_flare(environment, lens_flare_enabled, lens_flare_intensity, lens_flare_threshold, lens_flare_ghost_count, lens_flare_halo_intensity, lens_flare_chromatic_aberration);
+}
+
+void Environment::_update_veiling_glare() {
+	RS::get_singleton()->environment_set_veiling_glare(environment, veiling_glare_enabled, veiling_glare_strength);
+}
+
+void Environment::_update_diffusion_filter() {
+	RS::get_singleton()->environment_set_diffusion_filter(environment, diffusion_filter_enabled, diffusion_filter_strength, diffusion_filter_black);
+}
+
 void Environment::_update_glow() {
 	Vector<float> normalized_levels;
 	if (glow_normalize_levels) {
@@ -1514,6 +1625,46 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_fog_depth_begin"), &Environment::get_fog_depth_begin);
 	ClassDB::bind_method(D_METHOD("set_fog_depth_end", "end"), &Environment::set_fog_depth_end);
 	ClassDB::bind_method(D_METHOD("get_fog_depth_end"), &Environment::get_fog_depth_end);
+
+	ClassDB::bind_method(D_METHOD("set_lens_flare_enabled", "enabled"), &Environment::set_lens_flare_enabled);
+	ClassDB::bind_method(D_METHOD("is_lens_flare_enabled"), &Environment::is_lens_flare_enabled);
+	ClassDB::bind_method(D_METHOD("set_lens_flare_intensity", "intensity"), &Environment::set_lens_flare_intensity);
+	ClassDB::bind_method(D_METHOD("get_lens_flare_intensity"), &Environment::get_lens_flare_intensity);
+	ClassDB::bind_method(D_METHOD("set_lens_flare_threshold", "threshold"), &Environment::set_lens_flare_threshold);
+	ClassDB::bind_method(D_METHOD("get_lens_flare_threshold"), &Environment::get_lens_flare_threshold);
+	ClassDB::bind_method(D_METHOD("set_lens_flare_ghost_count", "count"), &Environment::set_lens_flare_ghost_count);
+	ClassDB::bind_method(D_METHOD("get_lens_flare_ghost_count"), &Environment::get_lens_flare_ghost_count);
+	ClassDB::bind_method(D_METHOD("set_lens_flare_halo_intensity", "intensity"), &Environment::set_lens_flare_halo_intensity);
+	ClassDB::bind_method(D_METHOD("get_lens_flare_halo_intensity"), &Environment::get_lens_flare_halo_intensity);
+	ClassDB::bind_method(D_METHOD("set_lens_flare_chromatic_aberration", "amount"), &Environment::set_lens_flare_chromatic_aberration);
+	ClassDB::bind_method(D_METHOD("get_lens_flare_chromatic_aberration"), &Environment::get_lens_flare_chromatic_aberration);
+	ClassDB::bind_method(D_METHOD("set_veiling_glare_enabled", "enabled"), &Environment::set_veiling_glare_enabled);
+	ClassDB::bind_method(D_METHOD("is_veiling_glare_enabled"), &Environment::is_veiling_glare_enabled);
+	ClassDB::bind_method(D_METHOD("set_veiling_glare_strength", "strength"), &Environment::set_veiling_glare_strength);
+	ClassDB::bind_method(D_METHOD("get_veiling_glare_strength"), &Environment::get_veiling_glare_strength);
+	ClassDB::bind_method(D_METHOD("set_diffusion_filter_enabled", "enabled"), &Environment::set_diffusion_filter_enabled);
+	ClassDB::bind_method(D_METHOD("is_diffusion_filter_enabled"), &Environment::is_diffusion_filter_enabled);
+	ClassDB::bind_method(D_METHOD("set_diffusion_filter_strength", "strength"), &Environment::set_diffusion_filter_strength);
+	ClassDB::bind_method(D_METHOD("get_diffusion_filter_strength"), &Environment::get_diffusion_filter_strength);
+	ClassDB::bind_method(D_METHOD("set_diffusion_filter_black", "black"), &Environment::set_diffusion_filter_black);
+	ClassDB::bind_method(D_METHOD("is_diffusion_filter_black"), &Environment::is_diffusion_filter_black);
+
+	ADD_GROUP("Lens Flare", "lens_flare_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "lens_flare_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_lens_flare_enabled", "is_lens_flare_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lens_flare_intensity", PROPERTY_HINT_RANGE, "0,100,0.01,exp,or_greater"), "set_lens_flare_intensity", "get_lens_flare_intensity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lens_flare_threshold", PROPERTY_HINT_RANGE, "0,16,0.01,or_greater"), "set_lens_flare_threshold", "get_lens_flare_threshold");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "lens_flare_ghost_count", PROPERTY_HINT_RANGE, "0,8,1"), "set_lens_flare_ghost_count", "get_lens_flare_ghost_count");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lens_flare_halo_intensity", PROPERTY_HINT_RANGE, "0,100,0.01,exp,or_greater"), "set_lens_flare_halo_intensity", "get_lens_flare_halo_intensity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lens_flare_chromatic_aberration", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_lens_flare_chromatic_aberration", "get_lens_flare_chromatic_aberration");
+
+	ADD_GROUP("Veiling Glare", "veiling_glare_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "veiling_glare_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_veiling_glare_enabled", "is_veiling_glare_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "veiling_glare_strength", PROPERTY_HINT_RANGE, "0,10,0.01,or_greater"), "set_veiling_glare_strength", "get_veiling_glare_strength");
+
+	ADD_GROUP("Diffusion Filter", "diffusion_filter_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "diffusion_filter_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_diffusion_filter_enabled", "is_diffusion_filter_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "diffusion_filter_strength", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater"), "set_diffusion_filter_strength", "get_diffusion_filter_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "diffusion_filter_black"), "set_diffusion_filter_black", "is_diffusion_filter_black");
 
 	ADD_GROUP("Fog", "fog_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fog_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_fog_enabled", "is_fog_enabled");

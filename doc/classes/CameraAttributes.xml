@@ -187,6 +187,44 @@
 		<member name="white_balance_tint" type="float" setter="set_white_balance_tint" getter="get_white_balance_tint" default="0.0">
 			Green-magenta correction of the white balance, from [code]-150.0[/code] to [code]150.0[/code]. It moves the assumed illuminant perpendicular to the Planckian locus by [code]1/3000[/code] Duv per unit, so the full range is [code]0.05[/code] Duv either way: a positive value compensates for a green illuminant and turns the image magenta, a negative value compensates for a magenta one and turns it green, as the tint slider of most raw converters does.
 		</member>
+		<member name="aperture_blade_count" type="int" setter="set_aperture_blade_count" getter="get_aperture_blade_count" default="6">
+			The number of diaphragm blades: the bokeh is a polygon with this many corners. [code]0[/code] is a round opening. Most lenses have 5 to 11 blades; 0, 1 and 2 all mean round.
+		</member>
+		<member name="aperture_blade_curvature" type="float" setter="set_aperture_blade_curvature" getter="get_aperture_blade_curvature" default="0.0">
+			How much the blades are curved: [code]0.0[/code] gives straight edges (a sharp polygon), [code]1.0[/code] a round opening. Modern lenses use curved blades to keep the bokeh round when stopped down a little. Curved blades also weaken [member starburst_enabled]'s spikes, which come from straight edges.
+		</member>
+		<member name="aperture_enabled" type="bool" setter="set_aperture_enabled" getter="is_aperture_enabled" default="false">
+			If [code]true[/code], depth of field draws its bokeh in the shape of this camera's aperture ([member aperture_blade_count], [member aperture_blade_curvature], [member aperture_rotation]) instead of [member ProjectSettings.rendering/camera/depth_of_field/depth_of_field_bokeh_shape]. Defocused points then show the polygon a real lens's diaphragm makes. The aperture is drawn with the circular bokeh's gather, whatever the project's shape, so its cost follows [member ProjectSettings.rendering/camera/depth_of_field/depth_of_field_bokeh_quality] as the circle's does.
+			The blade count and rotation also shape [member starburst_enabled]'s spikes, whether or not this is on.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility has no depth of field.
+		</member>
+		<member name="aperture_rotation" type="float" setter="set_aperture_rotation" getter="get_aperture_rotation" default="0.0">
+			Rotation of the aperture polygon in degrees, counterclockwise on screen. At [code]0.0[/code] a corner points right.
+		</member>
+		<member name="cats_eye_enabled" type="bool" setter="set_cats_eye_enabled" getter="is_cats_eye_enabled" default="false">
+			If [code]true[/code], bokeh toward the frame's edges is clipped by the lens barrel into the "cat's eye" (lemon) shape fast lenses give wide open: the overlap of the aperture with the barrel's opening, elongated along the circle around the frame's center. With [CameraAttributesPhysical] it follows the lens: it is strongest at [member CameraAttributesPhysical.lens_max_aperture] and gone two stops down, the same optical vignetting [member vignetting_enabled] darkens the corners with. With [CameraAttributesPractical] it is drawn as a lens wide open.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility has no depth of field.
+		</member>
+		<member name="cats_eye_strength" type="float" setter="set_cats_eye_strength" getter="get_cats_eye_strength" default="1.0">
+			Scales how far the barrel's opening is offset at a given position: [code]1.0[/code] is the physical model, [code]2.0[/code] the most it allows.
+		</member>
+		<member name="halation_enabled" type="bool" setter="set_halation_enabled" getter="is_halation_enabled" default="false">
+			If [code]true[/code], highlights get film's red-orange halo: light that passes through the emulsion reflects off the back of the film base and exposes the red layer (and some of the green) again around them. Light is moved into the halo, not added, so flat areas keep their color. It pairs with [member grain_enabled] for a film look; real film usually has a backing that prevents most of it.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="halation_radius" type="float" setter="set_halation_radius" getter="get_halation_radius" default="1.0">
+			Multiplies the halo's size. At [code]1.0[/code] it is the physical one, about 0.2 mm on the sensor for a 0.125 mm film base, so a larger [member CameraAttributesPhysical.sensor_format] has a tighter halo relative to the frame. With [CameraAttributesPractical], a 24 mm tall frame is assumed. The size is relative to the frame, so it looks the same at every resolution.
+		</member>
+		<member name="halation_strength" type="float" setter="set_halation_strength" getter="get_halation_strength" default="1.0">
+			Multiplies the fraction of light that goes into the halo: [code]1.0[/code] sends 8%, as film without its anti-halation backing does.
+		</member>
+		<member name="starburst_enabled" type="bool" setter="set_starburst_enabled" getter="is_starburst_enabled" default="false">
+			If [code]true[/code], bright highlights get diffraction spikes ("sunstars"): every straight edge of the aperture diffracts light perpendicular to itself. An even [member aperture_blade_count] gives as many spikes as blades (opposite edges share one), an odd count twice as many. The spikes grow stronger as the aperture closes, as on a real lens: with [CameraAttributesPhysical] their light follows the f-number and focal length; with [CameraAttributesPractical] a 50 mm lens at f/8 is assumed. A round aperture ([member aperture_blade_count] [code]0[/code] or [member aperture_blade_curvature] [code]1.0[/code]) has none. The spikes fall off with the square of the distance, and their light is taken from the highlight that makes them (diffraction moves light, it does not add any), so a flat bright area is unchanged and only light far brighter than its surroundings shows spikes.
+			[b]Note:[/b] Only supported in the Forward+ and Mobile rendering methods. Compatibility tonemaps in its scene shader, so its post-process only sees light clipped near white, without the highlights glare is made of.
+		</member>
+		<member name="starburst_strength" type="float" setter="set_starburst_strength" getter="get_starburst_strength" default="1.0">
+			Multiplies the spikes' light. [code]1.0[/code] is the physical amount (around 1% of the light at f/16), which only something as bright as the sun against its surroundings makes visible; game light sources usually need [code]10[/code] to [code]50[/code]. However high it is set, the spikes take at most 90% of a highlight's light.
+		</member>
 	</members>
 	<constants>
 		<constant name="GRAIN_TYPE_FILM" value="0" enum="GrainType">

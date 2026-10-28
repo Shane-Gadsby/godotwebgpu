@@ -1300,6 +1300,11 @@ public:
 	PASS13(environment_set_glow, RID, bool, Vector<float>, float, float, float, float, RSE::EnvironmentGlowBlendMode, float, float, float, float, RID)
 
 	PASS1RC(bool, environment_get_glow_enabled, RID)
+
+	// Glare
+	PASS7(environment_set_lens_flare, RID, bool, float, float, int, float, float)
+	PASS3(environment_set_veiling_glare, RID, bool, float)
+	PASS4(environment_set_diffusion_filter, RID, bool, float, bool)
 	PASS1RC(Vector<float>, environment_get_glow_levels, RID)
 	PASS1RC(float, environment_get_glow_intensity, RID)
 	PASS1RC(float, environment_get_glow_strength, RID)
