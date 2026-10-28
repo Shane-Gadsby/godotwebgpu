@@ -1,6 +1,6 @@
 # 36-camera-exposure-automation: auto exposure metering modes, auto white balance
 
-State: ready-for-integration
+State: integrated (lead: merged; defaults 18/18 identical and metering numbers reproduced on the merged tree; smoke OK)
 Owner: worker-36
 Claimed: 2026-10-28 (worker-36)
 Needs: build, gpu, task 33 (the CameraEffects UBO exposure region)

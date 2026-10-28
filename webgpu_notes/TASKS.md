@@ -4783,6 +4783,23 @@ filters and T-stops, Airy diffraction softening and focus breathing; Forward+, M
 - Not tested: ND/T-stop on screen, MSAA, XR, scaled viewports. Follow-ups: a Forward+ matrix arm `lens_optics`;
   longitudinal CA in the DOF pass. Questions `breathing-default`, `ca-aperture` on the hand-offs page.
 
+### 4.53 Auto exposure metering modes and auto white balance (October 2026) *(work task 36, camera batch)*
+
+Merged (no conflicts). CameraAttributes (both kinds) `auto_exposure_metering_mode`: Average (default, untouched),
+Center-weighted (Nikon's 75% of the weight in a 12 mm circle), Spot (size in % of frame, UV point), Highlight-weighted
+(a percentile exposed to 1.0); auto white balance (speed, temperature range; manual temperature/tint stay on top as a
+bias, neutral = display white). Both on the GPU without readback in a new `CameraMetering` effect
+(`camera_metering.glsl`, 7 compute variants); the AWB gains reach the Forward+ tonemapper at set 1 binding 2, gated by
+`header.z` bit 1. Forward+ only (auto exposure already was); Mobile and Compatibility keep Average and manual white
+balance, documented, so `camera_attributes_uses_effects_buffer()` is not extended. Metering uses the arithmetic weighted
+mean (like Average), not a log-average. **Upstream bug found, not fixed:** Godot's Average reduction drops the right 20%
+of a 1080p frame (and the bottom 27% at 720p) because each level rounds its size down; left as is so defaults stay
+identical. **Verified (lead, merged tree):** defaults 18/18 renders pixel-identical in all three renderers; center and
+spot (center and off-center) within 0.0005 EV of a Python reference from the AE-off HDR frame at 1080p and 720p,
+highlight within 0.03 EV. Worker: AWB brings a gray card under 3200 K from r/g 1.94, b/g 0.38 to 1.0000/1.0002;
+WebGPU pixel-identical (metering) / within 1/255 (AWB); +0.05 ms per feature at 1080p. Questions `metering-statistic`,
+`average-dropped-edges`, `awb-neutral` on the hand-offs page.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
