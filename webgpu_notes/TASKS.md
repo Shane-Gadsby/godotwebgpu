@@ -3385,6 +3385,11 @@ scale low for 34 s. And dynamic-resolution timing under Xvfb is not the real thi
 a frame and inflates GPU time, so a GPU-bound test there correctly sits at the minimum scale; judge it on a real display
 or in the browser.
 
+107. **On WebGPU a first `buffer_get_data()` returns zeros, not an empty array** (2026-10-29, work task 77):
+`buffer_get_data_direct()` returns false both for "not handled" and "not ready", so RD then runs the generic staging
+copy, which cannot be mapped synchronously, and hands back zeros of the requested size. Anything that tests "no data
+yet" on a buffer by emptiness misses it; the C++ methods' `r_not_ready` out-parameter is the reliable signal.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5637,6 +5642,20 @@ settled at 0.80 after early adjusting (to 9.8 s) and returned to 1.0, 0 changes/
 CPU-bound `CPU_LIMITED` with 0 changes. Under Xvfb the GPU-bound case held the minimum scale (§3 trap 106). Questions
 `dynres-remember-key`, `dynres-step-size`, `dynres-fallback-backoff`; camera-sim adoption note in
 `results/75-dynamic-resolution-controller/for-tasks.md`.
+
+### 4.92 RenderingDevice synchronous readback warning on the web (October 2026) *(work task 77; user answer `warn-rd-texture-get-data`)*
+
+Debug web builds print one `WARN_PRINT` (console.warn) per texture or buffer when a script's synchronous
+`RenderingDevice.texture_get_data()` returns an empty array or `buffer_get_data()` returns zeros because the web's
+asynchronous readback has not arrived yet, pointing at `texture_get_data_async()` / `buffer_get_data_async()` /
+`get_image_awaitable()`. Only the script bindings warn (`_texture_get_data_bind()` / `_buffer_get_data_bind()`, which
+read an optional `r_not_ready` out-parameter of the C++ methods), so engine reads such as `texture_2d_get()` (task 71's
+own warning, §4.84) never double up; invalid resources keep their own errors; release and native only forward.
+`webgpu_tests/async_readback/` gained 8 checks (sync RD reads return the data natively) and counts the four expected
+warnings. Merged `896940581f`; lead on the merged tree: editor (dev_mode), web template_debug and template_release 0
+warnings; 68/68 natively and in Chrome and Firefox with debug and release templates; debug exactly the four warnings
+(41x5, 17x3, 100 B, 52 B), release and native none. Question `web-buffer-get-data-empty` (keep zeros or return empty)
+on the board; §3 trap 107.
 
 ## 5. References — retired docs
 

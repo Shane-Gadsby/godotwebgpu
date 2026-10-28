@@ -1,6 +1,6 @@
 # 77-rd-texture-get-data-warning
 
-State: ready-for-integration
+State: done (merged `896940581f`, verified on the merged tree, TASKS §4.92)
 Owner: worker-77
 Claimed: 2026-10-29 07:05
 Needs: build, browser

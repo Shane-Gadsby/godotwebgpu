@@ -48,7 +48,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 72 | user answer on 62: frame without the monitoring overlays, only while requested (camera-sim Download Image) | 9 | worker-72 (retired); **merged `a6d73f0b86`**, verified, TASKS §4.85 |
 | 73 | dynamic resolution phase 1: GPU time on WebGPU (timestampWrites, non-stalling readback) | 9 | worker-73 (retired); **merged `694fade59c`**, verified, TASKS §4.89, trap 105 |
 | 74 | dynamic resolution phase 2: scale changes keep FSR 2, TAA (resampled) and auto exposure (every change, user Q1) | 9 | worker-74 (retired); **merged `99b7b5874d`**, verified, TASKS §4.86 |
-| 77 | user answer: RenderingDevice.texture_get_data() also warns on the web's null first read (debug) | 11 | worker-77 |
+| 77 | user answer: RenderingDevice.texture_get_data() also warns on the web's null first read (debug) | 11 | worker-77 (retired); **merged `896940581f`**, verified, TASKS §4.92, trap 107 |
 | 78 | user answer: SSIL history carried over a scale change | 11 | worker-78 |
 | 79 | user answer: Circle bokeh reach capped at 3% (Box/Hexagon keep 6%) | 11 | worker-79 |
 | 80 | user answers: dynamic resolution remember keyed by window mode; step size exposed | 11 | worker-80 |
