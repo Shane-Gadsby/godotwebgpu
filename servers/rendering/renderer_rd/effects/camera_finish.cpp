@@ -69,6 +69,9 @@ CameraFinish::~CameraFinish() {
 	for (KeyValue<RID, CameraHistogram> &E : camera_histograms) {
 		RD::get_singleton()->free_rid(E.value.buffer);
 	}
+	for (KeyValue<RID, CameraCleanFrame> &E : camera_clean_frames) {
+		RD::get_singleton()->free_rid(E.value.rd_texture);
+	}
 	RD::get_singleton()->free_rid(histogram_buffer);
 	finish_shader.version_free(finish_shader_version);
 	histogram_shader.version_free(histogram_shader_version);
@@ -197,6 +200,55 @@ void CameraFinish::free_camera(RID p_camera) {
 		RD::get_singleton()->free_rid(histogram->buffer);
 		camera_histograms.erase(p_camera);
 	}
+	free_camera_clean_frame(p_camera);
+}
+
+void CameraFinish::free_camera_clean_frame(RID p_camera) {
+	CameraCleanFrame *clean = camera_clean_frames.getptr(p_camera);
+	if (clean) {
+		// Also frees the server texture's views of it; the server texture itself is its owner's (Camera3D's) to free.
+		RD::get_singleton()->free_rid(clean->rd_texture);
+		camera_clean_frames.erase(p_camera);
+	}
+}
+
+void CameraFinish::_copy_clean_frame(const RendererSceneRender::CameraMonitoring &p_monitoring, RID p_source, RID p_render_target, Size2i p_size, RD::DataFormat p_format) {
+	TextureStorage *texture_storage = TextureStorage::get_singleton();
+	if (!p_monitoring.camera.is_valid() || !texture_storage->owns_texture(p_monitoring.clean_texture)) {
+		return;
+	}
+	CameraCleanFrame *clean = camera_clean_frames.getptr(p_monitoring.camera);
+	if (!clean) {
+		clean = &camera_clean_frames.insert(p_monitoring.camera, CameraCleanFrame())->value;
+	}
+	if (clean->size != p_size || clean->format != p_format || clean->render_target != p_render_target || clean->texture != p_monitoring.clean_texture || !clean->rd_texture.is_valid()) {
+		// First frame, a resize, HDR 2D toggled, or another viewport: a new copy target, and the server texture
+		// pointed at it before the old one goes (which takes the old views with it).
+		RD::TextureFormat tf;
+		tf.format = p_format;
+		tf.width = p_size.x;
+		tf.height = p_size.y;
+		tf.texture_type = RD::TEXTURE_TYPE_2D;
+		tf.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+		const RD::DataFormat srgb_format = texture_storage->render_target_get_color_format(texture_storage->render_target_is_using_hdr(p_render_target), true);
+		tf.shareable_formats.push_back(p_format);
+		if (srgb_format != RD::DATA_FORMAT_MAX && srgb_format != p_format) {
+			tf.shareable_formats.push_back(srgb_format);
+		}
+		RID rd_texture = RD::get_singleton()->texture_create(tf, RD::TextureView());
+		ERR_FAIL_COND(rd_texture.is_null());
+		RD::get_singleton()->set_resource_name(rd_texture, "Camera Monitoring Clean Frame");
+		texture_storage->render_target_copy_texture_set(p_monitoring.clean_texture, rd_texture, p_render_target);
+		if (clean->rd_texture.is_valid()) {
+			RD::get_singleton()->free_rid(clean->rd_texture);
+		}
+		clean->rd_texture = rd_texture;
+		clean->texture = p_monitoring.clean_texture;
+		clean->render_target = p_render_target;
+		clean->size = p_size;
+		clean->format = p_format;
+	}
+	RD::get_singleton()->texture_copy(p_source, clean->rd_texture, Vector3(), Vector3(), Vector3(p_size.x, p_size.y, 1), 0, 0, 0, 0);
 }
 
 void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Settings &p_settings) {
@@ -226,7 +278,8 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 	if (monitoring.is_overlay_active()) {
 		passes.push_back(MODE_OVERLAY);
 	}
-	if (passes.is_empty() && !readback_due) {
+	const bool clean_frame = monitoring.clean_texture.is_valid();
+	if (passes.is_empty() && !readback_due && !clean_frame) {
 		return; // Only a readback that is not due this frame.
 	}
 
@@ -243,9 +296,14 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 	RD::get_singleton()->draw_command_begin_label("Camera Finish");
 
 	if (passes.is_empty()) {
-		// Counting without drawing anything: straight from the render target, no copies.
-		_compute_histogram(rt_texture, size, linear_input, histogram_dest, false);
-		_request_histogram_readback(monitoring.camera, histogram_dest, size);
+		// Counting or copying the clean frame without drawing anything: straight from the render target, no scratch.
+		if (readback_due) {
+			_compute_histogram(rt_texture, size, linear_input, histogram_dest, false);
+			_request_histogram_readback(monitoring.camera, histogram_dest, size);
+		}
+		if (clean_frame) {
+			_copy_clean_frame(monitoring, rt_texture, render_target, size, format);
+		}
 		RD::get_singleton()->draw_command_end_label();
 		return;
 	}
@@ -259,7 +317,8 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 		}
 	}
 	if (!p_render_buffers->has_texture(context, SNAME("a"))) {
-		const uint32_t usage = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+		// Copied from by the clean frame (_copy_clean_frame()).
+		const uint32_t usage = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
 		p_render_buffers->create_texture(context, SNAME("a"), format, usage, RD::TEXTURE_SAMPLES_1, size, 1, 1, true);
 		p_render_buffers->create_texture(context, SNAME("b"), format, usage, RD::TEXTURE_SAMPLES_1, size, 1, 1, true);
 	}
@@ -343,6 +402,10 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 				// Counted on the image as it is before the overlays, drawn histogram or readback alike.
 				_compute_histogram(scratch[current], size, linear_input, histogram_dest, monitoring.histogram);
 			}
+			if (clean_frame) {
+				// The overlays are the last pass: what it reads is the finished image without them.
+				_copy_clean_frame(monitoring, scratch[current], render_target, size, format);
+			}
 		}
 
 		_draw(scratch[current], dest_framebuffer, histogram_dest, push_constant);
@@ -352,6 +415,9 @@ void CameraFinish::process(Ref<RenderSceneBuffersRD> p_render_buffers, const Set
 	if (count_histogram && !monitoring.is_overlay_active()) {
 		// No overlays: the finished image is the render target itself, after noise reduction and sharpening.
 		_compute_histogram(rt_texture, size, linear_input, histogram_dest, false);
+	}
+	if (clean_frame && !monitoring.is_overlay_active()) {
+		_copy_clean_frame(monitoring, rt_texture, render_target, size, format);
 	}
 	if (readback_due) {
 		_request_histogram_readback(monitoring.camera, histogram_dest, size);

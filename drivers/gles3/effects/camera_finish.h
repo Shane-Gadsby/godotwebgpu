@@ -58,6 +58,21 @@ private:
 
 	void _free_scratch();
 
+	// Camera3D.get_monitoring_clean_texture(): the image before the overlays, copied per camera while it asks
+	// (RendererRD::CameraFinish has the same).
+	struct CameraCleanFrame {
+		RID texture; // The server texture (Camera3D's), pointed at tex.
+		GLuint tex = 0; // Owned here.
+		GLuint fbo = 0;
+		RID render_target;
+		Size2i size;
+		GLuint internal_format = 0;
+	};
+	HashMap<RID, CameraCleanFrame> camera_clean_frames;
+
+	void _copy_clean_frame(const RendererSceneRender::CameraMonitoring &p_monitoring, GLuint p_source_fbo, RID p_render_target);
+	static void _free_clean_frame(CameraCleanFrame &p_clean);
+
 public:
 	struct Settings {
 		RendererCameraAttributes::CameraFinishSettings camera;
@@ -66,10 +81,12 @@ public:
 	};
 
 	static bool is_active(const Settings &p_settings) {
-		return p_settings.camera.noise_reduction || p_settings.camera.sharpening || p_settings.monitoring.zebras || p_settings.monitoring.zebras_second || p_settings.monitoring.focus_peaking || p_settings.monitoring.false_color;
+		return p_settings.camera.noise_reduction || p_settings.camera.sharpening || p_settings.monitoring.zebras || p_settings.monitoring.zebras_second || p_settings.monitoring.focus_peaking || p_settings.monitoring.false_color || p_settings.monitoring.clean_texture.is_valid();
 	}
 
 	void process(RID p_render_target, const Settings &p_settings);
+	// Frees a camera's clean frame (the camera was freed, or stopped asking for it).
+	void free_camera_clean_frame(RID p_camera);
 
 	CameraFinish();
 	~CameraFinish();

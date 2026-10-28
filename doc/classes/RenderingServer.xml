@@ -449,6 +449,14 @@
 				Sets camera to use frustum projection. This mode allows adjusting the [param offset] argument to create "tilted frustum" effects.
 			</description>
 		</method>
+		<method name="camera_set_monitoring_clean_texture">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="texture" type="RID" />
+			<description>
+				While [param texture] is valid, the renderer copies every frame the camera renders into it before the monitoring overlays are drawn (and before 2D), replacing its contents, size and format with the viewport's. [param texture] must be a 2D texture created by the caller, for example with [method texture_2d_placeholder_create], and stays the caller's to free, after setting an invalid [RID] here. Setting an invalid [RID] frees the renderer's copy. See [member Camera3D.monitoring_clean_texture_enabled].
+			</description>
+		</method>
 		<method name="camera_set_monitoring_false_color">
 			<return type="void" />
 			<param index="0" name="camera" type="RID" />

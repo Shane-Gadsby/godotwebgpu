@@ -4058,6 +4058,53 @@ GLuint TextureStorage::render_target_get_fbo(RID p_render_target) const {
 	return rt->fbo;
 }
 
+void TextureStorage::render_target_copy_texture_set(RID p_texture, GLuint p_tex_id, RID p_render_target) {
+	Texture *tex = get_texture(p_texture);
+	ERR_FAIL_NULL(tex);
+	ERR_FAIL_COND(tex->is_render_target || tex->is_proxy);
+	RenderTarget *rt = get_render_target(p_render_target);
+	ERR_FAIL_NULL(rt);
+	const Texture *rt_tex = get_texture(rt->texture);
+	ERR_FAIL_NULL(rt_tex);
+
+	if (tex->tex_id != 0 && !tex->is_from_native_handle) {
+		GLES3::Utilities::get_singleton()->texture_free_data(tex->tex_id); // The placeholder's.
+	}
+	// The same formats as the render target's own texture (_update_render_target()), so a readback of the copy gives
+	// the same Image as the render target's would.
+	tex->tex_id = p_tex_id;
+	tex->is_from_native_handle = true; // Not freed with the texture: the caller owns it.
+	tex->type = Texture::TYPE_2D;
+	tex->target = GL_TEXTURE_2D;
+	tex->format = rt_tex->format;
+	tex->real_format = rt_tex->real_format;
+	tex->gl_format_cache = rt_tex->gl_format_cache;
+	tex->gl_type_cache = rt_tex->gl_type_cache;
+	tex->gl_internal_format_cache = rt_tex->gl_internal_format_cache;
+	tex->compressed = false;
+	tex->width = tex->alloc_width = rt->size.x;
+	tex->height = tex->alloc_height = rt->size.y;
+	tex->depth = 1;
+	tex->layers = 1;
+	tex->mipmaps = 1;
+	tex->active = true;
+	tex->image_cache_2d.unref(); // The placeholder's, which a readback in the editor would otherwise return.
+
+	// The cached sampler state is the old texture's: set it on the new one (twice, as the cache skips a repeat).
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, p_tex_id);
+	tex->gl_set_filter(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR);
+	tex->gl_set_filter(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST);
+	tex->gl_set_repeat(RSE::CANVAS_ITEM_TEXTURE_REPEAT_ENABLED);
+	tex->gl_set_repeat(RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	Vector<RID> proxies = Vector<RID>(tex->proxies); // A copy, since updating may change it.
+	for (int i = 0; i < proxies.size(); i++) {
+		texture_proxy_update(proxies[i], p_texture);
+	}
+}
+
 GLuint TextureStorage::render_target_get_color(RID p_render_target) const {
 	RenderTarget *rt = render_target_owner.get_or_null(p_render_target);
 	ERR_FAIL_NULL_V(rt, 0);

@@ -648,6 +648,7 @@ void register_scene_types() {
 	GDREGISTER_VIRTUAL_CLASS(VisualInstance3D);
 	GDREGISTER_VIRTUAL_CLASS(GeometryInstance3D);
 	GDREGISTER_CLASS(Camera3D);
+	GDREGISTER_INTERNAL_CLASS(CameraMonitoringCleanTexture);
 	GDREGISTER_CLASS(AudioListener3D);
 	GDREGISTER_CLASS(MeshInstance3D);
 #ifndef DISABLE_DEPRECATED

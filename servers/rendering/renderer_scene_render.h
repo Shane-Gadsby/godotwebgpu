@@ -356,9 +356,12 @@ public:
 		bool histogram_readback = false;
 		float histogram_readback_interval = 0.0; // Seconds; 0 = every frame.
 		RID camera;
+		// Camera3D.get_monitoring_clean_texture(): a texture the renderer copies the image into before the overlays are
+		// drawn, every frame, while it is set. Invalid (the default) costs nothing.
+		RID clean_texture;
 
 		bool is_overlay_active() const { return zebras || zebras_second || focus_peaking || false_color || histogram; }
-		bool is_active() const { return is_overlay_active() || histogram_readback; }
+		bool is_active() const { return is_overlay_active() || histogram_readback || clean_texture.is_valid(); }
 	};
 
 	/* Camera monitoring histogram readback
@@ -382,6 +385,8 @@ public:
 	uint64_t camera_monitoring_histogram_get_serial(RID p_camera) const;
 	// The camera was freed, or stopped reading back: drop its result (and, in RD, its GPU buffer).
 	virtual void camera_monitoring_free(RID p_camera);
+	// The camera stopped asking for its clean frame: free the renderer's copy (the server texture is freed by its owner).
+	virtual void camera_monitoring_clean_texture_free(RID p_camera) {}
 
 	struct CameraData {
 		// flags

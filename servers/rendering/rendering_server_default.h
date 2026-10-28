@@ -756,6 +756,7 @@ public:
 	FUNC2(camera_set_monitoring_false_color, RID, bool)
 	FUNC6(camera_set_monitoring_histogram, RID, bool, RSE::CameraMonitoringHistogramMode, RSE::CameraMonitoringHistogramPosition, float, float)
 	FUNC3(camera_set_monitoring_histogram_readback, RID, bool, float)
+	FUNC2(camera_set_monitoring_clean_texture, RID, RID)
 	// Not queued: a readback result is published under a mutex on the render thread, so the calling thread reads it
 	// directly. Going through the command queue would make every call wait for the render thread.
 	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const override {

@@ -1973,6 +1973,12 @@ void RendererSceneRenderRD::camera_monitoring_free(RID p_camera) {
 	}
 }
 
+void RendererSceneRenderRD::camera_monitoring_clean_texture_free(RID p_camera) {
+	if (camera_finish) {
+		camera_finish->free_camera_clean_frame(p_camera);
+	}
+}
+
 bool RendererSceneRenderRD::free(RID p_rid) {
 	if (is_environment(p_rid)) {
 		environment_free(p_rid);

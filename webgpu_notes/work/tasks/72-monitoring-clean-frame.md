@@ -1,8 +1,8 @@
 # 72-monitoring-clean-frame
 
-State: open
+State: ready-for-integration
 Owner: worker-72
-Claimed:
+Claimed: 2026-10-28 22:10
 Needs: build, gpu, browser
 Branch: work/72
 Results: webgpu_notes/work/results/72-monitoring-clean-frame/

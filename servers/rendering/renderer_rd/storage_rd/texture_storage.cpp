@@ -5150,6 +5150,52 @@ RID TextureStorage::render_target_get_rd_texture(RID p_render_target) {
 	}
 }
 
+void TextureStorage::render_target_copy_texture_set(RID p_texture, RID p_rd_texture, RID p_render_target) {
+	Texture *tex = get_texture(p_texture);
+	ERR_FAIL_NULL(tex);
+	ERR_FAIL_COND(tex->is_render_target || tex->is_proxy);
+	RenderTarget *rt = render_target_owner.get_or_null(p_render_target);
+	ERR_FAIL_NULL(rt);
+	const Texture *rt_tex = get_texture(rt->texture);
+	ERR_FAIL_NULL(rt_tex);
+
+	// The same views and formats as the render target's own texture (_update_render_target()), so a readback of the
+	// copy gives the same Image as the render target's would.
+	if (RD::get_singleton()->texture_is_valid(tex->rd_texture_srgb)) {
+		RD::get_singleton()->free_rid(tex->rd_texture_srgb);
+	}
+	if (RD::get_singleton()->texture_is_valid(tex->rd_texture)) {
+		RD::get_singleton()->free_rid(tex->rd_texture);
+	}
+	RD::TextureView view = rt_tex->rd_view;
+	view.format_override = rt->color_format;
+	tex->rd_texture = RD::get_singleton()->texture_create_shared(view, p_rd_texture);
+	tex->rd_texture_srgb = RID();
+	if (rt->color_format_srgb != RD::DATA_FORMAT_MAX) {
+		view.format_override = rt->color_format_srgb;
+		tex->rd_texture_srgb = RD::get_singleton()->texture_create_shared(view, p_rd_texture);
+	}
+	tex->type = TYPE_2D;
+	tex->rd_type = RD::TEXTURE_TYPE_2D;
+	tex->rd_view = rt_tex->rd_view;
+	tex->rd_format = rt_tex->rd_format;
+	tex->rd_format_srgb = rt_tex->rd_format_srgb;
+	tex->format = rt_tex->format;
+	tex->validated_format = rt_tex->validated_format;
+	tex->width = tex->width_2d = rt->size.width;
+	tex->height = tex->height_2d = rt->size.height;
+	tex->depth = 1;
+	tex->layers = 1;
+	tex->mipmaps = 1;
+	tex->cached_rd_slices.clear();
+	tex->image_cache_2d.unref(); // The placeholder's, which a readback in the editor would otherwise return.
+
+	Vector<RID> proxies = tex->proxies; // A copy, since updating may change it.
+	for (int i = 0; i < proxies.size(); i++) {
+		texture_proxy_update(proxies[i], p_texture);
+	}
+}
+
 RID TextureStorage::render_target_get_rd_texture_slice(RID p_render_target, uint32_t p_layer) {
 	RenderTarget *rt = render_target_owner.get_or_null(p_render_target);
 	ERR_FAIL_NULL_V(rt, RID());
