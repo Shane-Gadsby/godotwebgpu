@@ -1,0 +1,11 @@
+# chrome mode=sweep&up=bilinear&iters=64
+# [drjs] adapter nvidia/lovelace fallback=false maxSampledTexturesPerShaderStage=48 timestamp-query=true encoder.writeTime
+# completed=true
+{"adapter":"WebGPU Device","kind":"start","params":{"ae":"0","cpu2":"-1","cpu_ms":"0","dur":"60","gpu":"1","iters":"64","iters2":"0","load2_at":"0","mode":"sweep","target":"60","up":"bilinear"},"renderer":"forward_plus","size":[1920,1080],"t":1.948,"web":true}
+{"done_med":17.8449999988079,"draw_cpu_med":1.94,"engine_gpu_mean":0,"frame_med":8.24285714285714,"frame_p90":10.5915151515151,"frames":358,"gpu_mean":0.890407333527066,"internal":[1920,1080],"kind":"sweep","scale":1,"t":10.048}
+{"done_med":15.3799999952316,"draw_cpu_med":1.97,"engine_gpu_mean":0,"frame_med":6.66666666666667,"frame_p90":9.35166666666667,"frames":405,"gpu_mean":0.715528236726834,"internal":[1632,918],"kind":"sweep","scale":0.85,"t":14.061}
+{"done_med":13.820000000298,"draw_cpu_med":2.04,"engine_gpu_mean":0,"frame_med":6.25,"frame_p90":9.09090909090909,"frames":421,"gpu_mean":0.600109227130038,"internal":[1344,756],"kind":"sweep","scale":0.7,"t":18.067}
+{"done_med":13.375,"draw_cpu_med":2.17,"engine_gpu_mean":0,"frame_med":6.25,"frame_p90":7.57575757575758,"frames":458,"gpu_mean":0.507084214498825,"internal":[1152,648],"kind":"sweep","scale":0.6,"t":22.074}
+{"done_med":8.97000000625849,"draw_cpu_med":1.38,"engine_gpu_mean":0,"frame_med":6.06060606060606,"frame_p90":6.66666666666667,"frames":478,"gpu_mean":0.441290829935366,"internal":[960,540],"kind":"sweep","scale":0.5,"t":26.087}
+{"done_med":3.98499999940395,"draw_cpu_med":0.695,"engine_gpu_mean":0,"frame_med":6.06060606060606,"frame_p90":6.06060606060606,"frames":491,"gpu_mean":0.942783941993064,"internal":[1920,1080],"kind":"sweep","scale":1,"t":30.093}
+{"kind":"done","t":30.094}

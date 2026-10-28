@@ -1,8 +1,8 @@
 # 68-dynamic-resolution: dynamic 3D resolution with a frame-time target
 
-State: open
+State: ready-for-integration
 Owner: worker-68
-Claimed:
+Claimed: 2026-10-28
 Needs: build (editor + web template), browser (Playwright, perf guard), native Vulkan run; design first
 Branch: work/68
 Results: webgpu_notes/work/results/68-dynamic-resolution/
@@ -78,7 +78,7 @@ and restore the settled scale per machine, if the engine doesn't.
 
 - **Design first, as the spec says.** Deliverable of this round: `results/68-dynamic-resolution/DESIGN.md` (what to
   measure and how on WebGPU and natively, the control loop, the CPU-bound detection, FSR 2 / scaling_3d interaction,
-  API, defaults, per-renderer behaviour, costs) with measurements that back its choices, and the open choices as
+  API, defaults, per-renderer behavior, costs) with measurements that back its choices, and the open choices as
   questions for the user in for-tasks.md with defaults. **No engine implementation in this round**; the lead files
   the build as a follow-up task once the user has answered. A throwaway prototype in your scratch dir to measure is fine.
 - camera-sim (`/mnt/109313D2109313D2/godot-game-dev/camera-sim`) is read-only: read it as the reference, never modify it;

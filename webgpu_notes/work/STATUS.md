@@ -41,7 +41,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 65 | Light3D.light_temperature without physical light units, constant luminance (camera-sim; with 64, work/64) | 8 | worker-64 (retired); **merged `d1130d53d1`**, verified, TASKS §4.81, trap 101 |
 | 66 | async texture readback that says when pixels are real, natively and on the web (camera-sim) | 8 | worker-66 (retired); **merged `467336d399`**, verified, TASKS §4.82, trap 102 |
 | 67 | MetaHuman clothing: "Root" bind vs the "root" bone, case-insensitive match, report real missing bones (camera-sim) | 8 | worker-67 (retired); **merged `1f942ca9f2`**, verified, TASKS §4.79, trap 99 |
-| 68 | dynamic 3D resolution: design first (camera-sim) | 8 | worker-68 (second session, resumed from 0b983227da) |
+| 68 | dynamic 3D resolution: design first (camera-sim) | 8 | worker-68 (retired); design merged, DESIGN.md + 9 questions `dynres-q*` on the hand-offs page; build task after the answers |
 | 69 | user answers on 61: download line at full opacity, font family and size options | 9 | worker-69 |
 | 70 | user answers on 63: physical DOF max blur default 6%, legacy (diluted) gather option | 9 | worker-70 |
 | 71 | user answers on 66: built-in awaitable readback, debug-only web warning on a null get_image() | 9 | worker-71 |
