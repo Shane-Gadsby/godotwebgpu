@@ -158,7 +158,8 @@ void Camera3D::_validate_property(PropertyInfo &p_property) const {
 		if (((p_property.name == "monitoring_zebras_level" || p_property.name == "monitoring_zebras_color") && !monitoring_zebras_enabled) ||
 				((p_property.name == "monitoring_zebras_second_level" || p_property.name == "monitoring_zebras_second_color") && !monitoring_zebras_second_enabled) ||
 				(p_property.name.begins_with("monitoring_focus_peaking_") && p_property.name != "monitoring_focus_peaking_enabled" && !monitoring_focus_peaking_enabled) ||
-				(p_property.name.begins_with("monitoring_histogram_") && p_property.name != "monitoring_histogram_enabled" && !monitoring_histogram_enabled)) {
+				(p_property.name.begins_with("monitoring_histogram_") && p_property.name != "monitoring_histogram_enabled" && !monitoring_histogram_enabled) ||
+				((p_property.name == "monitoring_histogram_mode" || p_property.name == "monitoring_histogram_position" || p_property.name == "monitoring_histogram_size" || p_property.name == "monitoring_histogram_opacity") && !monitoring_histogram_draw)) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
 		return;
@@ -204,8 +205,9 @@ void Camera3D::set_desired_process_modes(bool p_process_internal, bool p_physics
 }
 
 void Camera3D::_update_process_mode() {
-	// Autofocus and handheld shake run per frame; with both off, a camera costs nothing more than before.
-	set_process_internal(_desired_process_internal || _shake_active() || autofocus_mode != AUTOFOCUS_MODE_MANUAL);
+	// Autofocus, handheld shake and the histogram readback's signal run per frame; with all off, a camera costs nothing
+	// more than before.
+	set_process_internal(_desired_process_internal || _shake_active() || autofocus_mode != AUTOFOCUS_MODE_MANUAL || monitoring_histogram_enabled);
 	set_physics_process_internal(_desired_physics_process_internal);
 }
 
@@ -289,6 +291,9 @@ void Camera3D::_notification(int p_what) {
 			}
 			if (autofocus_mode != AUTOFOCUS_MODE_MANUAL) {
 				_autofocus_process(delta);
+			}
+			if (monitoring_histogram_enabled) {
+				_monitoring_histogram_process();
 			}
 		} break;
 
@@ -810,7 +815,51 @@ void Camera3D::_update_monitoring() {
 	rs->camera_set_monitoring_zebra_colors(camera, monitoring_zebras_color, monitoring_zebras_second_color);
 	rs->camera_set_monitoring_focus_peaking(camera, show && monitoring_focus_peaking_enabled, monitoring_focus_peaking_color, monitoring_focus_peaking_sensitivity);
 	rs->camera_set_monitoring_false_color(camera, show && monitoring_false_color_enabled);
-	rs->camera_set_monitoring_histogram(camera, show && monitoring_histogram_enabled, RSE::CameraMonitoringHistogramMode(monitoring_histogram_mode), RSE::CameraMonitoringHistogramPosition(monitoring_histogram_position), monitoring_histogram_size, monitoring_histogram_opacity);
+	rs->camera_set_monitoring_histogram(camera, show && monitoring_histogram_enabled && monitoring_histogram_draw, RSE::CameraMonitoringHistogramMode(monitoring_histogram_mode), RSE::CameraMonitoringHistogramPosition(monitoring_histogram_position), monitoring_histogram_size, monitoring_histogram_opacity);
+	// The readback is independent of Visible in Output, which only decides what is drawn.
+	monitoring_histogram_readback_sent = _monitoring_histogram_readback_wanted();
+	rs->camera_set_monitoring_histogram_readback(camera, monitoring_histogram_readback_sent, monitoring_histogram_update_interval);
+	_update_process_mode();
+}
+
+/* Histogram readback
+ *
+ * The renderer counts the histogram on the GPU and reads it back asynchronously, at most once per update interval,
+ * only while a script wants it: it called get_monitoring_histogram(), or something is connected to
+ * monitoring_histogram_updated. So an enabled histogram that is only drawn (or drawn only in the editor) reads
+ * nothing back, as before. The result is published by the render thread; the signal is emitted from here, on the
+ * main thread, when a new one has arrived.
+ */
+
+bool Camera3D::_monitoring_histogram_readback_wanted() const {
+	return monitoring_histogram_enabled && (monitoring_histogram_requested || has_connections(SNAME("monitoring_histogram_updated")));
+}
+
+void Camera3D::_monitoring_histogram_process() {
+	const bool wanted = _monitoring_histogram_readback_wanted();
+	if (wanted != monitoring_histogram_readback_sent) {
+		_update_monitoring(); // Something connected to the signal (or disconnected).
+	}
+	if (!wanted) {
+		return;
+	}
+	const uint64_t serial = RenderingServer::get_singleton()->camera_get_monitoring_histogram_serial(camera);
+	if (serial != monitoring_histogram_serial) {
+		monitoring_histogram_serial = serial;
+		emit_signal(SNAME("monitoring_histogram_updated"));
+	}
+}
+
+PackedInt32Array Camera3D::get_monitoring_histogram(MonitoringHistogramChannel p_channel) {
+	ERR_FAIL_INDEX_V((int)p_channel, 4, PackedInt32Array());
+	if (!monitoring_histogram_enabled) {
+		return PackedInt32Array();
+	}
+	if (!monitoring_histogram_requested) {
+		monitoring_histogram_requested = true; // The first call starts the readback; it returns empty until one lands.
+		_update_monitoring();
+	}
+	return RenderingServer::get_singleton()->camera_get_monitoring_histogram(camera, RSE::CameraMonitoringHistogramChannel(p_channel));
 }
 
 #define MONITORING_ACCESSORS(m_type, m_set, m_get, m_member, m_list_changed, m_value) \
@@ -838,6 +887,8 @@ MONITORING_ACCESSORS(Camera3D::MonitoringHistogramMode, set_monitoring_histogram
 MONITORING_ACCESSORS(Camera3D::MonitoringHistogramPosition, set_monitoring_histogram_position, get_monitoring_histogram_position, monitoring_histogram_position, false, p_value)
 MONITORING_ACCESSORS(float, set_monitoring_histogram_size, get_monitoring_histogram_size, monitoring_histogram_size, false, CLAMP(p_value, 0.05f, 1.0f))
 MONITORING_ACCESSORS(float, set_monitoring_histogram_opacity, get_monitoring_histogram_opacity, monitoring_histogram_opacity, false, CLAMP(p_value, 0.0f, 1.0f))
+MONITORING_ACCESSORS(bool, set_monitoring_histogram_draw, is_monitoring_histogram_draw, monitoring_histogram_draw, true, p_value)
+MONITORING_ACCESSORS(float, set_monitoring_histogram_update_interval, get_monitoring_histogram_update_interval, monitoring_histogram_update_interval, false, MAX(p_value, 0.0f))
 
 #undef MONITORING_ACCESSORS
 
@@ -956,6 +1007,11 @@ void Camera3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_monitoring_histogram_size"), &Camera3D::get_monitoring_histogram_size);
 	ClassDB::bind_method(D_METHOD("set_monitoring_histogram_opacity", "opacity"), &Camera3D::set_monitoring_histogram_opacity);
 	ClassDB::bind_method(D_METHOD("get_monitoring_histogram_opacity"), &Camera3D::get_monitoring_histogram_opacity);
+	ClassDB::bind_method(D_METHOD("set_monitoring_histogram_draw", "draw"), &Camera3D::set_monitoring_histogram_draw);
+	ClassDB::bind_method(D_METHOD("is_monitoring_histogram_draw"), &Camera3D::is_monitoring_histogram_draw);
+	ClassDB::bind_method(D_METHOD("set_monitoring_histogram_update_interval", "interval"), &Camera3D::set_monitoring_histogram_update_interval);
+	ClassDB::bind_method(D_METHOD("get_monitoring_histogram_update_interval"), &Camera3D::get_monitoring_histogram_update_interval);
+	ClassDB::bind_method(D_METHOD("get_monitoring_histogram", "channel"), &Camera3D::get_monitoring_histogram, DEFVAL(MONITORING_HISTOGRAM_CHANNEL_LUMA));
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "keep_aspect", PROPERTY_HINT_ENUM, "Keep Width,Keep Height"), "set_keep_aspect_mode", "get_keep_aspect_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "cull_mask", PROPERTY_HINT_LAYERS_3D_RENDER), "set_cull_mask", "get_cull_mask");
@@ -990,10 +1046,12 @@ void Camera3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_false_color_enabled"), "set_monitoring_false_color_enabled", "is_monitoring_false_color_enabled");
 	ADD_SUBGROUP("Histogram", "monitoring_histogram_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_histogram_enabled"), "set_monitoring_histogram_enabled", "is_monitoring_histogram_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "monitoring_histogram_draw"), "set_monitoring_histogram_draw", "is_monitoring_histogram_draw");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "monitoring_histogram_mode", PROPERTY_HINT_ENUM, "Luma,RGB"), "set_monitoring_histogram_mode", "get_monitoring_histogram_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "monitoring_histogram_position", PROPERTY_HINT_ENUM, "Top Left,Top Right,Bottom Left,Bottom Right"), "set_monitoring_histogram_position", "get_monitoring_histogram_position");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_histogram_size", PROPERTY_HINT_RANGE, "0.05,1,0.01"), "set_monitoring_histogram_size", "get_monitoring_histogram_size");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_histogram_opacity", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_monitoring_histogram_opacity", "get_monitoring_histogram_opacity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "monitoring_histogram_update_interval", PROPERTY_HINT_RANGE, "0,10,0.01,or_greater,suffix:s"), "set_monitoring_histogram_update_interval", "get_monitoring_histogram_update_interval");
 
 	BIND_ENUM_CONSTANT(PROJECTION_PERSPECTIVE);
 	BIND_ENUM_CONSTANT(PROJECTION_ORTHOGONAL);
@@ -1034,6 +1092,7 @@ void Camera3D::_bind_methods() {
 
 	ADD_SIGNAL(MethodInfo("focus_acquired", PropertyInfo(Variant::FLOAT, "distance")));
 	ADD_SIGNAL(MethodInfo("focus_failed"));
+	ADD_SIGNAL(MethodInfo("monitoring_histogram_updated"));
 
 	BIND_ENUM_CONSTANT(AUTOFOCUS_MODE_MANUAL);
 	BIND_ENUM_CONSTANT(AUTOFOCUS_MODE_SINGLE);
@@ -1098,6 +1157,10 @@ void Camera3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_TOP_RIGHT);
 	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_BOTTOM_LEFT);
 	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_BOTTOM_RIGHT);
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_CHANNEL_LUMA);
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_CHANNEL_RED);
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_CHANNEL_GREEN);
+	BIND_ENUM_CONSTANT(MONITORING_HISTOGRAM_CHANNEL_BLUE);
 }
 
 real_t Camera3D::get_fov() const {

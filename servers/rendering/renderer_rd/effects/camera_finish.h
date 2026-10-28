@@ -103,7 +103,9 @@ private:
 		HISTOGRAM_MODE_MAX,
 	};
 
-	static constexpr uint32_t HISTOGRAM_WORDS = 256 * 4 + 4;
+	// 256 bins x (R', G', B', Y') interleaved (data[bin * 4 + channel]), then the four channels' maxima for the drawing.
+	static constexpr uint32_t HISTOGRAM_BINS = 256;
+	static constexpr uint32_t HISTOGRAM_WORDS = HISTOGRAM_BINS * 4 + 4;
 
 	CameraFinishShaderRD finish_shader;
 	RID finish_shader_version;
@@ -112,10 +114,31 @@ private:
 	CameraHistogramShaderRD histogram_shader;
 	RID histogram_shader_version;
 	RID histogram_pipelines[HISTOGRAM_MODE_MAX];
-	RID histogram_buffer;
+	RID histogram_buffer; // Bound by draws that have no camera histogram of their own; never counted into.
 
-	void _draw(RID p_source, RID p_dest_framebuffer, const FinishPushConstant &p_push_constant);
-	void _compute_histogram(RID p_source, Size2i p_size, bool p_linear_input);
+	/* Histogram readback
+	 *
+	 * Each camera counts into its own buffer, so two cameras rendered in one frame (two SubViewports, or a SubViewport
+	 * and the editor's preview) never overwrite each other's counts before they are read. A readback is an
+	 * asynchronous buffer_get_data_async(): it is copied to a staging buffer in the frame's command graph and handed
+	 * back when RenderingDevice next waits for that frame anyway, so it never stalls; on WebGPU the staging buffer is
+	 * mapped with mapAsync right after submit. Results are a frame or more old.
+	 */
+	struct CameraHistogram {
+		RID buffer;
+		double last_readback_time = 0.0;
+		bool read_back = false; // Whether last_readback_time is set.
+	};
+	HashMap<RID, CameraHistogram> camera_histograms; // Render thread only.
+	static CameraFinish *singleton;
+
+	CameraHistogram *_get_camera_histogram(RID p_camera);
+	bool _histogram_readback_due(CameraHistogram &p_histogram, double p_time, float p_interval);
+	void _request_histogram_readback(RID p_camera, RID p_buffer, Size2i p_size);
+	static void _histogram_readback_done(const PackedByteArray &p_data, RID p_camera, int64_t p_pixel_count);
+
+	void _draw(RID p_source, RID p_dest_framebuffer, RID p_histogram_buffer, const FinishPushConstant &p_push_constant);
+	void _compute_histogram(RID p_source, Size2i p_size, bool p_linear_input, RID p_histogram_buffer, bool p_for_drawing);
 
 public:
 	struct Settings {
@@ -130,6 +153,8 @@ public:
 
 	// Runs the pass on the render buffers' render target (single view only).
 	void process(Ref<RenderSceneBuffersRD> p_render_buffers, const Settings &p_settings);
+	// Frees a camera's histogram buffer (the camera was freed). Its pending readbacks are then discarded.
+	void free_camera(RID p_camera);
 
 	CameraFinish();
 	~CameraFinish();

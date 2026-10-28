@@ -554,6 +554,11 @@ public:
 	virtual void camera_set_monitoring_focus_peaking(RID p_camera, bool p_enable, const Color &p_color, float p_sensitivity) = 0;
 	virtual void camera_set_monitoring_false_color(RID p_camera, bool p_enable) = 0;
 	virtual void camera_set_monitoring_histogram(RID p_camera, bool p_enable, RSE::CameraMonitoringHistogramMode p_mode, RSE::CameraMonitoringHistogramPosition p_position, float p_size, float p_opacity) = 0;
+	// Histogram readback for scripts: counted on the GPU, read back asynchronously (never stalls), at most once per
+	// interval. The getters are thread-safe and do not go through the command queue: they return the latest result.
+	virtual void camera_set_monitoring_histogram_readback(RID p_camera, bool p_enable, float p_interval) = 0;
+	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const = 0;
+	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const = 0;
 
 	/* VIEWPORT API */
 
@@ -1234,6 +1239,7 @@ VARIANT_ENUM_CAST_EXT(RSE::DOFBlurQuality, RenderingServer::DOFBlurQuality);
 VARIANT_ENUM_CAST_EXT(RSE::DOFBokehShape, RenderingServer::DOFBokehShape);
 VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramMode, RenderingServer::CameraMonitoringHistogramMode);
 VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramPosition, RenderingServer::CameraMonitoringHistogramPosition);
+VARIANT_ENUM_CAST_EXT(RSE::CameraMonitoringHistogramChannel, RenderingServer::CameraMonitoringHistogramChannel);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesGrainType, RenderingServer::CameraAttributesGrainType);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesLUTInput, RenderingServer::CameraAttributesLUTInput);
 VARIANT_ENUM_CAST_EXT(RSE::CameraAttributesMotionBlurQuality, RenderingServer::CameraAttributesMotionBlurQuality);

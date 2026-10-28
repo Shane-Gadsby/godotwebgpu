@@ -89,6 +89,13 @@ public:
 		MONITORING_HISTOGRAM_BOTTOM_RIGHT,
 	};
 
+	enum MonitoringHistogramChannel {
+		MONITORING_HISTOGRAM_CHANNEL_LUMA,
+		MONITORING_HISTOGRAM_CHANNEL_RED,
+		MONITORING_HISTOGRAM_CHANNEL_GREEN,
+		MONITORING_HISTOGRAM_CHANNEL_BLUE,
+	};
+
 private:
 	bool force_change = false;
 	bool current = false;
@@ -140,6 +147,15 @@ private:
 	MonitoringHistogramPosition monitoring_histogram_position = MONITORING_HISTOGRAM_BOTTOM_RIGHT;
 	float monitoring_histogram_size = 0.25;
 	float monitoring_histogram_opacity = 0.75;
+	// Histogram readback for scripts: runs while the histogram is enabled and a script asked for it (a call to
+	// get_monitoring_histogram() or a connection to monitoring_histogram_updated).
+	bool monitoring_histogram_draw = true;
+	float monitoring_histogram_update_interval = 0.0;
+	bool monitoring_histogram_requested = false; // get_monitoring_histogram() was called.
+	bool monitoring_histogram_readback_sent = false;
+	uint64_t monitoring_histogram_serial = 0;
+	bool _monitoring_histogram_readback_wanted() const;
+	void _monitoring_histogram_process();
 	void _update_monitoring();
 	DopplerTracking doppler_tracking = DOPPLER_TRACKING_DISABLED;
 	Ref<VelocityTracker3D> velocity_tracker;
@@ -348,6 +364,11 @@ public:
 	float get_monitoring_histogram_size() const;
 	void set_monitoring_histogram_opacity(float p_opacity);
 	float get_monitoring_histogram_opacity() const;
+	void set_monitoring_histogram_draw(bool p_draw);
+	bool is_monitoring_histogram_draw() const;
+	void set_monitoring_histogram_update_interval(float p_interval);
+	float get_monitoring_histogram_update_interval() const;
+	PackedInt32Array get_monitoring_histogram(MonitoringHistogramChannel p_channel = MONITORING_HISTOGRAM_CHANNEL_LUMA);
 
 	void set_keep_aspect_mode(KeepAspect p_aspect);
 	KeepAspect get_keep_aspect_mode() const;
@@ -420,3 +441,4 @@ VARIANT_ENUM_CAST(Camera3D::AutofocusMode);
 VARIANT_ENUM_CAST(Camera3D::ShakePreset);
 VARIANT_ENUM_CAST(Camera3D::MonitoringHistogramMode);
 VARIANT_ENUM_CAST(Camera3D::MonitoringHistogramPosition);
+VARIANT_ENUM_CAST(Camera3D::MonitoringHistogramChannel);

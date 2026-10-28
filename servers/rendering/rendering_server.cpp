@@ -2882,6 +2882,14 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_LEFT);
 	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_BOTTOM_RIGHT);
 
+	ClassDB::bind_method(D_METHOD("camera_set_monitoring_histogram_readback", "camera", "enable", "interval"), &RenderingServer::camera_set_monitoring_histogram_readback);
+	ClassDB::bind_method(D_METHOD("camera_get_monitoring_histogram", "camera", "channel"), &RenderingServer::camera_get_monitoring_histogram);
+	ClassDB::bind_method(D_METHOD("camera_get_monitoring_histogram_serial", "camera"), &RenderingServer::camera_get_monitoring_histogram_serial);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_LUMA);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_RED);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_GREEN);
+	BIND_ENUM_CONSTANT(RSE::CAMERA_MONITORING_HISTOGRAM_CHANNEL_BLUE);
+
 	/* VIEWPORT */
 
 	ClassDB::bind_method(D_METHOD("viewport_create"), &RenderingServer::viewport_create);
