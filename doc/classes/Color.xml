@@ -212,6 +212,23 @@
 				If you want to create a color from String in a constant expression, use the equivalent constructor instead (i.e. [code]Color("color string")[/code]).
 			</description>
 		</method>
+		<method name="from_temperature" qualifiers="static">
+			<return type="Color" />
+			<param index="0" name="kelvin" type="float" />
+			<param index="1" name="normalization" type="int" default="0" />
+			<description>
+				Returns the linear color of an idealized blackbody (a light source) at the given temperature in Kelvin, scaled as [param normalization] says. [param kelvin] is clamped to [code]1000.0[/code]-[code]15000.0[/code], the range of the approximation.
+				This is the same model [member Light3D.light_temperature] and [member CameraAttributes.white_balance_temperature] use: the Planckian locus in CIE 1960 UCS approximated as in Krystek (1985), as in Filament, converted to linear sRGB (Rec. 709 primaries, D65 white). A light of this color renders under a white balance of [param kelvin] exactly like a light of [code]Color.from_temperature(6500.0)[/code] under the default white balance.
+				- [constant TEMPERATURE_NORMALIZATION_LUMINANCE] (default): the color's Rec. 709 luminance is [code]1.0[/code], so changing the temperature never changes how bright a light or emission looks. Channels may exceed [code]1.0[/code] (red at low temperatures, blue at high ones).
+				- [constant TEMPERATURE_NORMALIZATION_MAX_CHANNEL]: the brightest channel is [code]1.0[/code], as [member Light3D.light_temperature] uses it with [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units].
+				In both, channels that would be negative (blue below about 1900 K) are [code]0.0[/code]. The result is linear, as light and emission colors are computed in; [member Light3D.light_color], [member BaseMaterial3D.emission] and most color properties expect sRGB-encoded values, so convert it with [method linear_to_srgb] before assigning it to one of them, or to show it as a swatch:
+				[codeblock]
+				var tungsten = Color.from_temperature(3200.0) # Linear, luminance 1.0.
+				$OmniLight3D.light_color = tungsten.linear_to_srgb()
+				[/codeblock]
+				[b]Note:[/b] 6500 K is close to, but not exactly, white: [code]Color.from_temperature(6500.0)[/code] is about [code]Color(1.044, 0.983, 1.036)[/code], because the D65 white point lies slightly off the blackbody curve.
+			</description>
+		</method>
 		<method name="get_luminance" qualifiers="const">
 			<return type="float" />
 			<description>
@@ -540,6 +557,12 @@
 		</member>
 	</members>
 	<constants>
+		<constant name="TEMPERATURE_NORMALIZATION_LUMINANCE" value="0" enum="TemperatureNormalization">
+			[method from_temperature] returns a color with a Rec. 709 luminance of [code]1.0[/code], so the brightness does not change with the temperature. Channels may exceed [code]1.0[/code].
+		</constant>
+		<constant name="TEMPERATURE_NORMALIZATION_MAX_CHANNEL" value="1" enum="TemperatureNormalization">
+			[method from_temperature] returns a color whose brightest channel is [code]1.0[/code], so lower and higher temperatures are darker than ones near 6500 K.
+		</constant>
 		<constant name="ALICE_BLUE" value="Color(0.9411765, 0.972549, 1, 1)">
 			Alice blue color.
 		</constant>

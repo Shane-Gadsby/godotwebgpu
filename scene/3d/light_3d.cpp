@@ -32,6 +32,7 @@
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
+#include "core/math/color_temperature.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "scene/main/scene_tree.h"
@@ -248,32 +249,12 @@ void Light3D::owner_changed_notify() {
 	_update_visibility();
 }
 
-// Temperature expressed in Kelvins. Valid range 1000 - 15000
-// First converts to CIE 1960 then to sRGB
-// As explained in the Filament documentation: https://google.github.io/filament/Filament.md.html#lighting/directlighting/lightsparameterization
-Color _color_from_temperature(float p_temperature) {
-	float T2 = p_temperature * p_temperature;
-	float u = (0.860117757f + 1.54118254e-4f * p_temperature + 1.28641212e-7f * T2) /
-			(1.0f + 8.42420235e-4f * p_temperature + 7.08145163e-7f * T2);
-	float v = (0.317398726f + 4.22806245e-5f * p_temperature + 4.20481691e-8f * T2) /
-			(1.0f - 2.89741816e-5f * p_temperature + 1.61456053e-7f * T2);
-
-	// Convert to xyY space.
-	float d = 1.0f / (2.0f * u - 8.0f * v + 4.0f);
-	float x = 3.0f * u * d;
-	float y = 2.0f * v * d;
-
-	// Convert to XYZ space
-	const float a = 1.0 / MAX(y, 1e-5f);
-	Vector3 xyz = Vector3(x * a, 1.0, (1.0f - x - y) * a);
-
-	// Convert from XYZ to sRGB(linear)
-	Vector3 linear = Vector3(3.2404542f * xyz.x - 1.5371385f * xyz.y - 0.4985314f * xyz.z,
-			-0.9692660f * xyz.x + 1.8760108f * xyz.y + 0.0415560f * xyz.z,
-			0.0556434f * xyz.x - 0.2040259f * xyz.y + 1.0572252f * xyz.z);
-	linear /= MAX(1e-5f, linear[linear.max_axis_index()]);
-	// Normalize, clamp, and convert to sRGB.
-	return Color(linear.x, linear.y, linear.z).clamp().linear_to_srgb();
+// The color of a blackbody at the temperature, normalized to its brightest channel, clamped and sRGB-encoded, from
+// the engine's one model (core/math/color_temperature.h, the Krystek 1985 fit as Filament uses it) that the white
+// balance of CameraAttributes uses too. Unlike Color.from_temperature(), the temperature is not clamped to the fit's
+// 1000-15000 K range, as it never was here.
+static Color _color_from_temperature(float p_temperature) {
+	return ColorTemperature::normalize(ColorTemperature::planckian_linear_srgb(p_temperature), Color::TEMPERATURE_NORMALIZATION_MAX_CHANNEL).linear_to_srgb();
 }
 
 void Light3D::set_temperature(const float p_temperature) {

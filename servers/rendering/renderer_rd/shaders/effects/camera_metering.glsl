@@ -137,7 +137,9 @@ const mat3 bradford_inverse = mat3(
 		vec3(-0.147054256, 0.518360272, 0.040042822),
 		vec3(0.159962652, 0.049291228, 0.968486696));
 
-// The Planckian locus in CIE 1960 UCS (Krystek 1985), as RendererCameraAttributes and Light3D::light_temperature use it.
+// The Planckian locus in CIE 1960 UCS (Krystek 1985): a copy of ColorTemperature::planckian_uv() in
+// core/math/color_temperature.h, which white balance, Light3D::light_temperature and Color.from_temperature() share.
+// Keep the two in step.
 vec2 planck_uv(float p_temperature) {
 	float t = p_temperature;
 	float t2 = t * t;

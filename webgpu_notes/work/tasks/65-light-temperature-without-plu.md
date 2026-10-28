@@ -1,8 +1,8 @@
 # 65-light-temperature-without-plu: let Light3D.light_temperature colour a light without physical light units
 
-State: open
+State: claimed
 Owner: worker-64 (with task 64, on work/64)
-Claimed:
+Claimed: 2026-10-28 20:20
 Needs: build (editor + web template), native Vulkan run, browser (Playwright)
 Branch: work/64
 Results: webgpu_notes/work/results/65-light-temperature-without-plu/

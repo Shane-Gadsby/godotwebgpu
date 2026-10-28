@@ -1,8 +1,8 @@
 # 64-color-from-temperature: expose the engine's colour-temperature formula to scripts
 
-State: open
+State: claimed
 Owner: worker-64
-Claimed:
+Claimed: 2026-10-28 20:20
 Needs: build (editor), doctool
 Branch: work/64
 Results: webgpu_notes/work/results/64-color-from-temperature/

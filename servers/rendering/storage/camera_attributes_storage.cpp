@@ -30,6 +30,7 @@
 
 #include "camera_attributes_storage.h"
 
+#include "core/math/color_temperature.h"
 #include "servers/rendering/panini_projection.h"
 
 #ifdef DEBUG_ENABLED
@@ -215,11 +216,9 @@ uint64_t RendererCameraAttributes::camera_attributes_get_auto_exposure_version(R
 // Duv per unit of tint: +-150 is +-0.05 Duv.
 static constexpr double WHITE_BALANCE_DUV_PER_TINT = 0.05 / 150.0;
 
+// The engine's one Planckian locus fit (core/math/color_temperature.h), in double precision.
 static void _white_balance_planckian_uv(double p_temperature, double &r_u, double &r_v) {
-	const double t = p_temperature;
-	const double t2 = t * t;
-	r_u = (0.860117757 + 1.54118254e-4 * t + 1.28641212e-7 * t2) / (1.0 + 8.42420235e-4 * t + 7.08145163e-7 * t2);
-	r_v = (0.317398726 + 4.22806245e-5 * t + 4.20481691e-8 * t2) / (1.0 - 2.89741816e-5 * t + 1.61456053e-7 * t2);
+	ColorTemperature::planckian_uv<double>(p_temperature, r_u, r_v);
 }
 
 // Bradford LMS of the white at the given temperature and tint, with Y = 1.

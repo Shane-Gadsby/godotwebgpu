@@ -233,4 +233,57 @@ TEST_CASE("[Color] Manipulation methods") {
 			"Red interpolated with yellow should be orange (with interpolated alpha).");
 }
 
+TEST_CASE("[Color] from_temperature") {
+	// Reference: camera-sim's CinemaSettings.light_color_for_temperature() (the Krystek 1985 fit, negative channels
+	// clamped, Rec. 709 luminance 1) evaluated in double precision, before its linear_to_srgb().
+	struct Reference {
+		float kelvin;
+		Color luminance;
+	};
+	const Reference references[] = {
+		{ 1000.0f, Color(4.5707696, 0.0395056, 0.0) },
+		{ 2000.0f, Color(2.5198718, 0.6470895, 0.0204549) },
+		{ 3200.0f, Color(1.6789979, 0.8663202, 0.3248313) },
+		{ 5600.0f, Color(1.1334610, 0.9721286, 0.8830995) },
+		{ 6500.0f, Color(1.0439923, 0.9832943, 1.0359439) },
+		{ 10000.0f, Color(0.8706426, 0.9951882, 1.4285707) },
+		{ 15000.0f, Color(0.7844679, 0.9925169, 1.7087815) },
+	};
+	for (const Reference &reference : references) {
+		const Color c = Color::from_temperature(reference.kelvin);
+		INFO("kelvin: ", reference.kelvin, " got: ", String(c));
+		CHECK(Math::abs(c.r - reference.luminance.r) < 1e-5f);
+		CHECK(Math::abs(c.g - reference.luminance.g) < 1e-5f);
+		CHECK(Math::abs(c.b - reference.luminance.b) < 1e-5f);
+		CHECK(c.a == 1.0f);
+	}
+
+	for (float kelvin = 1000.0f; kelvin <= 15000.0f; kelvin += 250.0f) {
+		INFO("kelvin: ", kelvin);
+		const Color lum = Color::from_temperature(kelvin, Color::TEMPERATURE_NORMALIZATION_LUMINANCE);
+		CHECK(Math::abs(0.2126f * lum.r + 0.7152f * lum.g + 0.0722f * lum.b - 1.0f) < 1e-5f);
+		const Color max = Color::from_temperature(kelvin, Color::TEMPERATURE_NORMALIZATION_MAX_CHANNEL);
+		CHECK(MAX(max.r, MAX(max.g, max.b)) == 1.0f);
+		CHECK(MIN(max.r, MIN(max.g, max.b)) >= 0.0f);
+		// Both normalizations are the same chromaticity.
+		const float scale = lum.r / max.r;
+		CHECK(Math::abs(max.g * scale - lum.g) < 1e-5f);
+		CHECK(Math::abs(max.b * scale - lum.b) < 1e-5f);
+	}
+
+	// 6500 K is close to neutral (D65 sits slightly above the Planckian locus, so not exactly).
+	const Color daylight = Color::from_temperature(6500.0f);
+	CHECK(Math::abs(daylight.r - 1.0f) < 0.07f);
+	CHECK(Math::abs(daylight.g - 1.0f) < 0.07f);
+	CHECK(Math::abs(daylight.b - 1.0f) < 0.07f);
+
+	// Lower temperatures are redder, higher ones bluer.
+	CHECK(Color::from_temperature(3200.0f).r > Color::from_temperature(5600.0f).r);
+	CHECK(Color::from_temperature(3200.0f).b < Color::from_temperature(5600.0f).b);
+
+	// Clamped to the fit's range.
+	CHECK(Color::from_temperature(500.0f) == Color::from_temperature(1000.0f));
+	CHECK(Color::from_temperature(40000.0f) == Color::from_temperature(15000.0f));
+}
+
 } // namespace TestColor
