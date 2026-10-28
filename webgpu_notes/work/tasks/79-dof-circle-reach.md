@@ -1,6 +1,6 @@
 # 79-dof-circle-reach
 
-State: ready-for-integration
+State: done (merged `eecd0e08e8`, verified on the merged tree, TASKS §4.93)
 Owner: worker-79
 Claimed: 2026-10-29 06:55
 Needs: build, gpu, browser

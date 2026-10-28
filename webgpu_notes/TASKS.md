@@ -3390,6 +3390,12 @@ or in the browser.
 copy, which cannot be mapped synchronously, and hands back zeros of the requested size. Anything that tests "no data
 yet" on a buffer by emptiness misses it; the C++ methods' `r_not_ready` out-parameter is the reliable signal.
 
+108. **`git stash` is shared by every worktree** (2026-10-29, work tasks 79 and 80): `refs/stash` lives in the common
+repository, so `git stash` + `git stash pop` in two worktrees a minute apart swapped two workers' changes. Nothing was
+lost (each stash commit is still reachable by hash), but one worker's build ran with the other's DOF edits. Workers
+never `git stash` (`work/README.md`); to build a pre-change binary, build before editing or use a detached
+`git worktree add`.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5656,6 +5662,22 @@ warnings. Merged `896940581f`; lead on the merged tree: editor (dev_mode), web t
 warnings; 68/68 natively and in Chrome and Firefox with debug and release templates; debug exactly the four warnings
 (41x5, 17x3, 100 B, 52 B), release and native none. Question `web-buffer-get-data-empty` (keep zeros or return empty)
 on the board; §3 trap 107.
+
+### 4.93 Physical DOF: Circle reach 3% (October 2026) *(work task 79; user answer `dof-circle-6pct`)*
+
+With `CameraAttributesPhysical.dof_physical_blur_size`, the Circle shape and custom apertures (`aperture_enabled`,
+drawn by the circular gather) reach at most **3%** of the image height, while Box and Hexagon keep
+`depth_of_field_physical_max_blur_size` (6% default, §4.90). A **fixed cap**, `min(setting, 3%)`, not half the setting:
+the circle's cost is the square of its absolute reach, so a fixed cap pins it whatever the setting, while half the
+setting would grow it again whenever a project raises the setting for Box/Hexagon; a setting under 3% still lowers it.
+`BokehDOF::_physical_circle_reach()` (`PHYSICAL_CIRCLE_MAX_BLUR_PERCENT`), applied in the compute (Forward+) and raster
+(Mobile) paths after the shape is resolved; `dof_legacy_gather` keeps its fixed 32 px. No shader, binding or
+push-constant change. WebGPU 1440p (worker, `gpu_time.mjs`): Circle Medium 34.74 → 7.85 ms, custom aperture 8.38 ms.
+Merged `eecd0e08e8`; lead on the merged tree against the pre-merge editor: editor (dev_mode) and web template_release
+0 warnings; 200 mm f/2.8 at 1440p, Circle Medium radius 79.53 → **42.76** px (Forward+) and 79.99 → 43.06 (Mobile),
+equal to the pre-merge editor at maxblur 3; custom 6-blade aperture 72.32 → 42.76; Box, Hexagon Very Low/Medium,
+Circle at maxblur 2 and 3, legacy Circle and Hexagon unchanged (maxdiff 0, both renderers); defaults and opt-in off
+14/14 maxdiff 0. Wiki Camera Bokeh and Glare updated. §3 trap 108.
 
 ## 5. References — retired docs
 
