@@ -13,6 +13,7 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 35 | aperture blades, cat's eye, tilt-shift, starburst, halation; Environment lens flare, veiling glare, diffusion | 2 | worker-35 (retired); **merged `ec882a87c2`**, verified, TASKS §4.54; questions `starburst-default-strength`, `halation-min-size`, look `look-bokeh-glare` |
 | 36 | AE metering modes, auto white balance | 2 | worker-36 (retired); **merged**, verified, TASKS §4.53; questions `metering-statistic`, `average-dropped-edges`, `awb-neutral` |
 | 39 | user answers: zebra colors user-selectable; editor tick boxes (default off) for motion blur and handheld shake; shake presets | 2 | worker-39 (retired); **merged**, verified, TASKS §4.55 |
+| 40 | user answers on 35/36: fix Average's dropped edges; log-average option; sharper halation option; starburst default 20 | 3 | worker-40 |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
 
