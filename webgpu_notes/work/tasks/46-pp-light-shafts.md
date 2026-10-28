@@ -1,6 +1,6 @@
 # 46-pp-light-shafts
 
-State: ready-for-integration
+State: integrated (TASKS §4.64)
 Owner: worker-46
 Claimed: 2026-10-28 12:13
 Needs: build, gpu

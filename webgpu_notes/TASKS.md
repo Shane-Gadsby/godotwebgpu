@@ -427,7 +427,7 @@ on that date; anything with no dated note is untouched since it was first writte
 | 2.47 | Editor update check: blind spot and two pending user questions (new, 2026-10-26) | OPEN — the check itself is done (§4.45) | answers to `update-newer-rule` and `update-repo` on the hand-offs page; a build from a branch committed after a release it lacks is not told |
 | 2.48 | Survey: post-processing effects Godot lacks (new, 2026-10-28, user request) | SURVEYED (task 41) — waiting on the `pp-*` answers | gap list against Unreal / Unity HDRP / Blender, excluding the camera batch (work tasks 33–38); ranked with effort and web cost, for the user to pick from |
 | 2.49 | Web loading screen: progress bar toggle and colors (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.56** |
-| 2.51 | Web export: a Start button and "preload before run" (new, 2026-10-28, user request) | OPEN — work tasks 51, 53 | export options; the Start button's look customizable (border color/radius, font family/color, cursor, hover/press darkening) |
+| 2.51 | Web export: a Start button and "preload before run" (new, 2026-10-28, user request) | DONE 2026-10-28 → §4.61, §4.63 | export options; the Start button's look customizable (border color/radius, font family/color, cursor, hover/press darkening) |
 | 2.52 | Web: `DisplayServer.window_set_size()` never emits `size_changed` (new, 2026-10-28, camera-sim) | DONE 2026-10-28 → §4.62 | canvas resized synchronously in `godot_js_display_desired_size_set()`, so `process_events()` sees no change and the viewport/surface keep the old size |
 | 2.53 | Web: fullscreen driven by the embedding page (new, 2026-10-28, camera-sim) | OPEN — work task 54 (after 52) | `postMessage` protocol (`godot:fullscreen` / `ready` / `exit-fullscreen`), export options, allowed origins |
 | 2.50 | Build scripts: the no-threads, no-dlink web templates first (new, 2026-10-28, user request) | **DONE 2026-10-28 → §4.60** | build and install `template_debug` + `template_release` with `threads=no dlink_enabled=no` right after the editor, before every other template | export options: an on/off toggle for the bar (default on) and, while on, its border, background and fill colors, in the default shells and `$GODOT_LOADING_SCREEN` |
@@ -532,7 +532,7 @@ whole tier SKIP (trap 3a); a baked re-export needs the editor rebuilt with the t
 | 2.48 | Survey: post-processing effects Godot lacks | `SURVEYED` — `pp-*` answers pending | ~0.5 session for the survey; each effect is its own task afterwards |
 | 2.49 | ~~Web loading screen: progress bar toggle + colors~~ | **`DONE` 2026-10-28 → §4.56** | — |
 | 2.50 | ~~Build scripts: no-threads non-dlink web templates first~~ | **`DONE` 2026-10-28 → §4.60** | — |
-| 2.51 | Web export: Start button + preload before run, customizable button | `OPEN` (tasks 51, 53) | ~1-1.5 sessions |
+| 2.51 | Web export: Start button + preload before run, customizable button | `DONE` → §4.61, §4.63 | — |
 | 2.52 | Web: `window_set_size()` never emits `size_changed` | `DONE` → §4.62 | — |
 | 2.53 | Web: fullscreen driven by the embedding page | `OPEN` (task 54) | ~1 session |
 
@@ -2583,7 +2583,7 @@ Effort <0.5 session once the user has answered.
 
 ### 2.48 Survey: post-processing effects Godot lacks `SURVEYED 2026-10-28` *(user request; work task 41)*
 
-**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task.
+**Done (work task 41):** `webgpu_notes/work/results/41-postprocess-survey/SURVEY.md` ranks nine gaps with evidence. Recommended to build: color grading on Environment (baked into one internal 3D LUT; all renderers, no new binding), screen-space light shafts, Panini projection (in the lens resample), color vision deficiency simulation/correction, then local exposure (Forward+ and web). Later: custom tonemap curve, GTAO (with §2.34's RT AO), web HDR output, micro shadows. Not gaps: contact shadows (upstream, Forward+), sharpening (§4.50), lens dirt (`glow_map`), desktop HDR output. The user's picks are the `pp-*` questions on the hand-offs page; each chosen effect becomes its own task. **Built so far:** micro shadows §4.59 (task 49), light shafts §4.64 (task 46); color grading (45), Panini (47) and GTAO (48) in integration; custom tonemap curve and local exposure next.
 
 Investigate which post-processing effects Godot's renderers (Forward+, Mobile, Compatibility; web included) do not
 have, the way the camera survey of 2026-10-28 found the camera attributes that became work tasks 33–38. **Exclude what
@@ -2647,7 +2647,7 @@ editor, then the native templates, then the 8-variant web matrix with `dlink` an
 
 Effort <0.5 session (scripts only; one full `build-linux.sh` run to confirm the order and the early install).
 
-### 2.51 Web export: a Start button and "preload before run" `OPEN` *(user request, 2026-10-28)*
+### 2.51 Web export: a Start button and "preload before run" `DONE 2026-10-28` → §4.61, §4.63 *(user request, 2026-10-28)*
 
 The user expected these in the Web export options: a camera-sim session wrote full specs for them on 2026-10-28 that never
 reached this board; they are now `webgpu_notes/work/tasks/51-web-start-button.md` (with the user's extra styling) and
@@ -3237,6 +3237,20 @@ work task 52). `godot_js_display_desired_size_set()` resized the canvas itself, 
 nothing that hangs off that check ran: no `size_changed`, the viewport and the WebGPU surface kept the old size. Return
 whether it changed and run the same path a browser resize does. Under the render thread the transferred `<canvas>`
 element's `width` is stale; read `DisplayServer.window_get_size()` or `GodotDisplayScreen.transferred_size`.
+
+83. **A headless editor export has no shader pack** (2026-10-28, work task 53). `--headless` has no RenderingDevice,
+so the export-time WGSL bake is skipped silently: no `<name>.shaders.pck` / `.shaders_extra.bin`, and `shaderPack` /
+`shaderExtras` are missing from `GODOT_CONFIG`. A test that needs them must export under `xvfb-run -a <editor>
+--rendering-driver vulkan` (as `webgpu_tests/forward_plus/export.sh BAKE=1` does).
+
+84. **The luminance multiplier points opposite ways in RD and GLES3** (2026-10-28, work task 46). In RD, scene light =
+stored x multiplier (Mobile stores half, `RenderSceneBuffersRD::get_luminance_multiplier()` returns 2); in
+Compatibility, stored = encoded x multiplier and `post.glsl` divides. An effect that reads the frame multiplies in RD
+and divides in GLES3; backwards, Mobile's light shafts were silently zero. Compatibility is reverse-Z too
+(`GL_GEQUAL`, sky at depth 0).
+
+85. **The GLES3 shader builder reads a `uniform` line to its end**, so a trailing `// comment, with, commas` turns into
+bogus enum entries (`SCALE.,`) in the generated header (2026-10-28, work task 46). Put the comment above the uniform.
 
 ---
 
@@ -5035,6 +5049,39 @@ browser-resize path (`_canvas_size_changed()`). Canvas resize policy 0 (None) no
 Worker: `results/52-web-window-set-size-signal/resize_test.mjs` under policies 0/1/2, nothreads and threads. Lead
 (merged tree): dev_mode editor and web template clean, the test passes under all three policies (nothreads), 0
 warnings. The shell's `fitCanvasToViewport()` refit after an engine-driven resize went to task 54. §3 trap 82.
+
+### 4.63 Web start screen downloads the game while it waits (October 2026) *(work task 53; §2.51, camera-sim spec)*
+
+`html/start_button/preload` (on) and `html/start_button/preload_progress` (on; shown only while `preload` is), both
+shown only with `html/start_button/enabled` and passed as `GODOT_CONFIG.startButton.preload` / `.preloadProgress`. New
+`Engine.prototype.prefetch(onProgress)` fetches through the `Preloader` exactly what `startGame()` will ask for (the
+wasm, the main pack, the shader pack, the shader extras at low priority, and the texture pack `pickTexturePack()` picks
+from the adapter's features), with no wasm compile and no GPU device; `startGame()` reuses every download and its
+progress continues from what is loaded. The `Preloader` keys downloads by URL, forgets a failed one so the next
+request retries it, frees buffers once the files are in the engine's file system, and no longer hangs forever on a
+connection cut mid-body. `Engine.pickTexturePack` is public. Both default shells prefetch on the start screen unless
+Save-Data is on, showing "Downloading N%" then "Ready". Worker: 18/18 runs (9 scenarios, Chrome and Firefox headed,
+adapter asserted; cross-origin iframe, baked Forward+ project with both texture families): each file requested once,
+engine idle before the press, press-to-game 0.89 s (Chrome) / 0.73 s (Firefox) against a warm-cache export, a
+throttled download's bar never goes backwards, Save-Data fetches nothing early, a failing main pack is refetched on the
+press. Lead (merged tree, with 46): dev_mode editor and web template 0 warnings; `ready`, `savedata`, `fail` and `auto`
+pass in Chrome and Firefox. Not done: Safari, a real network, the windowed-editor dialog. The `webgpu-full-size.html`
+shell's own device request asks for 16 textures per stage, so it runs Forward Mobile (pre-existing). §3 trap 83.
+camera-sim can drop its `window.fetch` wrapper for `prefetch()` (results/53-web-preload-before-start/for-tasks.md).
+
+### 4.64 Screen-space light shafts (October 2026) *(work task 46; survey §2.48, `pp-light-shafts`)*
+
+`DirectionalLight3D.light_shafts_enabled` opts a light in (the first that does is the sun); `Environment.light_shafts_*`
+(intensity, threshold, decay, tint) and `rendering/environment/light_shafts/quality` (16/32/64 samples). Mitchell's
+radial blur (GPU Gems 3 ch. 13) as an exponentially weighted mean of the sky mask on the way to the sun, in frame
+heights, with a lengthwise prefilter over one march stride, so the result is the same at every resolution and sample
+count. RD (Forward+, Mobile, web): four quarter-resolution raster passes (`RendererRD::LightShafts`) added to the
+scene light before DOF and tonemapping, own push constant, no tonemap binding. Compatibility: `GLES3::LightShafts` +
+`post.glsl` `USE_LIGHT_SHAFTS` (texunit 6), single view. Worker: defaults bit-identical (6/6), render vs an
+independent numpy model correlation 0.997-0.999 native and 0.990-0.9996 WebGPU, WebGPU within 0.5-3% of native
+energy, +0.07 ms GPU on WebGPU at 1152x648. Lead (merged tree): defaults 0 px against the pre-merge editor in all
+three renderers; model correlation 0.998 Forward+, 0.997 Mobile, 0.972 Compatibility, 0.990 WebGPU; WebGPU shaft
+energy 0.987 of native. §3 traps 84, 85.
 
 ## 5. References — retired docs
 

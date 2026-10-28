@@ -1,6 +1,6 @@
 # 53-web-preload-before-start: download the game while the start screen waits
 
-State: ready-for-integration
+State: integrated (TASKS §4.63)
 Owner: worker-53
 Claimed: 2026-10-28 13:29
 Needs: build (web template + editor), browser (Playwright), **after 51-web-start-button**

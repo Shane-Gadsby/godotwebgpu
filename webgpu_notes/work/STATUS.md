@@ -18,16 +18,17 @@ Conventions for all six: `camera-batch.md`. Wave 1 runs in parallel; wave 2 need
 | 42 | web loading bar toggle + colors (TASKS §2.49) | 4 | worker-42 (retired); **merged**, TASKS §4.56, §3 trap 79 |
 | 43 | wiki audit: pages for additions that have none | 4 | worker-43 (retired); **merged** (results); wiki 823092f (Exporting with WebGPU page, WebRTC notable fixes, shader baking, building, Home) |
 | 44 | longitudinal CA; Forward+ matrix arms for camera features; Mobile physical DOF (`mobile-dof-physical`) | 4 | worker-44 (retired); **merged**, TASKS §4.57, matrix now 97 arms |
-| 45 | post-processing: color grading on Environment (`pp-grading`) | 5 | worker-45 |
-| 46 | post-processing: screen-space light shafts (`pp-light-shafts`) | 5 | worker-46 |
-| 47 | post-processing: Panini projection (`pp-panini`) | 5 | worker-47 |
+| 45 | post-processing: color grading on Environment (`pp-grading`) | 5 | worker-45 (retired); **merged `d3c42be832`**, lead verification running |
+| 46 | post-processing: screen-space light shafts (`pp-light-shafts`) | 5 | worker-46 (retired); **merged `6d9a215a37`**, verified, TASKS §4.64, traps 84-85 |
+| 47 | post-processing: Panini projection (`pp-panini`) | 5 | worker-47 (retired); **merged `f49785ccf7`**, lead verification running |
 | 48 | post-processing: GTAO (`pp-gtao`) | 5 | worker-48 |
 | 49 | post-processing: micro shadows (`pp-micro-shadows`) | 5 | worker-49 (retired); **merged**, TASKS §4.59, matrix 98 arms, wiki page |
 | 50 | build scripts: no-threads non-dlink web templates first (TASKS §2.50) | 5 | worker-50 (retired); **merged**, TASKS §4.60, §3 trap 81 |
 | 51 | web Start button screen with customizable look (camera-sim spec + user styling; TASKS §2.51) | 5 | worker-51 (retired); **merged**, TASKS §4.61; questions `start-button-*` |
 | 52 | web `window_set_size()` never emits `size_changed` (camera-sim; TASKS §2.52) | 5 | worker-52 (retired); **merged `ab4cf70927`**, verified (resize test, 3 policies), TASKS §4.62, trap 82 |
-| 53 | web preload before start (`Engine.prefetch()`), after 51 (camera-sim; TASKS §2.51) | 6 | worker-53 |
+| 53 | web preload before start (`Engine.prefetch()`), after 51 (camera-sim; TASKS §2.51) | 6 | worker-53 (retired); **merged `f8d0124b46`**, verified (Chrome + Firefox), TASKS §4.63, trap 83 |
 | 54 | web fullscreen from the embedding page, after 52 (camera-sim; TASKS §2.53) | 6 | worker-54 |
+| 55 | glare chain calibrated per lod: exact halation/diffusion/flare sizes at every resolution (`glare-lod-calibration`: Recalibrate) | 6 | worker-55 |
 | — | next after 45-49 merge: custom tonemap curve (`pp-custom-tonemap`), local exposure (`pp-local-exposure`) (both change the tonemap core) | 6 | — |
 
 When all are integrated: user-facing wiki pages under Engine Additions from each `for-docs.md` (user request).
