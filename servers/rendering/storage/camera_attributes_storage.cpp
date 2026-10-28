@@ -30,9 +30,10 @@
 
 #include "camera_attributes_storage.h"
 
+#include "servers/rendering/panini_projection.h"
+
 #ifdef DEBUG_ENABLED
 #include "core/os/os.h"
-#include "servers/rendering/panini_projection.h"
 #endif
 
 RendererCameraAttributes *RendererCameraAttributes::singleton = nullptr;

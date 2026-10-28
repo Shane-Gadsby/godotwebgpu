@@ -1,6 +1,6 @@
 # 58-small-web-correctness: TASKS §2.42, §2.43, §2.44
 
-State: ready-for-integration
+State: integrated (TASKS §4.72-4.74)
 Owner: worker-58
 Claimed: 2026-10-28
 Needs: build, gpu (short runs)

@@ -3,7 +3,8 @@
 # engine shader variant: what they derive must match scan_reference.txt, the facts Tint's output gave when
 # SPIRV-Cross replaced it (webgpu_notes/TASKS.md §2.35; scan_reference.py says how to update it).
 #
-#   ./run_tests.sh <run_dir>     <run_dir> = a smoke.sh run (wgsl/ = the converter's output)
+#   ./run_tests.sh <run_dir>     <run_dir> = a webgpu_tests/converter_smoke/run.sh run (wgsl/ = the converter's
+#                                output); that tier runs this script on every run it makes
 #   WRITE_REFERENCE=1 ./run_tests.sh <run_dir>   rewrite scan_reference.txt from <run_dir>/wgsl
 #
 # A run directory that also has ref/ (another converter build's WGSL of the same SPIR-V, e.g. a SPIRV-Cross
@@ -13,7 +14,7 @@
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-run="${1:?usage: run_tests.sh <smoke run dir>}"
+run="${1:?usage: run_tests.sh <converter_smoke run dir>}"
 bin="$(mktemp -d)/scan_dump"
 c++ -std=c++17 -O1 -Wall -Wextra -I"$repo/drivers/webgpu" "$here/scan_dump.cpp" "$repo/drivers/webgpu/wgsl_text_scan.cpp" -o "$bin"
 
@@ -64,7 +65,7 @@ if [[ "${VALIDATE:-0}" == 1 ]]; then
 	rw="$(mktemp -d)"
 	for sx in "$run"/wgsl/*.wgsl; do "$bin" "$sx" --emit "$rw/$(basename "$sx")" >/dev/null; done
 	OUT="$rw/validation.json" node "$repo/webgpu_tests/spirv_cross_eval/validate_wgsl.mjs" "$rw" >"$rw/validate.log" 2>&1
-	python3 - "$rw/validation.json" "$repo/webgpu_notes/work/smoke_expected_invalid.txt" <<'PY' || fail=1
+	python3 - "$rw/validation.json" "$repo/webgpu_tests/converter_smoke/expected_invalid.txt" <<'PY' || fail=1
 import json, sys
 res = json.load(open(sys.argv[1]))
 expected = set(l.split()[0] for l in open(sys.argv[2]) if l.strip() and not l.startswith('#')) if len(sys.argv) > 2 else set()
