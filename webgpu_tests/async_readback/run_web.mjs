@@ -11,7 +11,8 @@
 // debug export (the project prints debug=true) must print it exactly once for each of the two textures the project
 // reads synchronously (w96 is 96x7, w333 is 333x7), and a release export never. Likewise RenderingDevice's own
 // synchronous texture_get_data() / buffer_get_data() (task 77): once for each of textures 41x5 and 17x3 and buffers of
-// 100 and 52 bytes in a debug export, never in release.
+// 100 and 52 bytes in a debug export, never in release. And RenderingServer's mesh_surface_get_arrays() warning (task
+// 81, an ArrayMesh's first Mesh.surface_get_arrays()): once in a debug export, never in release.
 //
 // And fails on any WebGPU validation message (work task 76: "[Buffer] used in submit while pending map" was printed
 // once per readback under load and went unnoticed) or any console error the project does not provoke on purpose.
@@ -98,6 +99,7 @@ try {
 		let debug = null;
 		const syncWarnings = [];
 		const rdWarnings = [];
+		const meshWarnings = [];
 		const validation = [];
 		const unexpectedErrors = [];
 		// Errors main.gd provokes on purpose (_test_sync_invalid, the freed-texture checks) and the lines of their
@@ -120,6 +122,9 @@ try {
 				}
 				if (/RenderingDevice\.(texture|buffer)_get_data\(\) returned/.test(t)) {
 					rdWarnings.push({ type: m.type(), text: t.split('\n')[0] });
+				}
+				if (/mesh_surface_get_arrays\(\) returned an empty array/.test(t)) {
+					meshWarnings.push({ type: m.type(), text: t.split('\n')[0] });
 				}
 				if (/^W66|ERROR|error/.test(t)) {
 					lines.push(`[${m.type()}] ${t.split('\n')[0]}`);
@@ -179,6 +184,14 @@ try {
 			const rdOk = debug !== null && JSON.stringify(rdGot) === JSON.stringify(rdWant) && rdWarnings.every((w) => w.type === 'warning');
 			console.log(`RD sync readback warnings: ${rdWarnings.length} (${debug === null ? 'build kind unknown' : debug ? 'debug, expected one for each of 41x5, 17x3, 100 and 52 bytes' : 'release, expected none'}) -> ${rdOk ? 'ok' : 'FAIL'}`);
 			if (!rdOk) {
+				code = 1;
+			}
+			for (const w of meshWarnings) {
+				console.log(`mesh arrays warning [${w.type}]: ${w.text}`);
+			}
+			const meshOk = debug !== null && meshWarnings.length === (debug ? 1 : 0) && meshWarnings.every((w) => w.type === 'warning');
+			console.log(`mesh arrays warnings: ${meshWarnings.length} (${debug === null ? 'build kind unknown' : debug ? 'debug, expected one' : 'release, expected none'}) -> ${meshOk ? 'ok' : 'FAIL'}`);
+			if (!meshOk) {
 				code = 1;
 			}
 		}

@@ -1439,13 +1439,15 @@ Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset
 	}
 #ifdef WEB_ENABLED
 	// The web's only RenderingDevice driver is WebGPU, whose buffer_get_data_direct() handles every readback and returns
-	// false only while its asynchronous map has not completed. The staging copy below then cannot be mapped either (no
-	// way to wait for wgpuBufferMapAsync() inside a synchronous call), so it returns zeros.
+	// false only while its asynchronous map has not completed. The staging copy below could not be mapped either (no way
+	// to wait for wgpuBufferMapAsync() inside a synchronous call) and would only return zeros after a full stall, so
+	// return an empty array instead, as texture_get_data() does: callers can tell "not ready" from real zeros (work
+	// task 81). Engine callers treat an empty result as "no data yet".
 	if (r_not_ready) {
 		*r_not_ready = true;
 	}
-#endif
-
+	return Vector<uint8_t>();
+#else
 	_check_transfer_worker_buffer(buffer);
 
 	RDD::BufferID tmp_buffer = driver->buffer_create(buffer->size, RDD::BUFFER_USAGE_TRANSFER_TO_BIT, RDD::MEMORY_ALLOCATION_TYPE_CPU, frames_drawn);
@@ -1475,19 +1477,21 @@ Vector<uint8_t> RenderingDevice::buffer_get_data(RID p_buffer, uint32_t p_offset
 	driver->buffer_free(tmp_buffer);
 
 	return buffer_data;
+#endif
 }
 
 Vector<uint8_t> RenderingDevice::_buffer_get_data_bind(RID p_buffer, uint32_t p_offset, uint32_t p_size) {
 #if defined(DEBUG_ENABLED) && defined(WEB_ENABLED)
-	// A project tested natively gets zeros here on the web with nothing in the console to say why (work task 77; task 71
-	// did the same for Texture2D.get_image()). Once per buffer; an invalid buffer prints its own error and is not marked.
+	// A project tested natively gets an empty array here on the web with nothing in the console to say why (work task 77;
+	// task 71 did the same for Texture2D.get_image()). Once per buffer; an invalid buffer prints its own error and is not
+	// marked.
 	bool not_ready = false;
 	Vector<uint8_t> data = buffer_get_data(p_buffer, p_offset, p_size, &not_ready);
 	if (not_ready) {
 		Buffer *buffer = _get_buffer_from_owner(p_buffer);
 		if (buffer && !buffer->warned_sync_readback_pending) {
 			buffer->warned_sync_readback_pending = true;
-			WARN_PRINT(vformat("RenderingDevice.buffer_get_data() returned zeros for buffer of %d bytes: on the web, GPU data is read back asynchronously and had not arrived yet (once it has, a call returns what an earlier call copied). Use RenderingDevice.buffer_get_data_async() to wait for it. Shown once per buffer, in debug builds only.", buffer->size));
+			WARN_PRINT(vformat("RenderingDevice.buffer_get_data() returned an empty array for buffer of %d bytes: on the web, GPU data is read back asynchronously and had not arrived yet (once it has, a call returns what an earlier call copied). Use RenderingDevice.buffer_get_data_async() to wait for it. Shown once per buffer, in debug builds only.", buffer->size));
 		}
 	}
 	return data;

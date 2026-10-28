@@ -170,6 +170,7 @@
 			<param index="0" name="surf_idx" type="int" />
 			<description>
 				Returns the arrays for the vertices, normals, UVs, etc. that make up the requested surface (see [method ArrayMesh.add_surface_from_arrays]).
+				[b]Note:[/b] On the web (WebGPU), an [ArrayMesh] or [ImmediateMesh] reads its arrays back from the GPU asynchronously: a first call for a surface returns an empty array until the data has arrived, a frame or more later. A [PrimitiveMesh] builds its arrays on the CPU and returns them at once.
 			</description>
 		</method>
 		<method name="surface_get_blend_shape_arrays" qualifiers="const">

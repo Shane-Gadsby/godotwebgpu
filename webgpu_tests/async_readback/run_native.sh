@@ -25,4 +25,7 @@ echo "sync readback warnings: $warns (native, expected 0)"
 rdwarns=$(echo "$out" | grep -cE "RenderingDevice\.(texture|buffer)_get_data\(\) returned")
 echo "RD sync readback warnings: $rdwarns (native, expected 0)"
 [[ "$rdwarns" == 0 ]] || exit 1
+meshwarns=$(echo "$out" | grep -c "mesh_surface_get_arrays() returned an empty array")
+echo "mesh arrays warnings: $meshwarns (native, expected 0)"
+[[ "$meshwarns" == 0 ]] || exit 1
 exit $rc

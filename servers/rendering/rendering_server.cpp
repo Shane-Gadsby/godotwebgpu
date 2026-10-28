@@ -1720,6 +1720,17 @@ Array RenderingServer::_get_array_from_surface(uint64_t p_format, Vector<uint8_t
 
 Array RenderingServer::mesh_surface_get_arrays(RID p_mesh, int p_surface) const {
 	RenderingServerTypes::SurfaceData sd = mesh_get_surface(p_mesh, p_surface);
+#ifdef WEB_ENABLED
+	// On the web the surface's GPU buffers are read back asynchronously, and until they have arrived mesh_get_surface()
+	// returns the surface with no data (work task 81). That is "not yet", not an error: return an empty array without
+	// the error mesh_create_arrays_from_surface_data() prints for a surface without vertices.
+	if (sd.vertex_count > 0 && sd.vertex_data.is_empty() && (sd.format & RSE::ARRAY_FORMAT_VERTEX)) {
+#ifdef DEBUG_ENABLED
+		WARN_PRINT_ONCE("RenderingServer.mesh_surface_get_arrays() returned an empty array: on the web, mesh data is read back from the GPU asynchronously and had not arrived yet (a call on a later frame returns it). Mesh.surface_get_arrays() and MeshDataTool.create_from_surface() read it this way. Shown once, in debug builds only.");
+#endif
+		return Array();
+	}
+#endif
 	return mesh_create_arrays_from_surface_data(sd);
 }
 
