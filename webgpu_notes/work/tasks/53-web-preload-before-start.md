@@ -1,8 +1,8 @@
 # 53-web-preload-before-start: download the game while the start screen waits
 
-State: open
+State: ready-for-integration
 Owner: worker-53
-Claimed:
+Claimed: 2026-10-28 13:29
 Needs: build (web template + editor), browser (Playwright), **after 51-web-start-button**
 Branch: work/53
 Results: webgpu_notes/work/results/53-web-preload-before-start/
@@ -53,7 +53,7 @@ Replace that with:
 - **Progress:** a callback for the shell's "Downloading N%" line. When `startGame()` takes over, its
   `onProgress` should continue from what's already loaded, not restart from 0.
 - **Failures:** a file that fails during prefetch is fetched again normally by `startGame()`, keeping the
-  existing retry behaviour.
+  existing retry behavior.
 
 ### Shell
 

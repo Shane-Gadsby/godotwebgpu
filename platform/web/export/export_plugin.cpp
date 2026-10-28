@@ -278,6 +278,11 @@ void EditorExportPlatformWeb::_fix_html(Vector<uint8_t> &p_html, const Ref<Edito
 	const Vector2i start_padding = p_preset->get("html/start_button/padding");
 	start_button["paddingHorizontal"] = start_padding.x;
 	start_button["paddingVertical"] = start_padding.y;
+	// Download the game behind the start screen (Engine.prototype.prefetch()); only with the button,
+	// since without one the engine starts at once anyway.
+	const bool start_preload = start_button["enabled"].operator bool() && p_preset->get("html/start_button/preload").operator bool();
+	start_button["preload"] = start_preload;
+	start_button["preloadProgress"] = start_preload && p_preset->get("html/start_button/preload_progress").operator bool();
 	config["startButton"] = start_button;
 
 	config["godotPoolSize"] = p_preset->get("threads/godot_pool_size");
@@ -584,6 +589,9 @@ void EditorExportPlatformWeb::get_export_options(List<ExportOption> *r_options) 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "html/start_button/font_family"), String(web_start_button_font_family)));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "html/start_button/font_size", PROPERTY_HINT_RANGE, "1,128,1,or_greater,suffix:px"), 24));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::VECTOR2I, "html/start_button/padding", PROPERTY_HINT_RANGE, "0,128,1,or_greater,suffix:px"), Vector2i(48, 12)));
+	// Downloads what the game needs while the start screen waits; the engine still runs only on the press.
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload"), true, true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "html/start_button/preload_progress"), true));
 
 	// The progress bar's toggle and colors (see web_progress_bar_colors above);
 	// the colors are shown only while the bar is.
@@ -682,6 +690,9 @@ bool EditorExportPlatformWeb::get_export_option_visibility(const EditorExportPre
 		const bool enabled = p_preset->get("html/start_button/enabled").operator bool();
 		if (p_option == "html/start_button/hover_color" || p_option == "html/start_button/pressed_color") {
 			return enabled && p_preset->get("html/start_button/custom_state_colors").operator bool();
+		}
+		if (p_option == "html/start_button/preload_progress") {
+			return enabled && p_preset->get("html/start_button/preload").operator bool();
 		}
 		return enabled;
 	}

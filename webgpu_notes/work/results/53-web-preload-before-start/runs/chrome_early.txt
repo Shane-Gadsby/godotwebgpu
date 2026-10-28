@@ -1,0 +1,20 @@
+adapter {"vendor":"nvidia","architecture":"lovelace","fallback":false,"maxTex":48,"bc":true,"etc2":false}
+0.1s start screen {"rtenv":false,"compiles":0,"devices":0,"preload":"Downloading 0%","preloadShown":true}
+2.0s before press {"rtenv":false,"compiles":0,"devices":0,"preload":"Downloading 31%","preloadShown":true}
+2.0s PROBE pointerdown trusted=true target=status-start at 2035 ms
+2.0s PROBE click trusted=true target=status-start at 2035 ms
+2.0s pressed (early)
+2.0s PROBE requestDevice at 2036 ms: Error
+    at GPUAdapter.requestDevice (<anonymous>:13:158)
+    at http://127.0.0.1:8702/index.js:1661:19
+10.7s early: overlay gone 8.67 s after the press
+download took 10.5 s; overlay gone 0.20 s after the last byte
+PASS bar kept moving while downloading (80 samples, from 0.121 to 0.746, 0 backwards, 0 stalls > 1.5 s)
+PASS game started after the download completed
+request {"name":"/index.js","t":21,"end":137,"status":200,"aborted":true,"range":""}
+requests to the game server: {"/index.html":1,"/index.png":1,"/index.js":1,"/index.wasm":1,"/index.pck":1,"/index.shaders.pck":1,"/index.shaders_extra.bin":1,"/index.textures_bc.pck":1,"/index.audio.worklet.js":1}
+PASS each file requested exactly once (/index.html:1 /index.png:1 /index.js:1 /index.wasm:1 /index.pck:1 /index.shaders.pck:1 /index.shaders_extra.bin:1 /index.textures_bc.pck:1 /index.audio.worklet.js:1)
+texture packs fetched: /index.textures_bc.pck
+PASS at most one texture pack fetched
+console: error: Failed to load resource: the server responded with a status of 404 (Not Found)
+RESULT PASS

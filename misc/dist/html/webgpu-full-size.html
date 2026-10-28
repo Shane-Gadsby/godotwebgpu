@@ -153,6 +153,21 @@ body {
 	outline-offset: 3px;
 }
 
+/* Under the button while the game downloads behind the start screen
+   (html/start_button/preload_progress): "Downloading 48%", then "Ready". */
+#status-preload {
+	display: none;
+	flex: none;
+	min-height: 1.3em;
+	color: #e0e0e0;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	font-size: 0.9rem;
+	line-height: 1.3;
+	opacity: 0.85;
+	text-align: center;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
 #status-notice {
 	background-color: #5b3943;
 	border-radius: 0.5rem;
@@ -182,6 +197,7 @@ body {
 			<img id="status-splash" class="$GODOT_SPLASH_CLASSES" src="$GODOT_SPLASH" alt="">
 			<progress id="status-progress"></progress>
 			<button id="status-start" type="button"></button>
+			<div id="status-preload" aria-live="polite"></div>
 			<div id="status-notice"></div>
 		</div>
 
@@ -297,6 +313,16 @@ async function initWebGPU() {
 	// waits on this button, and nothing of the engine runs until it is pressed.
 	const statusStart = document.getElementById('status-start');
 	const startButton = GODOT_CONFIG['startButton'] || {};
+	// While the start screen waits, the files the game needs download in the background
+	// (html/start_button/preload, Engine.prototype.prefetch()), so after the press only the
+	// engine's own startup is left. Not in the browser's Save-Data mode: the download then
+	// waits for the press, as without the option. This has to run in the game's own page:
+	// browsers keep a separate HTTP cache for each site that embeds a page, so a parent
+	// page fetching the same files would not speed up a cross-origin iframe of the game.
+	const connection = navigator.connection;
+	const preload = !!(startButton['enabled'] && startButton['preload']) && !(connection && connection.saveData);
+	const preloadProgress = preload && !!startButton['preloadProgress'];
+	const statusPreload = document.getElementById('status-preload');
 	if (startButton['enabled']) {
 		statusStart.textContent = startButton['text'] || 'Start';
 		const startStyle = {
@@ -333,6 +359,7 @@ async function initWebGPU() {
 		statusProgress.style.display = (mode === 'progress' && progressBarEnabled) ? 'block' : 'none';
 		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
 		statusStart.style.display = mode === 'start' ? 'block' : 'none';
+		statusPreload.style.display = (mode === 'start' && preloadProgress) ? 'block' : 'none';
 		statusMode = mode;
 	}
 
@@ -440,6 +467,23 @@ async function initWebGPU() {
 				statusStart.disabled = true;
 				startEngine();
 			}, { once: true });
+			if (preload) {
+				// A press before this finishes carries on with the same downloads.
+				let shownPercent = 0;
+				let preloadFinished = false;
+				statusPreload.textContent = 'Downloading...';
+				engine.prefetch((loaded, total) => {
+					if (total > 0 && !preloadFinished) {
+						// Never backwards: the texture pack joins the total once the adapter is known.
+						shownPercent = Math.max(shownPercent, Math.min(99, Math.floor((loaded / total) * 100)));
+						statusPreload.textContent = `Downloading ${shownPercent}%`;
+					}
+				}).then((complete) => {
+					preloadFinished = true;
+					// A file that failed is downloaded again on the press, so there is nothing to report.
+					statusPreload.textContent = complete ? 'Ready' : '';
+				});
+			}
 		} else {
 			startEngine();
 		}
