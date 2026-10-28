@@ -1,6 +1,6 @@
 # 73-webgpu-gpu-time
 
-State: claimed
+State: ready-for-integration
 Owner: worker-73
 Claimed: 2026-10-28
 Needs: build, browser

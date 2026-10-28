@@ -1338,18 +1338,12 @@ void RenderingDeviceDriverWebGPU::_check_capabilities() {
 		WARN_PRINT("WebGPU: Failed to query device limits, using spec minimums.");
 	}
 
-	// Check for timestamp query support.
-	// NOTE: Timestamp query readback is disabled for now. The async mapAsync
-	// on the readback buffer can get permanently stuck in "mapping pending" state
-	// when frames are slow (emdawnwebgpu does not reliably cancel pending maps via
-	// wgpuBufferUnmap). This causes "buffer used in submit while mapped" validation
-	// errors that corrupt rendering. GPU timestamp profiling is sacrificed — the
-	// profiler reports "gpu=N/A" — but rendering correctness is preserved.
-	// TODO: Re-enable once emdawnwebgpu properly implements unmap-cancels-pending-map.
-	timestamp_supported = false;
-	if (wgpuDeviceHasFeature(device, WGPUFeatureName_TimestampQuery)) {
-		print_verbose("WebGPU: Timestamp query feature is available (readback disabled due to buffer mapping issue).");
-	}
+	// GPU timestamps (viewport_get_measured_render_time_gpu(), the Visual Profiler) need the optional
+	// `timestamp-query` feature, which the shell requests whenever the adapter offers it. Without it the query pools
+	// are dummies that report 0 and nothing else changes. The readback is a ring that never maps a buffer twice (see
+	// WGQueryPool); the old single-buffer readback, which unmapped pending maps and got stuck, was switched off here.
+	timestamp_supported = wgpuDeviceHasFeature(device, WGPUFeatureName_TimestampQuery);
+	print_verbose(vformat("WebGPU: GPU timestamps %s.", timestamp_supported ? "enabled (timestamp-query)" : "unavailable (no timestamp-query), GPU times read 0"));
 
 	// float32-filterable: required for linear sampling of R32Float / RG32Float / RGBA32Float.
 	// Forward Mobile's HDR post-processing path samples 32F render targets with linear
@@ -4059,23 +4053,14 @@ Error RenderingDeviceDriverWebGPU::command_queue_execute_and_present(CommandQueu
 	for (uint32_t i = 0; i < p_cmd_buffers.size(); i++) {
 		WGCommandBuffer *cmd = (WGCommandBuffer *)(p_cmd_buffers[i].id);
 		if (cmd) {
-			// Trigger async readback for any query pools that had timestamps resolved.
-			for (uint32_t j = 0; j < cmd->written_query_pools.size(); j++) {
-				WGQueryPool *pool = cmd->written_query_pools[j];
-				if (pool->readback_pending && pool->readback_buffer) {
-					// Only issue mapAsync if the buffer is actually in Unmapped state.
-					// If a previous map is still pending (GPU hasn't completed), skip.
-					WGPUBufferMapState state = wgpuBufferGetMapState(pool->readback_buffer);
-					if (state != WGPUBufferMapState_Unmapped) {
-						continue;
-					}
-					pool->map_generation++;
-					WGPUBufferMapCallbackInfo cb_info = {};
-					cb_info.mode = WGPUCallbackMode_AllowSpontaneous;
-					cb_info.callback = _timestamp_readback_callback;
-					cb_info.userdata1 = pool;
-					cb_info.userdata2 = (void *)(uintptr_t)pool->map_generation;
-					wgpuBufferMapAsync(pool->readback_buffer, WGPUMapMode_Read, 0, sizeof(uint64_t) * pool->count, cb_info);
+			// Start the readback of the timestamps this submit resolved (command_buffer_end() recorded the copies).
+			for (WGQueryPool *pool : cmd->written_query_pools) {
+				if (cmd->finished_buffer) {
+					_timestamp_pool_start_readback(pool);
+				} else if (pool->recorded_slot >= 0) {
+					// Nothing was submitted, so nothing was copied: the slot is free again.
+					pool->slots[pool->recorded_slot].state = WGQueryPool::ReadbackSlot::FREE;
+					pool->recorded_slot = -1;
 				}
 			}
 			cmd->written_query_pools.clear();
@@ -4156,6 +4141,16 @@ bool RenderingDeviceDriverWebGPU::command_buffer_begin(CommandBufferID p_cmd_buf
 	cmd->push_constants_dirty = false;
 	cmd->push_constant_data_len = 0;
 
+	// Timestamps of a recording that was never submitted: its copies went with its encoder.
+	for (WGQueryPool *pool : cmd->written_query_pools) {
+		pool->written_count = 0;
+		if (pool->recorded_slot >= 0) {
+			pool->slots[pool->recorded_slot].state = WGQueryPool::ReadbackSlot::FREE;
+			pool->recorded_slot = -1;
+		}
+	}
+	cmd->written_query_pools.clear();
+
 	return true;
 }
 
@@ -4171,46 +4166,9 @@ void RenderingDeviceDriverWebGPU::command_buffer_end(CommandBufferID p_cmd_buffe
 	// End any active render/compute pass.
 	cmd->end_active_encoder();
 
-	// Resolve any query pools that had timestamps written during this command buffer.
-	for (uint32_t i = 0; i < cmd->written_query_pools.size(); i++) {
-		WGQueryPool *pool = cmd->written_query_pools[i];
-		if (!pool->readback_buffer) {
-			continue;
-		}
-
-		// Ensure the readback buffer is in Unmapped state before encoding a copy to it.
-		// The previous frame's mapAsync may still be pending if the GPU hasn't completed.
-		// emdawnwebgpu does not reliably cancel pending maps via wgpuBufferUnmap, so we
-		// check the actual state and skip this frame's resolve+copy if the buffer is stuck.
-		WGPUBufferMapState map_state = wgpuBufferGetMapState(pool->readback_buffer);
-		if (map_state != WGPUBufferMapState_Unmapped) {
-			// Try to drain pending callbacks first.
-			WGPUInstance inst = context_driver ? context_driver->get_instance() : nullptr;
-			if (inst) {
-				wgpuInstanceProcessEvents(inst);
-			}
-			map_state = wgpuBufferGetMapState(pool->readback_buffer);
-
-			if (map_state != WGPUBufferMapState_Unmapped) {
-				wgpuBufferUnmap(pool->readback_buffer);
-				if (inst) {
-					wgpuInstanceProcessEvents(inst);
-				}
-				map_state = wgpuBufferGetMapState(pool->readback_buffer);
-			}
-
-			if (map_state != WGPUBufferMapState_Unmapped) {
-				// Buffer is permanently stuck — skip resolve+copy to avoid validation error.
-				pool->readback_pending = false;
-				continue;
-			}
-		}
-		pool->readback_pending = false;
-
-		wgpuCommandEncoderResolveQuerySet(cmd->encoder, pool->handle, 0, pool->count, pool->resolve_buffer, 0);
-		uint64_t byte_size = sizeof(uint64_t) * pool->count;
-		wgpuCommandEncoderCopyBufferToBuffer(cmd->encoder, pool->resolve_buffer, 0, pool->readback_buffer, 0, byte_size);
-		pool->readback_pending = true;
+	// Resolve the timestamps written during this command buffer into a free readback slot of each pool.
+	for (WGQueryPool *pool : cmd->written_query_pools) {
+		_timestamp_pool_record_resolve(cmd, pool);
 	}
 
 	// Finish the command encoder.
@@ -10859,30 +10817,43 @@ bool RenderingDeviceDriverWebGPU::_ensure_compute_pipeline(WGPipelineWrapper *p_
 // QUERIES
 // =============================================================================
 
+static void _timestamp_pool_destroy(WGQueryPool *p_pool) {
+	for (uint32_t i = 0; i < WGQueryPool::READBACK_RING_SIZE; i++) {
+		if (p_pool->slots[i].buffer) {
+			wgpuBufferRelease(p_pool->slots[i].buffer);
+		}
+	}
+	if (p_pool->handle) {
+		wgpuQuerySetRelease(p_pool->handle);
+	}
+	if (p_pool->resolve_buffer) {
+		wgpuBufferRelease(p_pool->resolve_buffer);
+	}
+	if (p_pool->cpu_results) {
+		memfree(p_pool->cpu_results);
+	}
+	memdelete(p_pool);
+}
+
 RDD::QueryPoolID RenderingDeviceDriverWebGPU::timestamp_query_pool_create(uint32_t p_query_count) {
 	WGQueryPool *pool = memnew(WGQueryPool());
 	pool->count = p_query_count;
-	pool->cpu_results = (uint64_t *)memalloc(sizeof(uint64_t) * p_query_count);
-	memset(pool->cpu_results, 0, sizeof(uint64_t) * p_query_count);
+	pool->cpu_results = (uint64_t *)memalloc(sizeof(uint64_t) * MAX(p_query_count, 1u));
+	memset(pool->cpu_results, 0, sizeof(uint64_t) * MAX(p_query_count, 1u));
 
-	if (!timestamp_supported) {
-		// No hardware timestamp support — return a dummy pool that returns zeros.
-		pool->is_real = false;
+	if (!timestamp_supported || p_query_count == 0) {
+		// No timestamp-query: a dummy pool whose results are all 0.
 		return QueryPoolID(pool);
 	}
 
-	// Create query set.
+	// One query more than asked for: a timestamp is the end-of-pass write of an empty compute pass, and the spec's
+	// "no beginning write" is an absent member, which emdawnwebgpu cannot express (it passes
+	// WGPU_QUERY_SET_INDEX_UNDEFINED through as 4294967295, a validation error), so the beginning goes to this spare.
 	WGPUQuerySetDescriptor qs_desc = {};
 	qs_desc.type = WGPUQueryType_Timestamp;
-	qs_desc.count = p_query_count;
+	qs_desc.count = p_query_count + 1;
 	pool->handle = wgpuDeviceCreateQuerySet(device, &qs_desc);
-	if (!pool->handle) {
-		WARN_PRINT("WebGPU: Failed to create timestamp query set, falling back to dummy timestamps.");
-		pool->is_real = false;
-		return QueryPoolID(pool);
-	}
 
-	// Create resolve buffer (GPU-side, receives resolved query results).
 	uint64_t buf_size = sizeof(uint64_t) * p_query_count;
 	{
 		WGPUBufferDescriptor bd = {};
@@ -10890,17 +10861,23 @@ RDD::QueryPoolID RenderingDeviceDriverWebGPU::timestamp_query_pool_create(uint32
 		bd.usage = WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc;
 		pool->resolve_buffer = wgpuDeviceCreateBuffer(device, &bd);
 	}
-
-	// Create readback buffer (CPU-readable staging buffer).
-	{
+	bool ok = pool->handle && pool->resolve_buffer;
+	for (uint32_t i = 0; ok && i < WGQueryPool::READBACK_RING_SIZE; i++) {
 		WGPUBufferDescriptor bd = {};
 		bd.size = buf_size;
 		bd.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
-		pool->readback_buffer = wgpuDeviceCreateBuffer(device, &bd);
+		pool->slots[i].buffer = wgpuDeviceCreateBuffer(device, &bd);
+		ok = pool->slots[i].buffer != nullptr;
 	}
 
-	if (!pool->resolve_buffer || !pool->readback_buffer) {
-		WARN_PRINT("WebGPU: Failed to create timestamp resolve/readback buffers.");
+	if (!ok) {
+		WARN_PRINT("WebGPU: Failed to create a timestamp query set or its buffers; GPU times will read 0.");
+		for (uint32_t i = 0; i < WGQueryPool::READBACK_RING_SIZE; i++) {
+			if (pool->slots[i].buffer) {
+				wgpuBufferRelease(pool->slots[i].buffer);
+				pool->slots[i].buffer = nullptr;
+			}
+		}
 		if (pool->handle) {
 			wgpuQuerySetRelease(pool->handle);
 			pool->handle = nullptr;
@@ -10909,11 +10886,6 @@ RDD::QueryPoolID RenderingDeviceDriverWebGPU::timestamp_query_pool_create(uint32
 			wgpuBufferRelease(pool->resolve_buffer);
 			pool->resolve_buffer = nullptr;
 		}
-		if (pool->readback_buffer) {
-			wgpuBufferRelease(pool->readback_buffer);
-			pool->readback_buffer = nullptr;
-		}
-		pool->is_real = false;
 		return QueryPoolID(pool);
 	}
 
@@ -10926,27 +10898,12 @@ void RenderingDeviceDriverWebGPU::timestamp_query_pool_free(QueryPoolID p_pool_i
 	if (!pool) {
 		return;
 	}
-
-	// If an async readback callback is in flight, mark freed and let
-	// the callback handle cleanup (use-after-free prevention).
-	if (pool->readback_pending) {
+	if (pool->maps_pending > 0) {
+		// A mapAsync callback still references the pool; the last one frees it.
 		pool->freed = true;
 		return;
 	}
-
-	if (pool->handle) {
-		wgpuQuerySetRelease(pool->handle);
-	}
-	if (pool->resolve_buffer) {
-		wgpuBufferRelease(pool->resolve_buffer);
-	}
-	if (pool->readback_buffer) {
-		wgpuBufferRelease(pool->readback_buffer);
-	}
-	if (pool->cpu_results) {
-		memfree(pool->cpu_results);
-	}
-	memdelete(pool);
+	_timestamp_pool_destroy(pool);
 }
 
 void RenderingDeviceDriverWebGPU::timestamp_query_pool_get_results(QueryPoolID p_pool_id, uint32_t p_query_count, uint64_t *r_results) {
@@ -10956,12 +10913,24 @@ void RenderingDeviceDriverWebGPU::timestamp_query_pool_get_results(QueryPoolID p
 		return;
 	}
 
-	// Copy from the CPU shadow buffer (populated by the async readback callback).
-	uint32_t copy_count = MIN(p_query_count, pool->count);
-	memcpy(r_results, pool->cpu_results, sizeof(uint64_t) * copy_count);
-	if (p_query_count > copy_count) {
-		memset(r_results + copy_count, 0, sizeof(uint64_t) * (p_query_count - copy_count));
+	if (pool->maps_pending > 0) {
+		// Deliver map callbacks the browser has already resolved. Never waits.
+		WGPUInstance inst = context_driver ? context_driver->get_instance() : nullptr;
+		if (inst) {
+			wgpuInstanceProcessEvents(inst);
+		}
 	}
+
+	// RenderingDevice asks when this frame slot comes round again, which on the web is usually before the GPU has
+	// finished that frame (fence_wait() does not wait, §3 trap 102). Hand out the newest results that have landed,
+	// from an earlier frame of this slot. Only when they hold as many timestamps as RenderingDevice's names for this
+	// frame: a different count means the captures changed (a viewport's measurement toggled, the profiler started), so
+	// the names would not line up. Zeros then, for the few frames until results with the new layout land.
+	if (pool->result_count != p_query_count || p_query_count > pool->count) {
+		memset(r_results, 0, sizeof(uint64_t) * p_query_count);
+		return;
+	}
+	memcpy(r_results, pool->cpu_results, sizeof(uint64_t) * p_query_count);
 }
 
 uint64_t RenderingDeviceDriverWebGPU::timestamp_query_result_to_time(uint64_t p_result) {
@@ -10969,7 +10938,7 @@ uint64_t RenderingDeviceDriverWebGPU::timestamp_query_result_to_time(uint64_t p_
 }
 
 void RenderingDeviceDriverWebGPU::command_timestamp_query_pool_reset(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_query_count) {
-	// No-op: WebGPU query sets don't need reset. Resolve happens in command_buffer_end().
+	// No-op: WebGPU query sets don't need a reset. The resolve happens in command_buffer_end().
 }
 
 // Forward declared at the top of the file; defined here.
@@ -10978,47 +10947,91 @@ static void _timestamp_readback_callback(WGPUMapAsyncStatus p_status, WGPUString
 	if (!pool) {
 		return;
 	}
-
-	// Pool was freed while this async readback was in flight — clean up.
-	if (pool->freed) {
-		if (pool->readback_buffer) {
-			if (p_status == WGPUMapAsyncStatus_Success) {
-				wgpuBufferUnmap(pool->readback_buffer);
-			}
-			wgpuBufferRelease(pool->readback_buffer);
-		}
-		if (pool->resolve_buffer) {
-			wgpuBufferRelease(pool->resolve_buffer);
-		}
-		if (pool->handle) {
-			wgpuQuerySetRelease(pool->handle);
-		}
-		if (pool->cpu_results) {
-			memfree(pool->cpu_results);
-		}
-		memdelete(pool);
-		return;
-	}
-
-	// Stale callback from a cancelled/superseded mapAsync — ignore.
-	uint32_t cb_generation = (uint32_t)(uintptr_t)p_userdata2;
-	if (cb_generation != pool->map_generation) {
-		if (p_status == WGPUMapAsyncStatus_Success) {
-			wgpuBufferUnmap(pool->readback_buffer);
-		}
-		return;
-	}
+	const uint32_t slot_index = (uint32_t)(uintptr_t)p_userdata2;
+	WGQueryPool::ReadbackSlot &slot = pool->slots[slot_index];
+	pool->maps_pending--;
 
 	if (p_status == WGPUMapAsyncStatus_Success) {
-		const void *data = wgpuBufferGetConstMappedRange(pool->readback_buffer, 0, sizeof(uint64_t) * pool->count);
-		if (data) {
-			memcpy(pool->cpu_results, data, sizeof(uint64_t) * pool->count);
+		if (!pool->freed && slot.serial > pool->result_serial) {
+			const void *data = wgpuBufferGetConstMappedRange(slot.buffer, 0, sizeof(uint64_t) * slot.query_count);
+			if (data) {
+				memcpy(pool->cpu_results, data, sizeof(uint64_t) * slot.query_count);
+				pool->result_count = slot.query_count;
+				pool->result_serial = slot.serial;
+			}
 		}
-		wgpuBufferUnmap(pool->readback_buffer);
-		pool->readback_pending = false;
+		wgpuBufferUnmap(slot.buffer);
 	}
-	// On failure/abort: do NOT clear readback_pending.
-	// command_buffer_end() handles cleanup and re-issue.
+	// A failed or aborted map leaves the buffer unmapped, so the slot is reusable either way.
+	slot.state = WGQueryPool::ReadbackSlot::FREE;
+
+	if (pool->freed && pool->maps_pending == 0) {
+		_timestamp_pool_destroy(pool);
+	}
+}
+
+void RenderingDeviceDriverWebGPU::_timestamp_pool_record_resolve(WGCommandBuffer *p_cmd, WGQueryPool *p_pool) {
+	const uint32_t written = p_pool->written_count;
+	p_pool->written_count = 0;
+	if (!p_pool->is_real || written == 0) {
+		return;
+	}
+	if (p_pool->recorded_slot >= 0) {
+		// A copy recorded in a command buffer that was never submitted; that buffer is gone, so the slot is free.
+		p_pool->slots[p_pool->recorded_slot].state = WGQueryPool::ReadbackSlot::FREE;
+		p_pool->recorded_slot = -1;
+	}
+
+	int32_t free_slot = -1;
+	for (uint32_t i = 0; i < WGQueryPool::READBACK_RING_SIZE; i++) {
+		if (p_pool->slots[i].state == WGQueryPool::ReadbackSlot::FREE) {
+			free_slot = int32_t(i);
+			break;
+		}
+	}
+	if (free_slot < 0 && p_pool->maps_pending > 0) {
+		WGPUInstance inst = context_driver ? context_driver->get_instance() : nullptr;
+		if (inst) {
+			wgpuInstanceProcessEvents(inst);
+		}
+		for (uint32_t i = 0; i < WGQueryPool::READBACK_RING_SIZE; i++) {
+			if (p_pool->slots[i].state == WGQueryPool::ReadbackSlot::FREE) {
+				free_slot = int32_t(i);
+				break;
+			}
+		}
+	}
+	if (free_slot < 0) {
+		// Every slot is still waiting on the GPU (a deep queue). Drop this frame's timestamps rather than wait:
+		// get_results() keeps handing out the newest set that landed.
+		return;
+	}
+
+	WGQueryPool::ReadbackSlot &slot = p_pool->slots[free_slot];
+	const uint64_t byte_size = sizeof(uint64_t) * written;
+	wgpuCommandEncoderResolveQuerySet(p_cmd->encoder, p_pool->handle, 0, written, p_pool->resolve_buffer, 0);
+	wgpuCommandEncoderCopyBufferToBuffer(p_cmd->encoder, p_pool->resolve_buffer, 0, slot.buffer, 0, byte_size);
+	slot.state = WGQueryPool::ReadbackSlot::RECORDED;
+	slot.query_count = written;
+	slot.serial = p_pool->next_serial++;
+	p_pool->recorded_slot = free_slot;
+}
+
+void RenderingDeviceDriverWebGPU::_timestamp_pool_start_readback(WGQueryPool *p_pool) {
+	if (p_pool->recorded_slot < 0) {
+		return;
+	}
+	const uint32_t slot_index = uint32_t(p_pool->recorded_slot);
+	p_pool->recorded_slot = -1;
+	WGQueryPool::ReadbackSlot &slot = p_pool->slots[slot_index];
+	slot.state = WGQueryPool::ReadbackSlot::MAPPING;
+	p_pool->maps_pending++;
+	WGPUBufferMapCallbackInfo cb_info = {};
+	cb_info.mode = WGPUCallbackMode_AllowSpontaneous;
+	cb_info.callback = _timestamp_readback_callback;
+	cb_info.userdata1 = p_pool;
+	cb_info.userdata2 = (void *)(uintptr_t)slot_index;
+	wgpuBufferMapAsync(slot.buffer, WGPUMapMode_Read, 0, sizeof(uint64_t) * slot.query_count, cb_info);
 }
 
 void RenderingDeviceDriverWebGPU::command_timestamp_write(CommandBufferID p_cmd_buffer, QueryPoolID p_pool_id, uint32_t p_index) {
@@ -11030,20 +11043,22 @@ void RenderingDeviceDriverWebGPU::command_timestamp_write(CommandBufferID p_cmd_
 	WGCommandBuffer *cmd = (WGCommandBuffer *)(p_cmd_buffer.id);
 	ERR_FAIL_NULL(cmd);
 
-	// wgpuCommandEncoderWriteTimestamp requires no active render/compute pass.
+	// The spec's only timestamp write is a pass's `timestampWrites`, so a timestamp between passes is an empty compute
+	// pass. The *end*-of-pass write: it lands after the work before it, as Vulkan's bottom-of-pipe vkCmdWriteTimestamp
+	// does, where a beginning-of-pass write may land before earlier passes finish.
 	cmd->end_active_encoder();
+	WGPUPassTimestampWrites ts_writes = {};
+	ts_writes.querySet = pool->handle;
+	ts_writes.beginningOfPassWriteIndex = pool->count; // The spare query; see timestamp_query_pool_create().
+	ts_writes.endOfPassWriteIndex = p_index;
+	WGPUComputePassDescriptor pass_desc = {};
+	pass_desc.timestampWrites = &ts_writes;
+	WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(cmd->encoder, &pass_desc);
+	wgpuComputePassEncoderEnd(pass);
+	wgpuComputePassEncoderRelease(pass);
 
-	wgpuCommandEncoderWriteTimestamp(cmd->encoder, pool->handle, p_index);
-
-	// Track this pool so we resolve it in command_buffer_end.
-	bool already_tracked = false;
-	for (uint32_t i = 0; i < cmd->written_query_pools.size(); i++) {
-		if (cmd->written_query_pools[i] == pool) {
-			already_tracked = true;
-			break;
-		}
-	}
-	if (!already_tracked) {
+	pool->written_count = MAX(pool->written_count, p_index + 1);
+	if (cmd->written_query_pools.find(pool) < 0) {
 		cmd->written_query_pools.push_back(pool);
 	}
 }
