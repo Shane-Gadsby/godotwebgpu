@@ -226,6 +226,11 @@ per-channel volume vectors, volume ramps and fades over one 512-frame block, the
   `AudioStream` setter that changes what plays must call `emit_changed()`, or web playback keeps the old sound.
 - Sample playback cannot run bus effects or stream long files; it warns (export log; runtime, once per bus/stream).
   The ways to close those gaps are §2.32, deliberately deferred.
+- Timing checks in `fixture_project/main.gd` compare with a model of `AudioServer`'s playback at the time that actually
+  passed on the audio clock (a silent reference sound started with each measured one), never by subtracting a timer's
+  overshoot from a position that may have wrapped or clamped: GitHub's runners fire timers ~1 s late (§4.97, trap 111).
+  Natively they only run with a real audio driver (`--display-driver headless --rendering-driver dummy --audio-driver
+  PulseAudio`); `--headless` picks the Dummy driver, which skips them.
 
 ### Editor: drag-and-drop onto lists goes through one resolver
 

@@ -1,6 +1,6 @@
 # 82-audio-parity-late-timers
 
-State: ready-for-integration
+State: done (merged `b872c2606b`, verified on the merged tree, TASKS §4.97)
 Owner: worker-82
 Claimed: 2026-10-29
 Needs: build (only if a template is rebuilt), browser
