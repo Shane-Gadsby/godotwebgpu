@@ -650,9 +650,11 @@ void Viewport::_notification(int p_what) {
 			_update_texture_filter_changed(false);
 			_update_texture_repeat_changed(false);
 
+#ifndef _3D_DISABLED
 			if (scaling_3d_dynamic && scaling_3d_dynamic_remember) {
 				_scaling_3d_dynamic_load_remembered();
 			}
+#endif // _3D_DISABLED
 		} break;
 
 		case NOTIFICATION_READY: {
@@ -727,9 +729,11 @@ void Viewport::_notification(int p_what) {
 				_check_xr_size();
 			}
 #endif // XR_DISABLED
+#ifndef _3D_DISABLED
 			if (scaling_3d_dynamic) {
 				_scaling_3d_dynamic_poll();
 			}
+#endif // _3D_DISABLED
 		} break;
 
 #if !defined(PHYSICS_2D_DISABLED) || !defined(PHYSICS_3D_DISABLED)

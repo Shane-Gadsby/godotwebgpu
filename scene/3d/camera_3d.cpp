@@ -1614,29 +1614,29 @@ void Camera3D::_autofocus_apply(double p_distance) {
 		// Move the band to the new focus keeping its width in diopters, as a real lens's depth of field does at a fixed
 		// aperture and focal length. The transitions keep their diopter widths too.
 		const double c = 1.0 / distance;
-		float near = af_base_near, far = af_base_far;
+		float near_distance = af_base_near, far_distance = af_base_far;
 		float near_transition = af_base_near_transition, far_transition = af_base_far_transition;
 		if (practical->is_dof_blur_far_enabled()) {
 			const double far_d = c - half;
-			far = far_d > 1.0 / AF_MAX_DISTANCE ? 1.0 / far_d : AF_MAX_DISTANCE;
+			far_distance = far_d > 1.0 / AF_MAX_DISTANCE ? 1.0 / far_d : AF_MAX_DISTANCE;
 			if (af_base_far_transition > 0.0) {
 				const double end_d = far_d - (1.0 / af_base_far - 1.0 / (af_base_far + af_base_far_transition));
-				far_transition = end_d > 1.0 / AF_MAX_DISTANCE ? 1.0 / end_d - far : AF_MAX_DISTANCE;
+				far_transition = end_d > 1.0 / AF_MAX_DISTANCE ? 1.0 / end_d - far_distance : AF_MAX_DISTANCE;
 			}
 		}
 		if (practical->is_dof_blur_near_enabled()) {
 			const double near_d = c + half;
-			near = 1.0 / near_d;
+			near_distance = 1.0 / near_d;
 			if (af_base_near_transition > 0.0 && af_base_near_transition < af_base_near) {
 				const double width_d = 1.0 / (af_base_near - af_base_near_transition) - 1.0 / af_base_near;
-				near_transition = near - 1.0 / (near_d + width_d);
+				near_transition = near_distance - 1.0 / (near_d + width_d);
 			}
 		}
-		if (practical->get_dof_blur_near_distance() != near) {
-			practical->set_dof_blur_near_distance(near);
+		if (practical->get_dof_blur_near_distance() != near_distance) {
+			practical->set_dof_blur_near_distance(near_distance);
 		}
-		if (practical->get_dof_blur_far_distance() != far) {
-			practical->set_dof_blur_far_distance(far);
+		if (practical->get_dof_blur_far_distance() != far_distance) {
+			practical->set_dof_blur_far_distance(far_distance);
 		}
 		if (practical->get_dof_blur_near_transition() != near_transition) {
 			practical->set_dof_blur_near_transition(near_transition);
@@ -1644,8 +1644,8 @@ void Camera3D::_autofocus_apply(double p_distance) {
 		if (practical->get_dof_blur_far_transition() != far_transition) {
 			practical->set_dof_blur_far_transition(far_transition);
 		}
-		af_written[0] = near;
-		af_written[1] = far;
+		af_written[0] = near_distance;
+		af_written[1] = far_distance;
 		af_written[2] = near_transition;
 		af_written[3] = far_transition;
 		af_wrote = true;

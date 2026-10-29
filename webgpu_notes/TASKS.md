@@ -3435,6 +3435,17 @@ browser's audio clock is not the wall clock), and on a loop start copies across 
 the phase it verifies. A `--headless` native run never checks audio timing (Dummy driver). And codespell's auto-fix
 (pre-commit) rewrites identifiers too: it turned a GDScript variable named as the plural of `from` into `forms`, breaking the script (call it `starts`).
 
+112. **Three things that only `main`'s 🔗 GHA builds catch** (2026-10-29, after PR #26 merged tasks 62-81). (1) **No new
+enum on a builtin Variant type** (`Color`, `Vector3`, ...): godot-cpp writes those classes by hand, and its generated
+`builtin_binds.hpp` casts every enum the extension API lists for them, so `Color::TemperatureNormalization` broke the
+Mono job's godot-cpp build; bind an `int` (`bind_static_methodv` with a wrapper) and register plain constants
+(`_VariantCall::add_constant`). (2) **`near` and `far` are macros on Windows** (`windef.h`), so `float near = ...`
+fails the MinGW template (`expected unqualified-id before '='`); also `small`, `interface`. (3) **Code behind
+`#ifndef _3D_DISABLED` needs its call sites guarded too**: the minimal template (`disable_3d=yes`) failed to link
+`Viewport::_scaling_3d_dynamic_poll()`. None of the local tiers builds these; before a PR to `main` after engine API or
+`scene/` changes, build `platform=windows use_mingw=yes target=template_release d3d12=no` and the minimal template
+(`linux_builds.yml`'s flags), and dump the extension API to check no builtin class gained an enum.
+
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -5505,7 +5516,7 @@ tracks). Question `skeleton-bind-case`; camera-sim must still re-copy or rename 
 storage call it (`camera_metering.glsl` keeps its GPU copy, commented to point at it). New
 `Color.from_temperature(kelvin, normalization = TEMPERATURE_NORMALIZATION_LUMINANCE)` returns a linear colour
 (1000-15000 K): `LUMINANCE` (Rec. 709 Y = 1, channels may exceed 1) or `MAX_CHANNEL` (what `Light3D` uses with physical
-light units). Unit test in `tests/core/math/test_color.cpp`. Worker: Light3D's colour bit-identical to the pre-change
+light units). Unit test in `tests/core/math/test_color.cpp`. **Amended 2026-10-29:** the two values are plain `Color` int constants and `normalization` an `int` in the script API (no `Color.TemperatureNormalization` enum): a builtin-type enum broke the godot-cpp build on `main` (§3 trap 112); the C++ enum stays internal. Worker: Light3D's colour bit-identical to the pre-change
 editor at 1430 temperatures, renders byte-identical in all three renderers with and without physical light units;
 within 2.4e-6 of camera-sim's function. C# has no `FromTemperature` (C#'s `Color` is hand-written; question
 `c64-csharp`). Lead (merged tree with 65 and 66): dev_mode editor and web template_release 0 warnings; `*Color*` unit
