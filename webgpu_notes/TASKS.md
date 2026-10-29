@@ -2698,6 +2698,79 @@ of the two is wrong for parity, likely the MP3 decoder's padding/delay handling 
 natively with a real audio driver (old and new `main.gd`). Look at the MP3 stream module against an MP3 with known
 encoder padding. Effort: ~2-3 h.
 
+### 2.57 Lights: a mains/flicker frequency option (50 Hz, 60 Hz, 120 Hz) `OPEN` *(user request, 2026-10-30; work task 85)*
+
+The user asked for a light frequency option on the lights, e.g. 50 Hz, 60 Hz, 120 Hz. Real lights on AC mains pulse in
+brightness, and a camera shows it whenever its exposure does not average whole cycles: steady at 1/50 or 1/100 s under
+50 Hz mains, beating at 1/200 s or with a frame rate off the mains (§2.58), and horizontal bands rolling through the
+frame under a rolling shutter (`CameraAttributes.rolling_shutter_*`, §4.51). A camera-sim feature, alongside the camera
+batch's shutter, motion blur and rolling shutter.
+
+Lead's sketch (settle the open points with the user before building):
+- **Light3D property** (Light group; Light2D too if cheap): `light_flicker_frequency`, an enum Off (DC, today's
+  behavior, the default) / 50 Hz / 60 Hz / 120 Hz / Custom with a Hz value, and a modulation depth (incandescent pulses
+  a little, magnetic-ballast fluorescent and cheap LED drivers a lot; maybe presets by lamp type).
+- **Open: what the number means.** Mains at 50 Hz makes most lamps pulse at 100 Hz (twice per cycle); a "120 Hz" option
+  reads like the pulse rate under 60 Hz mains. Either label by mains frequency and derive the pulse rate, or label by
+  pulse rate. Ask the user (hand-off), default: label by mains frequency, pulse at twice it, plus Custom.
+- **Phase 1, all renderers, cheap:** each frame, scale the light's energy by the waveform averaged over the camera's
+  exposure window (`CameraAttributesPhysical` shutter speed, or the shutter angle against the camera frame rate of
+  §2.58), from a time base that is the camera's frame timestamps, not the wall clock. CPU only; Forward+, Mobile,
+  Compatibility and WebGPU alike.
+- **Phase 2, Forward+:** with a rolling shutter, each row exposes at a different time, so the light's factor depends on
+  the pixel's row: pass the flicker parameters in the light data and evaluate the waveform at the row's readout time in
+  the scene shader (this is what makes the banding).
+- Test: a light under 50 Hz at 1/100 s is constant frame to frame; at 1/200 s it oscillates at the expected beat; bands
+  under a rolling shutter have the predicted count (readout time × pulse rate) and drift; Off is bit-identical to today
+  in all three renderers; WebGPU parity with native (`run_forward_plus.mjs --parity`, a new arm). Look hand-off with
+  videos (it plays out over time). Effort: phase 1 ~half a day, phase 2 ~1 day.
+
+### 2.58 Camera frame rate (24, 25, 30, 60 fps ...) `OPEN` *(user request, 2026-10-30; work task 86)*
+
+The user asked for a camera fps option, e.g. 24 fps, 25 fps, 60 fps. Today the camera batch's shutter angle is measured
+against the render frame time (§4.51: blur = motion per frame × exposure time / frame time), so 180° means 1/330 s at
+165 Hz and 1/120 s at 60 Hz; a film camera's 180° at 24 fps is 1/48 s whatever the display does.
+
+Lead's sketch (settle the open points with the user before building):
+- **CameraAttributes property** `frame_rate`: 0 = follow the render rate (today's behavior, the default), presets
+  23.976 / 24 / 25 / 29.97 / 30 / 48 / 50 / 59.94 / 60 / 120, or any value.
+- **Exposure from it:** shutter angle → exposure time = angle / 360 / frame_rate, so motion blur matches the camera
+  whatever the display rate; `CameraAttributesPhysical` with `motion_blur_use_shutter_speed` keeps taking the shutter
+  speed, but warn (configuration warning) when 1/shutter_speed exceeds the frame period. Rolling shutter readout is
+  likewise capped at one frame period.
+- **Open: does the image also update at that rate?** A camera at 24 fps on a 60 Hz display holds frames (24p cadence,
+  judder) while the game runs at full rate. Ask the user (hand-off); default: an option, `frame_rate_hold_frames`
+  (default off). With holding on, the viewport renders only on camera-frame boundaries and the motion blur must measure
+  motion over the camera frame interval, not the last render frame (motion vectors are per render frame today).
+- **Other work that needs it:** light flicker (§2.57) needs the camera's frame timestamps and exposure window; film
+  grain could step at the camera rate too.
+- Test: blur length = speed × angle/360/frame_rate within 1% at 60, 144 and uncapped render rates (§4.51's measurement
+  method), held frames change exactly on camera-frame boundaries, 0 is bit-identical to today in all three renderers,
+  WebGPU parity. Look hand-off with videos at 24 fps held and not held. Effort: exposure ~half a day, frame holding ~1 day.
+
+### 2.59 Shutter angle on CameraAttributesPhysical and CameraAttributesPractical `OPEN` *(user request, 2026-10-30; work task 87)*
+
+The user asked for a shutter angle on the physical and practical camera attributes. Today the angle only exists as
+`motion_blur_shutter_angle` in the base class's Motion Blur group (§4.51), measured against the render frame time, and
+`CameraAttributesPhysical` hides it whenever `motion_blur_use_shutter_speed` is on (the default), so a physical camera
+cannot be set by angle at all.
+
+Lead's sketch (settle the open point with the user before building):
+- **An exposure setting, not a motion blur one:** `exposure_shutter_angle` (1-360°, default 180) in the Exposure group of
+  both classes; motion blur, rolling shutter and light flicker (§2.57) all read the exposure time from it. Keep
+  `motion_blur_shutter_angle` loading (compat `_set`/`_get` onto the new property) so existing scenes keep their value.
+- **Angle → time needs a frame rate:** exposure time = angle / 360 / frame rate, the camera frame rate of §2.58 (or the
+  render rate while that is 0, today's behavior). Build after §2.58, or with it.
+- **Physical: angle and shutter speed state the same thing**, linked by the frame rate (1/speed = angle / 360 / fps).
+  Open: a mode (`exposure_shutter_mode`: Speed / Angle) where the chosen one drives and the other is shown read-only, or
+  the angle only for motion blur while the speed keeps setting brightness. Ask the user (hand-off); default: the mode.
+  Under physical light units the exposure time also sets brightness, so Angle mode must feed the same EV computation.
+- **Practical:** the angle sets the exposure time for motion blur, rolling shutter and flicker; no brightness change
+  (practical exposure stays a multiplier).
+- Test: an old scene with `motion_blur_shutter_angle` loads unchanged; 180° at 24 fps blurs as 1/48 s (§4.51's
+  measurement, within 1%); Physical in Angle mode gives the same EV as the equivalent speed; defaults bit-identical to
+  today in all three renderers; WebGPU parity. Effort: ~half a day after §2.58.
+
 ## 3. Traps and lessons — read before debugging
 
 - **Profiling a phone over USB (2026-10-17):** `adb reverse` + a localhost server gives WebGPU a secure
