@@ -2689,6 +2689,15 @@ uploads zeros for every instance but the edited one with the next dirty region. 
 copy in `_multimesh_set_buffer()` (make the cache local from `p_buffer` directly) so no readback is ever needed; test
 with a scene that sets a buffer and then moves one instance, natively and in Chrome. Effort: ~2 h with the test.
 
+### 2.56 Native MP3 playback ends and loops ~50 ms before `AudioStreamMP3.get_length()` `OPEN` *(found by work task 82)*
+
+Natively (PulseAudio driver) `tone.mp3` finishes at 0.497 s against a reported length of 0.548 s, and its loop reads
+40-60 ms ahead of a loop of `get_length()`; the web's Sample rendering loops at `get_length()` and matches the model. One
+of the two is wrong for parity, likely the MP3 decoder's padding/delay handling against the length computation.
+`mp3_finish` passes natively only because its tolerance (50 ms + a frame) absorbs it; `mp3_loop_position*` fails
+natively with a real audio driver (old and new `main.gd`). Look at the MP3 stream module against an MP3 with known
+encoder padding. Effort: ~2-3 h.
+
 ## 3. Traps and lessons — read before debugging
 
 - **Profiling a phone over USB (2026-10-17):** `adb reverse` + a localhost server gives WebGPU a secure
@@ -3418,6 +3427,24 @@ that, zeros of the right size, trap 107). Any `buffer.ptr() + offset` or `memcpy
 result is an out-of-bounds read: check `size()` (or pass `r_not_ready`) and treat empty as "no data yet".
 `MeshStorage::mesh_get_surface()` must stay all-or-nothing, because its consumers index every array by the surface's
 vertex and index counts.
+
+111. **Never correct a late timer by subtracting the overshoot from a position** (2026-10-29, work task 82): once the
+position has wrapped or clamped, the subtraction gives nonsense (negative positions on GitHub's runners, timers ~1 s
+late). Compute the expectation from a model at the time that actually passed, read off the audio clock (a starved
+browser's audio clock is not the wall clock), and on a loop start copies across the period, since a late read chooses
+the phase it verifies. A `--headless` native run never checks audio timing (Dummy driver). And codespell's auto-fix
+(pre-commit) rewrites identifiers too: it turned a GDScript variable named as the plural of `from` into `forms`, breaking the script (call it `starts`).
+
+112. **Three things that only `main`'s 🔗 GHA builds catch** (2026-10-29, after PR #26 merged tasks 62-81). (1) **No new
+enum on a builtin Variant type** (`Color`, `Vector3`, ...): godot-cpp writes those classes by hand, and its generated
+`builtin_binds.hpp` casts every enum the extension API lists for them, so `Color::TemperatureNormalization` broke the
+Mono job's godot-cpp build; bind an `int` (`bind_static_methodv` with a wrapper) and register plain constants
+(`_VariantCall::add_constant`). (2) **`near` and `far` are macros on Windows** (`windef.h`), so `float near = ...`
+fails the MinGW template (`expected unqualified-id before '='`); also `small`, `interface`. (3) **Code behind
+`#ifndef _3D_DISABLED` needs its call sites guarded too**: the minimal template (`disable_3d=yes`) failed to link
+`Viewport::_scaling_3d_dynamic_poll()`. None of the local tiers builds these; before a PR to `main` after engine API or
+`scene/` changes, build `platform=windows use_mingw=yes target=template_release d3d12=no` and the minimal template
+(`linux_builds.yml`'s flags), and dump the extension API to check no builtin class gained an enum.
 
 ---
 
@@ -5489,7 +5516,7 @@ tracks). Question `skeleton-bind-case`; camera-sim must still re-copy or rename 
 storage call it (`camera_metering.glsl` keeps its GPU copy, commented to point at it). New
 `Color.from_temperature(kelvin, normalization = TEMPERATURE_NORMALIZATION_LUMINANCE)` returns a linear colour
 (1000-15000 K): `LUMINANCE` (Rec. 709 Y = 1, channels may exceed 1) or `MAX_CHANNEL` (what `Light3D` uses with physical
-light units). Unit test in `tests/core/math/test_color.cpp`. Worker: Light3D's colour bit-identical to the pre-change
+light units). Unit test in `tests/core/math/test_color.cpp`. **Amended 2026-10-29:** the two values are plain `Color` int constants and `normalization` an `int` in the script API (no `Color.TemperatureNormalization` enum): a builtin-type enum broke the godot-cpp build on `main` (§3 trap 112); the C++ enum stays internal. Worker: Light3D's colour bit-identical to the pre-change
 editor at 1430 temperatures, renders byte-identical in all three renderers with and without physical light units;
 within 2.4e-6 of camera-sim's function. C# has no `FromTemperature` (C#'s `Color` is hand-written; question
 `c64-csharp`). Lead (merged tree with 65 and 66): dev_mode editor and web template_release 0 warnings; `*Color*` unit
@@ -5754,6 +5781,27 @@ template_release 0 warnings; `async_readback` 74/74 natively and in Chrome and F
 templates; debug exactly 2 get_image + 4 RD + 1 mesh-arrays warnings, release and native none. Not covered by a test
 on the web: the soft body and MultiMesh guards (read by the worker). Found on the way: §2.55 (MultiMesh per-instance
 edit after `multimesh_set_buffer()` loses the other instances on the web, pre-existing). §3 trap 110.
+
+### 4.97 audio_parity's timing checks hold however late a timer fires (October 2026) *(work task 82; GitHub CI run 40782794737)*
+
+GitHub CI failed the scene smoketest's `audio_parity` in Chrome: its timers fired ~1 s late on a software-rendering
+runner, and `_position_after()` in `webgpu_tests/web_audio/fixture_project/main.gd` corrected a reading by subtracting
+the overshoot from a position that had already clamped (0.4 s non-looping sound) or wrapped (0.1-0.3 s loops), so nine
+position checks went negative (`b82368e42e` had fixed the same flaw for two other checks only). Reproduced with bundled
+Chromium on the fallback adapter as CI launches it, pinned to two cores. Now every position is compared with a model of
+`AudioServer`'s playback (`_model_position()`: WAV forward / ping-pong / backward loops, the Ogg/MP3 loop back to
+`loop_offset`, pitch, start offset; a non-looping stream that has ended fails explicitly) at the time that actually
+passed on the **audio clock** (a silent 8 s, 44.1 kHz reference sound started with each measured one: Chrome's fake
+audio output under CPU starvation fell ~50 ms behind the wall clock in 0.8 s), minus each sound's measured start lag.
+Non-looping positions play an 8 s sound; looped checks start copies across the loop period, because a late read picks
+the phase it verifies; `player_2d_playing` / `polyphonic_playing` became finish times. Each check logs `<check>_late`
+and `<check>_error`. Worker: CI-like Chrome 8/8 (timers up to 1.08 s late, error ≤ 3 ms of 30 allowed), one core 4/4
+(~1.9 s late), CI-like Firefox 8/8, real-GPU Chrome and Firefox 8/8; four deliberate breaks of the web position mapping
+(wrap clamped, pitch ignored, ping-pong return unmapped, backward +50 ms) each failed every run. Merged `b872c2606b`;
+lead on the merged tree: CI-like Chrome (two cores) 2/2 PASS with timers up to 0.71 s late and error ≤ 3 ms, real-GPU
+Chrome PASS. Found: §2.56 (native MP3 ~50 ms short). `generator_no_skips` fails in a *threaded* export starved to two
+cores (before this too; CI exports only nothreads). Whether CI's frames got slower since `508f4ed3b2` was not measured
+(local lateness stayed below CI's); the next CI log carries `_late` values. §3 trap 111.
 
 ## 5. References — retired docs
 

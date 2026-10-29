@@ -557,10 +557,10 @@
 		</member>
 	</members>
 	<constants>
-		<constant name="TEMPERATURE_NORMALIZATION_LUMINANCE" value="0" enum="TemperatureNormalization">
+		<constant name="TEMPERATURE_NORMALIZATION_LUMINANCE" value="0">
 			[method from_temperature] returns a color with a Rec. 709 luminance of [code]1.0[/code], so the brightness does not change with the temperature. Channels may exceed [code]1.0[/code].
 		</constant>
-		<constant name="TEMPERATURE_NORMALIZATION_MAX_CHANNEL" value="1" enum="TemperatureNormalization">
+		<constant name="TEMPERATURE_NORMALIZATION_MAX_CHANNEL" value="1">
 			[method from_temperature] returns a color whose brightest channel is [code]1.0[/code], so lower and higher temperatures are darker than ones near 6500 K.
 		</constant>
 		<constant name="ALICE_BLUE" value="Color(0.9411765, 0.972549, 1, 1)">

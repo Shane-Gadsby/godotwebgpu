@@ -105,6 +105,10 @@ publishing): a raw U+2028 in a regex once blanked the co-op board.
   editor and `template_debug` both define `DEBUG_ENABLED`, so code that only compiles with it passes every check here and
   breaks the user's `template_release` build (§3 trap 95). `scons platform=web target=template_release dlink_enabled=no
   webgpu=yes opengl3=no threads=no gdscript_braces=yes module_raycast_enabled=yes` is enough.
+- **Before a batch goes to `main`** (lead): build the MinGW Windows template (`platform=windows use_mingw=yes
+  target=template_release d3d12=no`) and the minimal Linux template (`linux_builds.yml`'s "everything disabled" flags),
+  and check the dumped extension API gives no builtin class a new enum. Workers: never add an enum to a builtin Variant
+  type, never name a variable `near`/`far`, guard calls into `_3D_DISABLED` code (§3 trap 112).
 - **Run `webgpu_notes/work/smoke.sh <scratch_dir>` before you set `ready-for-integration`** and paste its last lines into
   SUMMARY.md. It forwards to `webgpu_tests/converter_smoke/run.sh`: builds `wgsl_convert_cli` from your tree, converts
   every engine variant `wgsl_precompile.py` builds, compares bindings, override ids and the driver's text-scan facts with

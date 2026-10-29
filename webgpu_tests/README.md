@@ -313,7 +313,10 @@ node run_tests.mjs                 # the sample driver in an OfflineAudioContext
 ./export.sh && node run_e2e.mjs    # the same GDScript natively and in the nothreads/threads exports
 ```
 
-See [`web_audio/README.md`](web_audio/README.md) and `webgpu_notes/TASKS.md` §4.30.
+See [`web_audio/README.md`](web_audio/README.md) and `webgpu_notes/TASKS.md` §4.30. The same fixture is the scene
+smoketest's `audio_parity`, which logs `AUDIOTEST <check>_late` (how late each timer fired, wall seconds) and
+`<check>_error` (distance from the loop model, seconds; the check allows 0.03, Stream playback 0.06): on a CI failure,
+read those first (§4.97).
 
 ### 6. WebRTC Parity (needs the editor + a web template)
 

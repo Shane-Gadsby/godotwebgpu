@@ -96,7 +96,6 @@ VARIANT_ENUM_CAST(Vector4::Axis);
 VARIANT_ENUM_CAST(Vector4i::Axis);
 VARIANT_ENUM_CAST(EulerOrder);
 VARIANT_ENUM_CAST(Projection::Planes);
-VARIANT_ENUM_CAST(Color::TemperatureNormalization);
 
 VARIANT_ENUM_CAST(Error);
 VARIANT_ENUM_CAST(Side);

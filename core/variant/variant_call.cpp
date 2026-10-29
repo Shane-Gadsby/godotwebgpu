@@ -2101,6 +2101,14 @@ static void _register_variant_builtin_methods_string() {
 	bind_method(StringName, hash, sarray(), varray());
 }
 
+// Bound with an int and plain constants rather than Color::TemperatureNormalization: godot-cpp writes Color by hand and
+// casts every enum the extension API lists for a builtin type (its generated builtin_binds.hpp), so a new enum on Color
+// breaks every GDExtension build against this engine.
+static Color _color_from_temperature(float p_kelvin, int64_t p_normalization) {
+	ERR_FAIL_COND_V_MSG(p_normalization < Color::TEMPERATURE_NORMALIZATION_LUMINANCE || p_normalization > Color::TEMPERATURE_NORMALIZATION_MAX_CHANNEL, Color(), vformat("Invalid normalization %d: use Color.TEMPERATURE_NORMALIZATION_LUMINANCE or Color.TEMPERATURE_NORMALIZATION_MAX_CHANNEL.", p_normalization));
+	return Color::from_temperature(p_kelvin, Color::TemperatureNormalization(p_normalization));
+}
+
 static void _register_variant_builtin_methods_math() {
 	/* Vector2 */
 
@@ -2402,7 +2410,7 @@ static void _register_variant_builtin_methods_math() {
 	bind_static_method(Color, from_ok_hsl, sarray("h", "s", "l", "alpha"), varray(1.0));
 	bind_static_method(Color, from_rgbe9995, sarray("rgbe"), varray());
 	bind_static_method(Color, from_rgba8, sarray("r8", "g8", "b8", "a8"), varray(255));
-	bind_static_method(Color, from_temperature, sarray("kelvin", "normalization"), varray((int64_t)Color::TEMPERATURE_NORMALIZATION_LUMINANCE));
+	bind_static_methodv(Color, from_temperature, &_color_from_temperature, sarray("kelvin", "normalization"), varray((int64_t)Color::TEMPERATURE_NORMALIZATION_LUMINANCE));
 }
 
 VARIANT_ENUM_CAST(ResourceDeepDuplicateMode);
@@ -3052,8 +3060,9 @@ static void _register_variant_builtin_constants() {
 		_VariantCall::add_variant_constant(Variant::COLOR, Color::get_named_color_name(i), Color::get_named_color(i));
 	}
 
-	_VariantCall::add_enum_constant(Variant::COLOR, "TemperatureNormalization", "TEMPERATURE_NORMALIZATION_LUMINANCE", Color::TEMPERATURE_NORMALIZATION_LUMINANCE);
-	_VariantCall::add_enum_constant(Variant::COLOR, "TemperatureNormalization", "TEMPERATURE_NORMALIZATION_MAX_CHANNEL", Color::TEMPERATURE_NORMALIZATION_MAX_CHANNEL);
+	// Plain constants, not an enum: see _color_from_temperature().
+	_VariantCall::add_constant(Variant::COLOR, "TEMPERATURE_NORMALIZATION_LUMINANCE", Color::TEMPERATURE_NORMALIZATION_LUMINANCE);
+	_VariantCall::add_constant(Variant::COLOR, "TEMPERATURE_NORMALIZATION_MAX_CHANNEL", Color::TEMPERATURE_NORMALIZATION_MAX_CHANNEL);
 
 	_VariantCall::add_enum_constant(Variant::VECTOR3, "Axis", "AXIS_X", Vector3::AXIS_X);
 	_VariantCall::add_enum_constant(Variant::VECTOR3, "Axis", "AXIS_Y", Vector3::AXIS_Y);

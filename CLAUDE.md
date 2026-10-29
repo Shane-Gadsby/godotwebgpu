@@ -134,7 +134,7 @@ cd webgpu_tests/benchmark && ./run_ramp.sh && python3 readme_perf_table.py resul
 
 `local_ci.sh` builds the editor, the dlink web template (a compile check only — nothing loads it) and the **non-dlink nothreads** one, which with the editor is the pair the scene smoketest exports with. It re-exports every scene from them before testing, so a green run reflects the working tree. It sources `$EMSDK_ENV` (default `~/emsdk/emsdk_env.sh`) itself when `emcc` is not on `PATH`.
 
-**CI builds with `dev_mode=yes`, which implies `warnings=extra werror=yes`; none of the commands above do.** A warning that is fatal in CI is invisible locally — this is how an unused-variable error kept 🧪 WebGPU Tests red for two days while every local tier was green. Run `./webgpu_tests/local_ci.sh --dev-mode` before assuming a local green means CI will agree.
+**CI builds with `dev_mode=yes`, which implies `warnings=extra werror=yes`; none of the commands above do.** A warning that is fatal in CI is invisible locally — this is how an unused-variable error kept 🧪 WebGPU Tests red for two days while every local tier was green. Run `./webgpu_tests/local_ci.sh --dev-mode` before assuming a local green means CI will agree. Three more breaks only `main`'s 🔗 GHA catches (`webgpu_notes/TASKS.md` §3 trap 112): a new enum on a builtin Variant type such as `Color` breaks godot-cpp (bind an `int` and plain constants instead); `near`/`far` are macros on Windows; and a call into code behind `#ifndef _3D_DISABLED` must be guarded too, or the minimal template fails to link. After engine API or `scene/` changes, build `platform=windows use_mingw=yes target=template_release d3d12=no` and the minimal template (`linux_builds.yml`'s flags) before a PR to `main`.
 
 Main's 📊 Static checks run `prek` over **every file the merge brings**, notes, result JSON and helper scripts under `webgpu_notes/` included, and when they fail no build runs. Before a PR to `main`, run `pre-commit run --from-ref origin/main --to-ref HEAD` with the fixes staged (pre-commit stashes unstaged changes and checks the committed text), `webgpu_notes/TASKS.md` §3 trap 75. A new folder under `tests/` must also be added to the tests unit in `scu_builders.py`, or CI's `scu_build=yes` GCC sanitizer editor fails to link it an hour into the run (trap 74).
 
@@ -226,6 +226,11 @@ per-channel volume vectors, volume ramps and fades over one 512-frame block, the
   `AudioStream` setter that changes what plays must call `emit_changed()`, or web playback keeps the old sound.
 - Sample playback cannot run bus effects or stream long files; it warns (export log; runtime, once per bus/stream).
   The ways to close those gaps are §2.32, deliberately deferred.
+- Timing checks in `fixture_project/main.gd` compare with a model of `AudioServer`'s playback at the time that actually
+  passed on the audio clock (a silent reference sound started with each measured one), never by subtracting a timer's
+  overshoot from a position that may have wrapped or clamped: GitHub's runners fire timers ~1 s late (§4.97, trap 111).
+  Natively they only run with a real audio driver (`--display-driver headless --rendering-driver dummy --audio-driver
+  PulseAudio`); `--headless` picks the Dummy driver, which skips them.
 
 ### Editor: drag-and-drop onto lists goes through one resolver
 
