@@ -1,6 +1,6 @@
 # 82-audio-parity-late-timers
 
-State: claimed
+State: ready-for-integration
 Owner: worker-82
 Claimed: 2026-10-29
 Needs: build (only if a template is rebuilt), browser

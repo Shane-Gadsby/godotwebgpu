@@ -41,6 +41,17 @@ limitation warning exactly once on web and none natively, and no other engine wa
 nothreads export is served without COOP/COEP headers, like most `threads=no` exports are hosted
 (`webgpu_notes/TASKS.md` §3 trap 22). The same project is the scene smoketest's `audio_parity` scene.
 
+Its timing checks hold however late a timer fires (GitHub's software-rendering runners fire them ~1 s late): each
+position is compared with a model of `AudioServer`'s playback (WAV forward, ping-pong and backward loops, the Ogg/MP3
+loop offset, pitch, seek offset) at the time that actually elapsed, read together with the position, and the
+lateness is logged as `AUDIOTEST <check>_late` (stream seconds). Non-looping positions play an 8 s sound, so a late
+read still lands before its end; finish times allow one frame of lateness. Never correct a reading by subtracting
+the overshoot: that breaks as soon as the position has wrapped or clamped. A headless native run uses the dummy
+audio driver and only logs the numbers; to check them against real native playback, run
+`godot --display-driver headless --rendering-driver dummy --audio-driver PulseAudio --path fixture_project`
+(there `mp3_loop_position` reads 40-60 ms ahead of the model and fails, as it did before the model; the web
+exports match the model).
+
 ## What Sample playback still cannot do
 
 Bus **effects** (reverb, EQ, compressor...) do not apply to Sample playbacks, and a long stream played as a

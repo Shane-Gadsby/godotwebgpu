@@ -11,12 +11,22 @@ const RATE := 22050 # Not the mix rate: exercises resampling and the loop-point 
 # Seconds. Finished is signaled on the main loop after the end; positions are read there too.
 const FINISH_TOLERANCE := 0.05
 const POSITION_TOLERANCE := 0.03
+# Position checks hold however late a timer fires. A timer fires on a frame, and GitHub's runners render in software
+# at a few frames per second: their timers fire up to ~1.2 s late. So the expected position is computed from the loop
+# model at the time that actually passed -- a loop absorbs any lateness, a non-looping sound plays LONG_SOUND so that a
+# late read still lands before its end -- and that time is read off the audio clock, not the wall clock: a starved
+# browser's audio clock falls behind the wall clock (Chrome's fake output lost ~50 ms in 0.8 s on two cores).
+const LONG_SOUND := 8.0
+# The clock: a silent sound started with each measured one, at another rate than RATE, so that a sample rate the
+# driver gets wrong for one of them shows instead of canceling out.
+const CLOCK_RATE := 44100
 
 var failures := PackedStringArray()
 # The longest frame of the last _finished() wait: finished is only seen on a frame, so a finish time can be late
 # by one. GitHub's runners render in software at a few frames per second, which failed mp3_finish by 12 ms.
 var finish_frame_slack := 0.0
 var timing_checks := AudioServer.get_driver_name() != "Dummy"
+var clock_stream := _wav(LONG_SOUND, AudioStreamWAV.LOOP_DISABLED, 0.0, 0.0, CLOCK_RATE)
 
 
 func _log(name: String, value) -> void:
@@ -40,20 +50,20 @@ func _check_near(name: String, got: float, expected: float, tolerance: float) ->
 		failures.push_back("%s (%.3f, expected %.3f)" % [name, got, expected])
 
 
-func _wav(seconds: float, loop_mode := AudioStreamWAV.LOOP_DISABLED, loop_begin := 0.0, loop_end := 0.0) -> AudioStreamWAV:
-	var frames := int(seconds * RATE)
+func _wav(seconds: float, loop_mode := AudioStreamWAV.LOOP_DISABLED, loop_begin := 0.0, loop_end := 0.0, rate := RATE) -> AudioStreamWAV:
+	var frames := int(seconds * rate)
 	var data := PackedByteArray()
 	data.resize(frames * 2)
 	for i in frames:
 		data.encode_s16(i * 2, int(sin(i * 0.05) * 8000.0))
 	var wav := AudioStreamWAV.new()
 	wav.format = AudioStreamWAV.FORMAT_16_BITS
-	wav.mix_rate = RATE
+	wav.mix_rate = rate
 	wav.stereo = false
 	wav.data = data
 	wav.loop_mode = loop_mode
-	wav.loop_begin = int(loop_begin * RATE)
-	wav.loop_end = int(loop_end * RATE)
+	wav.loop_begin = int(loop_begin * rate)
+	wav.loop_end = int(loop_end * rate)
 	return wav
 
 
@@ -69,6 +79,30 @@ func _player(stream: AudioStream, pitch := 1.0, bus := &"Master", type := AudioS
 
 func _wait(seconds: float) -> void:
 	await get_tree().create_timer(seconds).timeout
+
+
+# A silent clock_stream player of the same playback type as the sound it times: play() it right before that sound,
+# after _prepare() on both.
+func _clock(type := AudioServer.PLAYBACK_TYPE_DEFAULT) -> AudioStreamPlayer:
+	var clock := _player(clock_stream, 1.0, &"Master", type)
+	clock.volume_db = -80.0
+	return clock
+
+
+# Renders a sound's sample ahead of play(), where the web player would otherwise do it: a play() that renders 8 s of
+# audio first starts tens of milliseconds after the clock started just before it.
+func _prepare(stream: AudioStream, type := AudioServer.PLAYBACK_TYPE_DEFAULT) -> void:
+	if OS.has_feature("web") and type != AudioServer.PLAYBACK_TYPE_STREAM and stream.can_be_sampled() and not AudioServer.is_stream_registered_as_sample(stream):
+		AudioServer.register_stream_as_sample(stream)
+
+
+# Seconds of audio clock since `clock` started; -1.0 once it ran out, which fails `name`.
+func _clock_time(clock: AudioStreamPlayer, name: String) -> float:
+	if not clock.playing:
+		_log(name, "clock ended")
+		failures.push_back("%s (timers so late the %.0f s clock had ended)" % [name, LONG_SOUND])
+		return -1.0
+	return clock.get_playback_position()
 
 
 # Waits for `p` to emit `finished`, for `limit` seconds at most, and returns when it did (Time.get_ticks_usec()).
@@ -92,17 +126,107 @@ func _finished(p: Node, name: String, limit := 5.0) -> int:
 	return state.at
 
 
-# `direction` is -1 when the position runs backward at that point (ping-pong return, backward loop).
-func _position_after(stream: AudioStream, seconds: float, pitch := 1.0, from := 0.0, direction := 1.0, type := AudioServer.PLAYBACK_TYPE_DEFAULT) -> float:
-	var p := _player(stream, pitch, &"Master", type)
-	p.play(from)
+# Where AudioServer's playback of `stream` is `played` seconds of stream time (wall time x pitch) after starting at
+# `from`: AudioStreamPlaybackWAV's loop modes (forward, ping-pong, backward between loop_begin and loop_end) and the
+# Ogg/MP3 loop back to loop_offset at the end. -1.0 once a non-looping stream has ended.
+func _model_position(stream: AudioStream, from: float, played: float) -> float:
+	var length := stream.get_length()
+	var wav := stream as AudioStreamWAV
+	if wav:
+		var begin := wav.loop_begin / float(wav.mix_rate)
+		var end := wav.loop_end / float(wav.mix_rate)
+		var span := end - begin
+		match wav.loop_mode:
+			AudioStreamWAV.LOOP_FORWARD:
+				var pos := from + played
+				return pos if pos < end else begin + fmod(pos - begin, span)
+			AudioStreamWAV.LOOP_PINGPONG:
+				var pos := from + played
+				if pos < end:
+					return pos
+				var into := fmod(pos - end, 2.0 * span) # Forward to the end, back to the beginning, forward again.
+				return end - into if into < span else begin + (into - span)
+			AudioStreamWAV.LOOP_BACKWARD:
+				var pos := from - played # Plays backward from the start; below loop_begin it wraps to loop_end.
+				return pos if pos >= begin else end - fmod(begin - pos, span)
+	elif stream.get("loop"):
+		var offset: float = stream.get("loop_offset")
+		var pos := from + played
+		return pos if pos < length else offset + fmod(pos - length, length - offset)
+	var pos := from + played
+	return pos if pos < length else -1.0
+
+
+# Checks a measured position against _model_position() after `played` seconds of stream time (audio clock x pitch),
+# so a late timer, however late, moves the expectation instead of invalidating it. A wrap of a forward or backward
+# loop is a jump, so near one the distance is taken around the loop. A non-looping stream that has already ended says
+# nothing about its position: that fails rather than passing unmeasured. `late` (wall seconds past the nominal wait)
+# is only logged, as AUDIOTEST <name>_late, to show what a runner's timers did.
+func _check_position(name: String, stream: AudioStream, got: float, from: float, played: float, late: float, tolerance := POSITION_TOLERANCE) -> void:
+	_log("%s_late" % name, snappedf(late, 0.001))
+	if played < 0.0:
+		return # The clock ran out: _clock_time() failed it.
+	var expected := _model_position(stream, from, played)
+	if expected < 0.0:
+		_log(name, got)
+		if timing_checks:
+			failures.push_back("%s (timer %.3f s late: the %.1f s stream had ended)" % [name, late, stream.get_length()])
+		return
+	var distance := absf(got - expected)
+	var wav := stream as AudioStreamWAV
+	var span := 0.0
+	if wav and (wav.loop_mode == AudioStreamWAV.LOOP_FORWARD or wav.loop_mode == AudioStreamWAV.LOOP_BACKWARD):
+		span = (wav.loop_end - wav.loop_begin) / float(wav.mix_rate)
+	elif not wav and stream.get("loop"):
+		span = stream.get_length() - float(stream.get("loop_offset"))
+	if span > 0.0:
+		distance = minf(distance, absf(span - distance))
+	_log(name, snappedf(got, 0.001))
+	_log("%s_error" % name, snappedf(distance, 0.001)) # Against the model; the check allows `tolerance`.
+	if timing_checks and distance > tolerance:
+		failures.push_back("%s (%.3f, expected %.3f after %.3f s of stream time)" % [name, got, expected, played])
+
+
+# Plays `stream` once from each of `starts` at the same time, waits `seconds`, and checks every position against the
+# loop model at the time that actually passed on the audio clock. Clock and positions are read together, after the
+# wait. The first start is checked as `name`, the others as `<name>_from_<from>`.
+#
+# A late timer picks the phase of the loop it reads, and one read can land where a broken mapping looks right (a
+# ping-pong read on its way forward cannot see a broken return; a clamp instead of a wrap looks right just before the
+# loop end). So the loops start several copies spread across the loop's period: whatever the lateness, one of them
+# reads deep in each phase.
+func _position_after(name: String, stream: AudioStream, seconds: float, pitch := 1.0, starts := [0.0], type := AudioServer.PLAYBACK_TYPE_DEFAULT, tolerance := POSITION_TOLERANCE) -> void:
+	_prepare(clock_stream, type)
+	_prepare(stream, type)
+	var clock := _clock(type)
+	var players: Array[AudioStreamPlayer] = []
+	for _start: float in starts:
+		players.push_back(_player(stream, pitch, &"Master", type))
+	clock.play()
+	for i in starts.size():
+		players[i].play(starts[i])
+	# Each play() does its own work before its sound starts (an Ogg or MP3 playback sets up a decoder), so a sound can
+	# start some milliseconds of audio clock after the clock did: tens of them on a starved runner. Read right away,
+	# the clock says how long ago it started and each sound how far it moved since it started; the difference is that
+	# sound's head start to take off. It is bounded by the clock's own reading, so it never absorbs a wrong start.
+	var started_at := clock.get_playback_position()
+	var behind: Array[float] = []
+	for i in starts.size():
+		var moved := absf(players[i].get_playback_position() - starts[i]) / pitch
+		behind.push_back(started_at - clampf(moved, 0.0, started_at))
 	var start := Time.get_ticks_usec()
 	await _wait(seconds)
-	# Correct for timer overshoot: report the position at exactly `seconds`.
+	var elapsed := _clock_time(clock, name)
+	var positions: Array[float] = []
+	for p in players:
+		positions.push_back(p.get_playback_position())
 	var late := (Time.get_ticks_usec() - start) / 1000000.0 - seconds
-	var pos := p.get_playback_position()
-	p.queue_free()
-	return snappedf(pos - late * pitch * direction, 0.001)
+	clock.queue_free()
+	for p in players:
+		p.queue_free()
+	for i in starts.size():
+		var check := name if i == 0 else "%s_from_%.2f" % [name, starts[i]]
+		_check_position(check, stream, positions[i], starts[i], (elapsed - behind[i]) * pitch if elapsed >= 0.0 else -1.0, late, tolerance)
 
 
 func _finish_time(stream: AudioStream, pitch := 1.0, type := AudioServer.PLAYBACK_TYPE_DEFAULT) -> float:
@@ -160,42 +284,59 @@ func _sample_playback() -> void:
 
 	_check_finish("finish_pitch_1", await _finish_time(plain), 0.4)
 	_check_finish("finish_pitch_2", await _finish_time(plain, 2.0), 0.2)
-	_check_near("position_plain_0.25", await _position_after(plain, 0.25), 0.25, POSITION_TOLERANCE)
-	_check_near("position_seek_0.2_plus_0.1", await _position_after(plain, 0.1, 1.0, 0.2), 0.3, POSITION_TOLERANCE)
-	# Loops between 0.1 and 0.3 s.
-	_check_near("position_forward_0.45", await _position_after(looped, 0.45), 0.25, POSITION_TOLERANCE)
-	_check_near("position_forward_pitch_2_0.3", await _position_after(looped, 0.3, 2.0), 0.2, POSITION_TOLERANCE)
-	_check_near("position_pingpong_0.45", await _position_after(pingpong, 0.45, 1.0, 0.0, -1.0), 0.15, POSITION_TOLERANCE)
-	_check_near("position_backward_seek_0.25_plus_0.1", await _position_after(backward, 0.1, 1.0, 0.25, -1.0), 0.15, POSITION_TOLERANCE)
+	# Non-looping positions play LONG_SOUND, so that a late timer still reads them before the end.
+	var long := _wav(LONG_SOUND)
+	await _position_after("position_plain_0.25", long, 0.25)
+	await _position_after("position_seek_0.2_plus_0.1", long, 0.1, 1.0, [0.2])
+	# Loops between 0.1 and 0.3 s. The nominal waits cross the loop end (ping-pong: and turn back); a late timer only
+	# adds turns, which the model follows. Starts half a loop apart (forward, backward) and a quarter of a ping-pong
+	# cycle apart: one copy is always at least 0.05 s from a wrap, and one 0.05-0.15 s into the return.
+	await _position_after("position_forward_0.45", looped, 0.45, 1.0, [0.0, 0.1])
+	await _position_after("position_forward_pitch_2_0.3", looped, 0.3, 2.0, [0.0, 0.1])
+	await _position_after("position_pingpong_0.45", pingpong, 0.45, 1.0, [0.0, 0.1, 0.2, 0.3])
+	await _position_after("position_backward_seek_0.25_plus_0.1", backward, 0.1, 1.0, [0.25, 0.15])
 
-	# seek() while playing, and a pitch change mid-play.
-	var p := _player(plain)
+	# seek() while playing: from the seek, the position runs on with the clock.
+	_prepare(clock_stream)
+	_prepare(long)
+	var clock := _clock()
+	var p := _player(long)
+	clock.play()
 	p.play()
 	await _wait(0.05)
 	p.seek(0.3)
+	var at_seek := _clock_time(clock, "seek_0.3_plus_0.05")
 	var t0 := Time.get_ticks_usec()
 	await _wait(0.05)
+	var now := _clock_time(clock, "seek_0.3_plus_0.05")
+	var pos := p.get_playback_position()
 	var late := (Time.get_ticks_usec() - t0) / 1000000.0 - 0.05
-	_check_near("seek_0.3_plus_0.05", snappedf(p.get_playback_position() - late, 0.001), 0.35, POSITION_TOLERANCE)
+	_check_position("seek_0.3_plus_0.05", long, pos, 0.3, now - at_seek if at_seek >= 0.0 and now >= 0.0 else -1.0, late)
+	clock.queue_free()
 	p.queue_free()
 
-	# Both waits are corrected for overshoot, the first at pitch 1, the second at pitch 2. Not on a loop, so a late
-	# timer cannot wrap the position.
-	p = _player(_wav(2.0))
-	t0 = Time.get_ticks_usec()
+	# A pitch change mid-play: stream time is the clock up to the change at pitch 1, plus the clock after it at pitch 2.
+	clock = _clock()
+	p = _player(long)
+	clock.play()
 	p.play()
+	t0 = Time.get_ticks_usec()
 	await _wait(0.1)
-	var late_before := (Time.get_ticks_usec() - t0) / 1000000.0 - 0.1
+	late = (Time.get_ticks_usec() - t0) / 1000000.0 - 0.1
 	p.pitch_scale = 2.0
+	var at_change := _clock_time(clock, "pitch_change_mid_play")
 	t0 = Time.get_ticks_usec()
 	await _wait(0.05)
-	late = (Time.get_ticks_usec() - t0) / 1000000.0 - 0.05
-	_check_near("pitch_change_mid_play", snappedf(p.get_playback_position() - late_before - late * 2.0, 0.001), 0.2, POSITION_TOLERANCE)
+	now = _clock_time(clock, "pitch_change_mid_play")
+	pos = p.get_playback_position()
+	late += (Time.get_ticks_usec() - t0) / 1000000.0 - 0.05
+	_check_position("pitch_change_mid_play", long, pos, 0.0, at_change + (now - at_change) * 2.0 if at_change >= 0.0 and now >= 0.0 else -1.0, late)
+	clock.queue_free()
 	p.queue_free()
 
 	# Pause holds the position. Not on a loop: a runner's late timers carried the resumed position past the loop
 	# end and back below where it was paused, which failed resumes_playing on audio that had resumed.
-	p = _player(_wav(2.0))
+	p = _player(long)
 	p.play()
 	await _wait(0.15)
 	p.stream_paused = true
@@ -233,8 +374,8 @@ func _compressed_samples() -> void:
 		stream.set("loop_offset", 0.1)
 		var length := stream.get_length()
 		_check("%s_length" % kind, absf(length - 0.5) < 0.06)
-		var at := length + 0.1
-		_check_near("%s_loop_position" % kind, await _position_after(stream, at), 0.1 + (at - length), POSITION_TOLERANCE)
+		# Loops from the end back to 0.1 s: starts half that loop apart.
+		await _position_after("%s_loop_position" % kind, stream, length + 0.1, 1.0, [0.0, 0.1 + (length - 0.1) / 2.0])
 		stream.set("loop", false)
 		_check_finish("%s_finish" % kind, await _finish_time(stream), length)
 
@@ -281,10 +422,12 @@ func _spatial_and_polyphonic() -> void:
 	var p2d := AudioStreamPlayer2D.new()
 	p2d.stream = plain
 	add_child(p2d)
+	var start := Time.get_ticks_usec()
 	p2d.play()
-	await _wait(0.05)
 	_check("player_2d_playing", p2d.playing)
-	await _finished(p2d, "player_2d")
+	# How long it played, rather than whether it still plays after a wait: a runner's frame can outlast the sound.
+	var at := await _finished(p2d, "player_2d")
+	_check_finish("player_2d_finish", snappedf((at - start) / 1000000.0 if at else -1.0, 0.001), 0.4)
 	_check("player_2d_finished", not p2d.playing)
 	p2d.queue_free()
 
@@ -293,11 +436,20 @@ func _spatial_and_polyphonic() -> void:
 	var pp := _player(poly)
 	pp.play()
 	var playback := pp.get_stream_playback() as AudioStreamPlaybackPolyphonic
+	start = Time.get_ticks_usec()
 	var id := playback.play_stream(plain, 0.0, 0.0, 2.0)
-	await _wait(0.1)
 	_check("polyphonic_playing", playback.is_stream_playing(id))
-	await _wait(0.3)
+	# Pitch 2 ends the 0.4 s sound after 0.2 s: timed per frame, not sampled after a wait a late timer can overrun.
+	var deadline := Time.get_ticks_msec() + 5000
+	finish_frame_slack = 0.0
+	var frame_start := Time.get_ticks_usec()
+	while playback.is_stream_playing(id) and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+		var now := Time.get_ticks_usec()
+		finish_frame_slack = maxf(finish_frame_slack, (now - frame_start) / 1000000.0)
+		frame_start = now
 	_check("polyphonic_pitch_2_done", not playback.is_stream_playing(id))
+	_check_finish("polyphonic_pitch_2_finish", snappedf((Time.get_ticks_usec() - start) / 1000000.0, 0.001), 0.2)
 	pp.queue_free()
 
 
@@ -307,7 +459,7 @@ func _stream_playback() -> void:
 	var looped := _wav(0.4, AudioStreamWAV.LOOP_FORWARD, 0.1, 0.3)
 	var stream_type := AudioServer.PLAYBACK_TYPE_STREAM
 	_check_finish("stream_finish", await _finish_time(plain, 1.0, stream_type), 0.4, FINISH_TOLERANCE + 0.03)
-	_check_near("stream_position_forward_0.45", await _position_after(looped, 0.45, 1.0, 0.0, 1.0, stream_type), 0.25, POSITION_TOLERANCE + 0.03)
+	await _position_after("stream_position_forward_0.45", looped, 0.45, 1.0, [0.0, 0.1], stream_type, POSITION_TOLERANCE + 0.03)
 
 	# A bus effect hears it: AudioEffectCapture fills up and the bus meter moves.
 	var capture_bus := AudioServer.get_bus_index(&"Capture")
