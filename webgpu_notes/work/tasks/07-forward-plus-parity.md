@@ -1,6 +1,6 @@
 # 07-forward-plus-parity: Forward+ against native Vulkan with SPIRV-Cross WGSL
 
-State: first full reading done (results/07): unbaked 71/71; baked 70/71, volumetric fog flips in baked exports with Tint too (task 16). Repeat after 16 and at task 09.
+State: done (first reading in results/07; repeated after the converter swap and the camera batches: Forward+ matrix at parity unbaked and baked, TASKS §4.29; the fog "flip" was a capture artifact, §3 trap 56)
 Owner: lead
 Claimed:
 Needs: gpu

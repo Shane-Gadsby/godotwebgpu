@@ -59,24 +59,27 @@ When **done**: write `webgpu_notes/work/results/<id>/SUMMARY.md` (what changed, 
 numbers, what the lead must still run, risks), set `State: ready-for-integration`, commit both on your branch. That is
 the whole hand-back: report in ~10 lines and stop.
 
-## Questions for the user: the WebGPU Hand-offs page
+## The board: Project Boards (tasks and questions for the user)
 
-Anything only the user can settle goes on **https://claude.ai/artifact/ULPkGBh3V4gRFSoujWs4pP** (source:
-`webgpu_notes/work/webgpu-handoffs.html`; modeled on the co-op project's Rig Hand-offs board), never only into chat:
-decisions (a pick with a marked default, so "all defaults" is a complete answer), typed answers, and looks (frames to
-judge by eye, uploaded as artifact assets, WebGPU beside Vulkan). Its data is the artifact database (`ArtifactData`):
-collection `questions` (doc id = question id; `kind` choice | text | look, `order`, `visible`, `title`, `ref`,
-`question`, `context`, `choices[{label, detail}]`, `default`, `media[{url:"/_blob/<id>", kind, caption}]`,
-`placeholder`, and the user's `answer`, `note`, `updated`, `told`) and `meta/board` (`message`, `updatedAt`,
-`busy_gpu`, `busy_text`). A look with no media shows as queued. Workers put a question in `for-tasks.md` under
-"Questions for the user"; only the lead writes the page. Set `busy_gpu` while a real-GPU run is going.
-The page is light-only (user, 2026-10-25). Its controls are never disabled from `user.can("data.write")` (advice only;
-a refused write decides and the page says why on screen). Two traps cost an hour (2026-10-25): the runtime's db records are
-frozen, so `d.data().id = ...` is silently ignored (copy with `Object.assign({}, d.data(), {id: d.id})`); and the viewer
-re-delivers unchanged snapshots, so a page that rebuilds its buttons on every delivery swallows clicks (press and release
-land on different elements). Rebuild only changed markup. Neither shows in a local stub test unless the stub freezes
-records and re-delivers. The page's script must stay ASCII (write `\u2028`-style escapes as escapes, check with `node --check` before
-publishing): a raw U+2028 in a regex once blanked the co-op board.
+Since 2026-10-30 the work board's status and every question for the user live on **Project Boards**,
+http://192.168.1.3:4780/#/godotwebgpu (the user's local server, shared with other projects; instructions for a
+session: http://192.168.1.3:4780/onboard/godotwebgpu). CLI: `/media/media-server-storage/servers/project-boards/bin/pb`
+(it finds this project from the repo path). It replaced the claude.ai "WebGPU Hand-offs" artifact (its 123 answered
+questions are imported as done).
+
+- **Tasks tab** (Not started / Being worked on / Complete): every task file here is on it. The task file stays the spec
+  and keeps its `State:` line; after changing states, the lead re-runs `pb import-md webgpu_notes/work/tasks` (upserts,
+  cheap), or sets one directly with `pb update <id> --state ... --owner ...`. Workers report; the lead updates the board.
+- **Hand-offs tab:** anything only the user can settle (a pick with a marked default, typed answers, looks: frames to
+  judge by eye, WebGPU beside Vulkan, uploaded with `pb upload` / `pb ask --media`), never only in chat. Workers put a
+  question in `for-tasks.md` under "Questions for the user"; the lead posts it with `pb ask`.
+- **Reading answers:** `pb inbox` lists exactly what the user answered or wrote that has not been acknowledged; act on
+  it (task, TASKS entry), then `pb ack <id> --note "..."`. Run it at session start, when the user says hand-offs are
+  answered, and before every status reply. (The old page's `told` flag hid seven answers for hours; the inbox cannot.)
+- **Sub-agents:** never more running at once than the project's `maxSubagents` (`pb settings`; the user sets it on the
+  board, default 0 = the lead works alone). Read it before every spawn.
+- **GPU busy:** `pb busy all "real-GPU run: ..."` while a real-GPU run is going, `pb busy all --clear` after.
+- If `pb` cannot reach the server: `/media/media-server-storage/servers/project-boards/bin/ensure-running.sh`.
 
 ## Shared resources (leases)
 

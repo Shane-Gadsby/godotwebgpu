@@ -1,6 +1,6 @@
 # 68-dynamic-resolution: dynamic 3D resolution with a frame-time target
 
-State: ready-for-integration
+State: done (design merged; built by tasks 73-75 and 80, TASKS §4.89, §4.91, §4.95)
 Owner: worker-68
 Claimed: 2026-10-28
 Needs: build (editor + web template), browser (Playwright, perf guard), native Vulkan run; design first
