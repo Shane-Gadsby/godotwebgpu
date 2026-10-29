@@ -70,7 +70,7 @@ converter smoke `SMOKE OK`; pre-commit passes on the changed files.
   nothreads preset, where it passes. Left unchanged.
 - **Step 4 not done:** the old suite peaked at 0.69 s lateness locally with two cores, below CI's ~1 s, so no old
   template was built to compare frame times.
-- codespell's auto-fix rewrote a GDScript variable `froms` into `forms`; renamed to `starts` (trap candidate).
+- codespell's auto-fix rewrote a GDScript variable named as the plural of `from` into `forms`; renamed to `starts` (trap 111).
 
 Scratch: `/tmp/claude-1000/-mnt-109313D2109313D2-godot-editors-godotwebgpu/37660edb-e8da-40fd-a186-506b3daa7485/scratchpad/w82/`
 (`runs*/`, runner `tools/runaudio.mjs`).
