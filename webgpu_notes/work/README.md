@@ -73,6 +73,10 @@ questions are imported as done).
 - **Hand-offs tab:** anything only the user can settle (a pick with a marked default, typed answers, looks: frames to
   judge by eye, WebGPU beside Vulkan, uploaded with `pb upload` / `pb ask --media`), never only in chat. Workers put a
   question in `for-tasks.md` under "Questions for the user"; the lead posts it with `pb ask`.
+- **Global rules** (the user's, for every project; read them each session with `pb rules`, they change): today,
+  screenshots of each variant for anything judged by eye (WebGPU beside Vulkan, A/B, before/after) and a short video of
+  each variant for anything that plays out over time (animation, flicker, loading, dynamic resolution), both as `look`
+  hand-offs. The server refuses a `look` without one.
 - **Reading answers:** `pb inbox` lists exactly what the user answered or wrote that has not been acknowledged; act on
   it (task, TASKS entry), then `pb ack <id> --note "..."`. Run it at session start, when the user says hand-offs are
   answered, and before every status reply. (The old page's `told` flag hid seven answers for hours; the inbox cannot.)
