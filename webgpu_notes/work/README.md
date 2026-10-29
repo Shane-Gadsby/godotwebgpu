@@ -62,8 +62,8 @@ the whole hand-back: report in ~10 lines and stop.
 ## The board: Project Boards (tasks and questions for the user)
 
 Since 2026-10-30 the work board's status and every question for the user live on **Project Boards**,
-http://192.168.1.3:4780/#/godotwebgpu (the user's local server, shared with other projects; instructions for a
-session: http://192.168.1.3:4780/onboard/godotwebgpu). CLI: `/media/media-server-storage/servers/project-boards/bin/pb`
+https://project-boards.shanegadsby.com/#/godotwebgpu (the user's local server, shared with other projects; instructions for a
+session: https://project-boards.shanegadsby.com/onboard/godotwebgpu). CLI: `/media/media-server-storage/servers/project-boards/bin/pb`
 (it finds this project from the repo path). It replaced the claude.ai "WebGPU Hand-offs" artifact (its 123 answered
 questions are imported as done).
 

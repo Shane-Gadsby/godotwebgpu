@@ -1,6 +1,6 @@
 # Status (lead-maintained)
 
-The live board is **Project Boards**, http://192.168.1.3:4780/#/godotwebgpu (since 2026-10-30, `README.md` "The board"). This file keeps the per-batch history and merge hashes.
+The live board is **Project Boards**, https://project-boards.shanegadsby.com/#/godotwebgpu (since 2026-10-30, `README.md` "The board"). This file keeps the per-batch history and merge hashes.
 
 ## 2026-10-28 — camera realism batch (tasks 33-38; user request after grain §4.47 and LUTs §4.48)
 
