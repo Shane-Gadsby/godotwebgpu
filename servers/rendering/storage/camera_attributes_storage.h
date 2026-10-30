@@ -415,6 +415,8 @@ public:
 	// The exposure time in seconds: the physical shutter's, else the shutter angle's share of the camera frame (the render
 	// frame of p_frame_time when no camera frame rate is set). 0 without camera attributes (an instant).
 	double camera_attributes_get_exposure_time(RID p_camera_attributes, double p_frame_time);
+	// The rolling shutter's readout time in seconds (top row to bottom one), capped at one camera frame; 0 when off.
+	double camera_attributes_get_rolling_shutter_readout(RID p_camera_attributes);
 	// Samples along the blur per pixel, from ProjectSettings rendering/camera/motion_blur/motion_blur_quality.
 	uint32_t camera_attributes_get_motion_blur_sample_count() const;
 

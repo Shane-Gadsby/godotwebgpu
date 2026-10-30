@@ -271,6 +271,13 @@ void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw 
 		ubo.IBL_exposure_normalization = 1.0;
 	}
 
+	// Modulo 100 s keeps the phase precise in a float and is a whole number of pulses for any mains frequency given to
+	// 0.01 Hz, so the per-row flicker matches LightStorage's per-frame one (which uses the unwrapped time).
+	ubo.flicker_timing[0] = float(Math::fmod(RSG::rasterizer->get_total_time(), 100.0));
+	ubo.flicker_timing[1] = float(RSG::camera_attributes->camera_attributes_get_exposure_time(p_camera_attributes, RSG::rasterizer->get_frame_delta_time()));
+	ubo.flicker_timing[2] = float(RSG::camera_attributes->camera_attributes_get_rolling_shutter_readout(p_camera_attributes));
+	ubo.flicker_timing[3] = 0.0f;
+
 	bool roughness_limiter_enabled = p_opaque_render_buffers && render_scene_render->screen_space_roughness_limiter_is_active();
 	ubo.flags |= roughness_limiter_enabled ? SCENE_DATA_FLAGS_USE_ROUGHNESS_LIMITER : 0;
 	ubo.roughness_limiter_amount = render_scene_render->screen_space_roughness_limiter_get_amount();

@@ -86,4 +86,8 @@ struct SceneData {
 	float IBL_exposure_normalization;
 	uint camera_visible_layers;
 	float pass_alpha_multiplier;
+
+	// Light flicker under a rolling shutter (Light3D.flicker_*): x time in seconds (modulo 100 s), y exposure time,
+	// z readout time (top row to bottom one), w unused.
+	vec4 flicker_timing;
 };

@@ -21,6 +21,7 @@ var free_changes := 0
 var spec_vp: SubViewport
 var spec_light: SpotLight3D
 var spec_peak := {}
+var band_vps := {}
 
 
 func _record(p_name: String, p_ok: bool, p_info := {}) -> void:
@@ -72,6 +73,31 @@ func _initialize() -> void:
 	hold_box = _moving_box(hold_vp)
 	free_vp = _viewport(CameraAttributesPractical.new())
 	free_box = _moving_box(free_vp)
+
+	# Rolling shutter bands: a flickering wall read out over 20 ms (2 pulses at 100 Hz), against the same wall steady
+	# (depth 0), and both without a rolling shutter. The per-row ratio of the two is the flicker each row saw.
+	for rolling in [true, false]:
+		for depth in [1.0, 0.0]:
+			var attr := CameraAttributesPhysical.new()
+			attr.exposure_aperture = 2.0
+			attr.exposure_sensitivity = 800.0
+			attr.exposure_shutter_speed = 1000.0
+			attr.rolling_shutter_enabled = rolling
+			attr.rolling_shutter_readout_time = 20.0
+			var vp := _viewport(attr)
+			vp.size = Vector2i(64, 128)
+			var w := MeshInstance3D.new()
+			w.mesh = QuadMesh.new()
+			w.mesh.size = Vector2(8, 8)
+			vp.add_child(w)
+			var l := OmniLight3D.new()
+			l.position = Vector3(0, 0, 2)
+			l.light_intensity_lumens = 12000.0
+			l.omni_range = 20.0
+			l.flicker_frequency = Light3D.FLICKER_50_HZ
+			l.flicker_depth = depth
+			vp.add_child(l)
+			band_vps[[rolling, depth]] = vp
 
 	# Specular size: a near-mirror sphere under a spot light, its highlight seen with light_specular_size 0 and 0.6 m.
 	# Indoor exposure, as for the flicker wall: the default sunlight exposure leaves an indoor lamp invisible.
@@ -133,6 +159,52 @@ func _luma(p_vp: SubViewport) -> float:
 	return sum / 256.0
 
 
+func _row_luma(p_vp: SubViewport) -> PackedFloat32Array:
+	var img := p_vp.get_texture().get_image()
+	img.convert(Image.FORMAT_RGB8)
+	var rows := PackedFloat32Array()
+	for y in img.get_height():
+		var sum := 0.0
+		for x in range(24, 40):
+			sum += img.get_pixel(x, y).get_luminance()
+		rows.append(sum / 16.0)
+	return rows
+
+
+# The per-row flicker (flickering / steady) and how often it crosses its mean down the frame.
+func _band_profile(p_rolling: bool) -> Dictionary:
+	var lit := _row_luma(band_vps[[p_rolling, 1.0]])
+	var steady := _row_luma(band_vps[[p_rolling, 0.0]])
+	var ratio := PackedFloat32Array()
+	for y in range(8, lit.size() - 8):
+		ratio.append(lit[y] / maxf(steady[y], 1e-3))
+	var mean := 0.0
+	for r in ratio:
+		mean += r
+	mean /= ratio.size()
+	var crossings := 0
+	var lo := INF
+	var hi := -INF
+	for i in ratio.size():
+		lo = minf(lo, ratio[i])
+		hi = maxf(hi, ratio[i])
+		if i > 0 and (ratio[i - 1] - mean) * (ratio[i] - mean) < 0.0:
+			crossings += 1
+	return { "crossings": crossings, "range": hi - lo, "mean": mean }
+
+
+func _check_bands() -> void:
+	# 20 ms of readout under a 100 Hz pulse: two cycles down the frame, so about four mean crossings.
+	var rolling := _band_profile(true)
+	var global := _band_profile(false)
+	if RenderingServer.get_current_rendering_method() == "gl_compatibility":
+		# Compatibility keeps the frame's average flicker (TASKS §2.65): no per-row bands there, by design.
+		_record("rolling_shutter_shows_flicker_bands", true, { "skipped": "not in Compatibility" })
+	else:
+		_record("rolling_shutter_shows_flicker_bands", rolling.crossings >= 3 and rolling.crossings <= 6 and rolling.range > 0.3, rolling)
+	_record("no_bands_without_rolling_shutter", global.range < 0.05, global)
+
+
 # The brightest pixel and how many pixels are within 90% of it (the highlight's area).
 func _highlight(p_vp: SubViewport) -> Dictionary:
 	var img := p_vp.get_texture().get_image()
@@ -172,6 +244,8 @@ func _process(_delta: float) -> bool:
 		if OS.has_environment("CT_SAVE"):
 			spec_vp.get_texture().get_image().save_png(OS.get_environment("CT_SAVE") + "/spec_0.png")
 		spec_light.light_specular_size = 0.6
+	if frame == 35:
+		_check_bands()
 	if frame == 40:
 		spec_peak[0.6] = _highlight(spec_vp)
 		if OS.has_environment("CT_SAVE"):
@@ -211,7 +285,11 @@ func _finish() -> void:
 	# light_specular_size widens the catchlight: more pixels near its peak, and the peak no longer clipped.
 	var point: Dictionary = spec_peak[0.0]
 	var sized: Dictionary = spec_peak[0.6]
-	_record("specular_size_widens_the_highlight", sized.area > point.area * 4 and sized.peak < 0.999, { "point": point, "sized": sized })
+	if RenderingServer.get_current_rendering_method() == "gl_compatibility":
+		# light_specular_size is Forward+ and Mobile only (TASKS §4.105).
+		_record("specular_size_widens_the_highlight", true, { "skipped": "not in Compatibility" })
+	else:
+		_record("specular_size_widens_the_highlight", sized.area > point.area * 4 and sized.peak < 0.999, { "point": point, "sized": sized })
 	var passed := 0
 	for k: String in results:
 		passed += int(results[k].ok)

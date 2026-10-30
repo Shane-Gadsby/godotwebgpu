@@ -164,7 +164,12 @@ private:
 		float shadow_opacity;
 
 		float specular_size; // Meters; widens the specular highlight only (Light3D.light_specular_size).
-		float pad;
+		// Under a rolling shutter, a flickering omni or spot light is evaluated per row in the shader: its pulse rate
+		// (Hz, twice the mains), depth and phase (radians). 0 Hz otherwise (the CPU applied the frame's average).
+		float flicker_pulse_frequency;
+		float flicker_depth;
+		float flicker_phase;
+		float pad[2];
 		float atlas_rect[4]; // in omni, used for atlas uv, in spot, used for projector uv
 		float shadow_matrix[16];
 		float shadow_bias;
