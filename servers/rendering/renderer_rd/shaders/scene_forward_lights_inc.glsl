@@ -112,6 +112,11 @@ hvec3 f0_Clear_Coat_To_Surface(hvec3 f0) {
 	return clamp(f0 * (f0 * (half(0.941892) - half(0.263008) * f0) + half(0.346479)) - half(0.0285998), half(0.0), half(1.0));
 }
 
+// Added to the GGX alpha of the next light_compute() call: an omni or spot light with a specular size (meters) seen from
+// a distance widens its highlight to about that angular size, roughness widening as in Karis 2013 (alpha + size / 2d).
+// GGX's own normalization lowers the peak as the lobe widens, so a near-mirror no longer shows a clipped point.
+half light_specular_alpha_widen = half(0.0);
+
 void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is_directional, half attenuation, hvec3 f0, half roughness, half metallic, half specular_amount, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
@@ -281,7 +286,7 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 
 #elif defined(SPECULAR_SCHLICK_GGX)
 			// shlick+ggx as default
-			half alpha_ggx = roughness * roughness;
+			half alpha_ggx = min(roughness * roughness + light_specular_alpha_widen, half(1.0));
 #if defined(LIGHT_ANISOTROPY_USED)
 			half aspect = sqrt(half(1.0) - anisotropy * half(0.9));
 			half ax = alpha_ggx / aspect;
@@ -743,6 +748,7 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	}
 
 	vec3 light_rel_vec_norm = light_rel_vec / light_length;
+	light_specular_alpha_widen = half(omni_lights.data[idx].specular_size / (2.0 * max(light_length, 0.001)));
 	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, omni_attenuation * shadow, f0, roughness, metallic, half(omni_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
@@ -945,6 +951,7 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		}
 	}
 
+	light_specular_alpha_widen = half(spot_lights.data[idx].specular_size / (2.0 * max(light_length, 0.001)));
 	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, spot_attenuation * shadow, f0, roughness, metallic, half(spot_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
