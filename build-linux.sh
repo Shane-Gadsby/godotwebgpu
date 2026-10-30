@@ -95,7 +95,7 @@
 #
 # Env overrides:
 #   EMSDK_DIR=path       Emscripten SDK location (default: ~/emsdk)
-#   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 6.0.9)
+#   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 6.0.12)
 #   CCACHE_MAXSIZE=size  ccache budget for the 11 variants (default: 50G)
 #   LINKER=name          Native linker (default: auto -> mold, lld, or system)
 #   USE_CCACHE=no        Same as --no-ccache (default: yes)
@@ -136,7 +136,7 @@ USE_CCACHE="${USE_CCACHE:-yes}"
 LINKER="${LINKER:-auto}"
 JOBS="$(nproc 2>/dev/null || echo 4)"
 EMSDK_DIR="${EMSDK_DIR:-$HOME/emsdk}"
-EMSDK_VERSION="${EMSDK_VERSION:-6.0.9}"
+EMSDK_VERSION="${EMSDK_VERSION:-6.0.12}"
 SCONS_VERSION="4.10.1"
 GDB_RIDER_DIR="${GDB_RIDER_DIR:-$REPO_ROOT/../godot-gdb-rider}"
 GDB_VSCODE_DIR="${GDB_VSCODE_DIR:-$REPO_ROOT/../godot-gdb-vscode}"

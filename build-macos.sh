@@ -22,7 +22,7 @@
 #
 # Env overrides:
 #   EMSDK_DIR=path       Emscripten SDK location (default: ~/emsdk)
-#   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 4.0.11)
+#   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 6.0.12)
 
 set -euo pipefail
 
@@ -44,7 +44,7 @@ SKIP_INSTALL=0
 SKIP_WEB=0
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 EMSDK_DIR="${EMSDK_DIR:-$HOME/emsdk}"
-EMSDK_VERSION="${EMSDK_VERSION:-4.0.11}"
+EMSDK_VERSION="${EMSDK_VERSION:-6.0.12}"
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in

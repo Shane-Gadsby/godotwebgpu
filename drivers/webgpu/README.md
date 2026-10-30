@@ -517,7 +517,7 @@ item is a WebGPU spec limit or has a stated reason.
 ## Build Instructions
 
 ```bash
-# Prerequisites: Emscripten 6.0.9 (this fork's pinned version) with emdawnwebgpu port
+# Prerequisites: Emscripten 6.0.12 (this fork's pinned version) with emdawnwebgpu port
 source /path/to/emsdk/emsdk_env.sh
 
 # Build web template (debug, no threads, WebGPU only)

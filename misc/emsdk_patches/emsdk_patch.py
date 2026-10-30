@@ -81,6 +81,9 @@ PATCHES = [
         "id": "0002-export-all-eager-heap-views",
         "marker": "GODOT WEBGPU PATCH (eager heap-view export)",
         "derived_against": "6.0.9",
+        # Emscripten 6.0.12 skips HEAP* in exportLibrarySymbols() itself (the dlink+threads regression Godot PR
+        # #124321 names): not needed, and its pinned line no longer exists, from there on.
+        "fixed_upstream_in": "6.0.12",
         "required_for": "platform=web dlink_enabled=yes (visible with threads=yes)",
         "summary": "-sEXPORT_ALL re-exports HEAP* eagerly; that throws on a pthread worker",
         "hunks": [
@@ -289,12 +292,25 @@ def revert_patch(root, patch):
         path.write_text(body.replace(hunk["new"], hunk["old"], 1))
 
 
+def version_tuple(version):
+    return tuple(int(x) for x in version.split("-")[0].split(".")[:3] if x.isdigit())
+
+
+def needed(patch, version):
+    """False for a patch whose fix upstream Emscripten has from `fixed_upstream_in` on."""
+    fixed = patch.get("fixed_upstream_in")
+    return not fixed or version_tuple(version) < version_tuple(fixed)
+
+
 def cmd_status(root, version, args):
     print(f"toolchain:       {root}")
     print(f"version:         {version}")
     for patch in PATCHES:
         state = patch_state(root, patch)
         label = patch["id"]
+        if not needed(patch, version):
+            print(f"{label}: NOT NEEDED (fixed upstream in Emscripten {patch['fixed_upstream_in']})")
+            continue
         if state == "applied":
             print(f"{label}: APPLIED")
         elif state == "partial":
@@ -319,13 +335,14 @@ def cmd_status(root, version, args):
 
 
 def cmd_check(root, version, args):
-    return 0 if all(patch_state(root, p) == "applied" for p in PATCHES) else 1
+    return 0 if all(patch_state(root, p) == "applied" for p in PATCHES if needed(p, version)) else 1
 
 
 def cmd_apply(root, version, args):
-    todo = [p for p in PATCHES if patch_state(root, p) != "applied"]
+    wanted = [p for p in PATCHES if needed(p, version)]
+    todo = [p for p in wanted if patch_state(root, p) != "applied"]
     if not todo:
-        print(f"already applied ({len(PATCHES)} patches, Emscripten {version} at {root}) -- nothing to do")
+        print(f"already applied ({len(wanted)} patches, Emscripten {version} at {root}) -- nothing to do")
         return 0
     for patch in todo:
         if not verify(root, patch):
@@ -333,7 +350,7 @@ def cmd_apply(root, version, args):
     for patch in todo:
         apply_patch(root, patch)
         print(f"applied {patch['id']}")
-    print(f"Emscripten {version} at {root} is patched ({len(PATCHES)} patches).")
+    print(f"Emscripten {version} at {root} is patched ({len(wanted)} patches).")
     return 0
 
 

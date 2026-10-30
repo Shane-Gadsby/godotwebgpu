@@ -56,7 +56,7 @@ separate code path.
 | Part | Uses |
 | --- | --- |
 | Rendering API | WebGPU, through Emscripten's [emdawnwebgpu](https://dawn.googlesource.com/dawn) port (Dawn's `webgpu.h` bound to the browser's `navigator.gpu`) |
-| Toolchain | Emscripten 6.0.9 (4.0.10 minimum), with two local patches for GDExtension builds (`misc/emsdk_patches/`) |
+| Toolchain | Emscripten 6.0.12 (4.0.10 minimum), with a local patch for GDExtension builds (`misc/emsdk_patches/`) |
 | Shader conversion | glslang compiles the engine's GLSL to SPIR-V; 26 SPIR-V passes adapt it to WebGPU's rules; [SPIRV-Cross's WGSL backend](https://github.com/Ludicon/spirv-cross-wgsl) writes WGSL |
 | Shader delivery | Engine shaders are converted at build time, and a project's shaders at export time (`<name>.shaders.pck`). Anything left over is converted at run time. |
 | Engine base | Godot 4.8 (dev), merged from upstream |
@@ -341,7 +341,7 @@ Documentation: **[Braced GDScript wiki page](https://github.com/Shane-Gadsby/god
 # Native editor (also the tool that exports web builds):
 scons platform=linuxbsd target=editor -j$(nproc)
 
-# WebGPU web export template (needs Emscripten 6.0.9):
+# WebGPU web export template (needs Emscripten 6.0.12):
 source ~/emsdk/emsdk_env.sh
 scons platform=web target=template_release webgpu=yes opengl3=no threads=no -j$(nproc)
 
