@@ -1174,6 +1174,10 @@ public:
 	void render_empty_scene(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_scenario, RID p_shadow_atlas, float p_window_output_max_value);
 
 	void render_camera(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_camera, RID p_scenario, RID p_viewport, Size2 p_viewport_size, uint32_t p_jitter_phase_count, float p_screen_mesh_lod_threshold, RID p_shadow_atlas, float p_window_output_max_value, RenderingServerTypes::RenderInfo *r_render_info = nullptr);
+	virtual RID camera_get_effective_attributes(RID p_camera, RID p_scenario) override;
+	virtual void camera_record_held_frame(RID p_camera, RID p_viewport, Size2 p_viewport_size) override;
+	// Fills r_camera_data for p_camera at p_viewport_size; false for a camera setup it cannot render.
+	bool _camera_data_for_viewport(RID p_camera, Size2 p_viewport_size, const Vector2 &p_jitter, float p_taa_frame_count, RendererSceneRender::CameraData &r_camera_data);
 	void update_dirty_instances() const;
 
 	void render_particle_colliders();

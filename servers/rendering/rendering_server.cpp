@@ -3320,6 +3320,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur_quality", "quality"), &RenderingServer::camera_attributes_set_motion_blur_quality);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur", "camera_attributes", "enable", "shutter_angle", "shutter_time", "strength", "max_length"), &RenderingServer::camera_attributes_set_motion_blur);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_rolling_shutter", "camera_attributes", "enable", "readout_time"), &RenderingServer::camera_attributes_set_rolling_shutter);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_frame_rate", "camera_attributes", "frame_rate", "hold"), &RenderingServer::camera_attributes_set_frame_rate);
 
 	/* Exposure automation */
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_metering", "camera_attributes", "mode", "spot_size", "spot_point", "highlight_percentile"), &RenderingServer::camera_attributes_set_auto_exposure_metering);
