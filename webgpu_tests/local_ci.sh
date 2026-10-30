@@ -10,7 +10,7 @@
 #   ./webgpu_tests/local_ci.sh --quick --rebuild  # Rebuild + quick tests only
 #   ./webgpu_tests/local_ci.sh --no-export  # Rebuild but keep the existing exports
 #   ./webgpu_tests/local_ci.sh --export     # Re-export without rebuilding
-#   ./webgpu_tests/local_ci.sh --no-dlink   # Skip the dlink template compile check
+#   ./webgpu_tests/local_ci.sh --no-dlink   # Skip the dlink templates
 #   ./webgpu_tests/local_ci.sh --bake       # Also export + test the BAKED Forward+ fixture (needs xvfb-run; minutes)
 #   ./webgpu_tests/local_ci.sh --dev-mode   # Build with dev_mode=yes, as CI does
 #                                           # (warnings=extra werror=yes)
@@ -24,15 +24,16 @@
 # keeps the current DISPLAY.
 #
 # What the rebuild builds, and why it matters:
-#   The editor, the dlink web template, and the **non-dlink, nothreads** one --
+#   The editor, the two dlink web templates, and the **non-dlink, nothreads** one --
 #   that last being the exact pair, with the editor, that the scene smoketest
 #   exports with. This used to build *only* the dlink template, which is a
 #   different file (…nothreads.dlink.zip) that no later stage ever loaded, so a
 #   green run said nothing about the engine in the working tree. The run now
 #   re-exports every scene from what it just built, so it does.
 #
-#   The dlink build is kept as a compile check -- nothing loads it, but dropping
-#   it would let a dlink-only build break through unnoticed. --no-dlink skips it.
+#   The nothreads dlink build is kept as a compile check, and the threaded one is
+#   what WebRTC's threads_dlink variant loads, the only tier that boots a side
+#   module on pthread workers. --no-dlink skips both.
 #
 #   The two builds have to happen in this order, and the web one has to come last:
 #   interleaving them in one tree goes stale in register_module_types.gen and ships
@@ -247,7 +248,7 @@ else
 fi
 if [[ "$DO_REBUILD" == true ]]; then
     if [[ "$DO_DLINK" == true ]]; then
-        echo "  Rebuild: yes (-j$JOBS) — editor + dlink and non-dlink web templates"
+        echo "  Rebuild: yes (-j$JOBS) — editor + dlink (both) and non-dlink web templates"
     else
         echo "  Rebuild: yes (-j$JOBS) — editor + non-dlink web template (--no-dlink)"
     fi
@@ -348,19 +349,25 @@ if [[ "$DO_REBUILD" == true ]]; then
         fi
     fi
 
-    # The dlink (GDExtension-support) template. Nothing downstream loads it -- the
-    # smoketest exports with the non-dlink one -- so this is a compile check, not
-    # a tested artifact. It is built first so the non-dlink template stays the
-    # last thing written before the export, and skipped by --no-dlink when the
-    # extra ~1 minute is not wanted.
+    # The dlink (GDExtension-support) templates. The nothreads one is a compile
+    # check; the threaded one is loaded by WebRTC's threads_dlink variant, the only
+    # tier that boots threads + GDExtension. Both are built first so the non-dlink
+    # template stays the last thing written before the export, and skipped by
+    # --no-dlink when the extra few minutes are not wanted.
     if [[ "$DO_DLINK" == true ]]; then
         clear_stale_module_objects "wasm32.nothreads.dlink"
         build_step "scons web template (dlink, nothreads)$DEV_MODE_NOTE" \
             scons_in_repo platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no $DEV_MODE_FLAG -j"$JOBS"
+        clear_stale_module_objects "wasm32.dlink"
+        build_step "scons web template (dlink, threads)$DEV_MODE_NOTE" \
+            scons_in_repo platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=yes $DEV_MODE_FLAG -j"$JOBS"
     else
         printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-dlink)\n" "scons web template (dlink, nothreads)"
         SKIPPED=$((SKIPPED + 1))
         RESULTS+=("SKIP  scons web template (dlink, nothreads)")
+        printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-dlink)\n" "scons web template (dlink, threads)"
+        SKIPPED=$((SKIPPED + 1))
+        RESULTS+=("SKIP  scons web template (dlink, threads)")
     fi
 
     # The non-dlink nothreads template: the one the scene smoketest exports with,

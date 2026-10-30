@@ -20,7 +20,7 @@ worker to fire, so:
 
 | configuration | without the patch |
 |---|---|
-| `dlink_enabled=yes threads=yes` | **does not boot** (0001) |
+| `dlink_enabled=yes threads=yes` | **does not boot** on 6.0.9 (0001); boots on 6.0.12 for a reason not yet known (TASKS §4.111) |
 | `dlink_enabled=yes threads=no` | unaffected — the symptom cannot fire, but the patch is still correct |
 | `dlink_enabled=no` (any `threads`) | unaffected, nothing to apply |
 

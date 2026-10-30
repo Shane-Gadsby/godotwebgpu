@@ -6255,14 +6255,36 @@ Mobile, converter smoke, Chrome smoketest 23/23, off_passes, perf_guard, parity 
 
 Emscripten 6.0.12 has 0002's fix (`exportLibrarySymbols()` skips `HEAP*`), so with `~/emsdk` moved to the pin the patch
 and its table entry are gone, and `platform/web/detect.py` now refuses dlink+threads below 6.0.12 outright, as upstream
-does, instead of accepting an older patched toolchain. 0001 stays: the code it changes is the same in 6.0.12.
+does, instead of accepting an older patched toolchain. 0001 stayed because the code it changes is the same in 6.0.12,
+which §4.111 then showed is not evidence that it is needed.
 `fixed_upstream_in` stays in `emsdk_patch.py` for the next patch that reaches upstream before it can be dropped.
 Verified on `~/emsdk` 6.0.12 with 0001 alone: `build-linux.sh` clean (24 min, ccache), both halves of 0001 in the linked
 JS, Chrome smoketest 23/23, WebRTC 353 assertions across nothreads, threads and dlink, and threads + GDExtension 86
-assertions. That last combination is the one 0001 exists for, and **no tier loads it**: webrtc_parity's `threads`
-uses the non-dlink template and its `dlink` the nothreads one, and local_ci only compiles the threaded dlink template. It
-was run by hand from a scratch copy of the fixture with `WebGPU-Threads` pointed at
-`godot.web.template_release.wasm32.dlink.zip` and `variant/extensions_support=true`.
+assertions. No tier loaded that last combination at the time; §4.111 adds one.
+
+### 4.111 WebRTC `threads_dlink` variant, and 0001 is not needed on 6.0.12 here (October 2026) *(work task 96)*
+
+webrtc_parity's `threads` export uses the non-dlink template and its `dlink` the nothreads one, and local_ci only
+compiled the threaded dlink template, so nothing booted a side module on pthread workers. New: preset
+`WebGPU-Threads-Dlink`, `exports/loopback_threads_dlink`, `RTC_VARIANTS=threads_dlink`, a local_ci build of
+`godot.web.template_release.wasm32.dlink.zip` (behind `--no-dlink`). Not in GitHub CI, which builds only the nothreads
+dlink template. `run_tests.mjs` also fails on any `[pageerror]` now: before, an uncaught worker error passed if the
+fixture still reached END. All variants with that check: 484 assertions, 0 failed.
+
+Proving the variant can fail turned up the finding. Real threads + dlink export, loopback fixture, no toolchain patches:
+
+| Toolchain | Boots | Page errors |
+|---|---|---|
+| 6.0.9 | 0 of 5 | `Cannot set properties of undefined`, 24 per boot; `reading 'buffer'`, 16 |
+| 6.0.12 | 5 of 5, and all 9 fixtures (95 assertions) | none |
+
+So the tier does catch the crash, and on 6.0.12 this export does not need 0001. The cause is **not known**: the linked JS
+has the same order in both versions (`addEmAsm`'s `ASM_CONSTS[start]=` ~860 KB ahead of the initializer), so the hazard
+is still in the text and something else changed what runs first on a worker. By the patch's own "when this can be
+deleted" rule it should go, with `apply.sh`, but that is a decision for the user, not made here: only this
+fixture on a release template was tried, with no GDExtension actually loaded (its extension is excluded by
+`exclude_tags`). The earlier "0001 is still needed" (§4.107, §4.110) rested on its pinned text being unchanged, which says
+nothing about whether the bug still fires: test the behavior.
 
 ## 5. References — retired docs
 

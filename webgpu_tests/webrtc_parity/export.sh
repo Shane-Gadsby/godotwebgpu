@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Exports the WebRTC fixture project to exports/loopback (nothreads),
-# exports/loopback_threads (threads) and exports/loopback_dlink (GDExtension
-# support), from the editor and web templates in bin/. Mirrors
+# exports/loopback_threads (threads), exports/loopback_dlink (GDExtension
+# support) and exports/loopback_threads_dlink (both), from the editor and web templates in bin/. Mirrors
 # forward_plus/export.sh so local_ci.sh can call it the same way.
 #
 # EDITOR_BIN overrides the editor; RTC_THREADS=no and RTC_DLINK=no skip those
-# exports (the templates for them may not be built). Each is skipped
+# exports, RTC_DLINK=no the threads + dlink one too (the templates for them may
+# not be built). Each is skipped
 # automatically when its template is absent.
 #
 # RTC_TEMPLATE_ZIP overrides which web template the nothreads export uses, the
@@ -91,7 +92,7 @@ fi
 # export with no clear message -- which is what a cleaned exports/ or a fresh
 # checkout gives you.
 mkdir -p "$TIER/exports/loopback" "$TIER/exports/loopback_threads" \
-	"$TIER/exports/loopback_dlink"
+	"$TIER/exports/loopback_dlink" "$TIER/exports/loopback_threads_dlink"
 
 rc=0
 echo "exporting nothreads -> $TIER/exports/loopback"
@@ -131,6 +132,22 @@ if [[ "${RTC_DLINK:-yes}" == "yes" ]] && [[ -f "$ROOT/bin/godot.web.template_rel
 	done
 else
 	echo "skipping dlink export (no bin/godot.web.template_release.wasm32.nothreads.dlink.zip, or RTC_DLINK=no)"
+fi
+
+# threads + dlink: a side module loading on a pthread worker, which neither export
+# above has. Unpatched Emscripten 6.0.9 never boots this one (TASKS §4.111).
+if [[ "${RTC_DLINK:-yes}" == "yes" ]] && [[ -f "$ROOT/bin/godot.web.template_release.wasm32.dlink.zip" ]]; then
+	echo "exporting threads + dlink -> $TIER/exports/loopback_threads_dlink"
+	"$EDITOR" --headless --path "$PROJ" \
+		--export-release "WebGPU-Threads-Dlink" "$TIER/exports/loopback_threads_dlink/index.html" >/dev/null 2>&1 || rc=1
+	for f in index.html index.side.wasm; do
+		if [[ ! -f "$TIER/exports/loopback_threads_dlink/$f" ]]; then
+			echo "threads + dlink export produced no $f" >&2
+			rc=1
+		fi
+	done
+else
+	echo "skipping threads + dlink export (no bin/godot.web.template_release.wasm32.dlink.zip, or RTC_DLINK=no)"
 fi
 
 exit $rc
