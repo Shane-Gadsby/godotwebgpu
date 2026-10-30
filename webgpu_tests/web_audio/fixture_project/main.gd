@@ -373,7 +373,7 @@ func _compressed_samples() -> void:
 		stream.set("loop", true)
 		stream.set("loop_offset", 0.1)
 		var length := stream.get_length()
-		_check("%s_length" % kind, absf(length - 0.5) < 0.06)
+		_check("%s_length" % kind, absf(length - 0.5) < 0.002)
 		# Loops from the end back to 0.1 s: starts half that loop apart.
 		await _position_after("%s_loop_position" % kind, stream, length + 0.1, 1.0, [0.0, 0.1 + (length - 0.1) / 2.0])
 		stream.set("loop", false)
