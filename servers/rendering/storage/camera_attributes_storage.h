@@ -412,6 +412,9 @@ public:
 	// The frame rate when the camera holds its frames, else 0.
 	float camera_attributes_get_held_frame_rate(RID p_camera_attributes);
 	ShutterMotion camera_attributes_get_shutter_motion(RID p_camera_attributes, double p_frame_time);
+	// The exposure time in seconds: the physical shutter's, else the shutter angle's share of the camera frame (the render
+	// frame of p_frame_time when no camera frame rate is set). 0 without camera attributes (an instant).
+	double camera_attributes_get_exposure_time(RID p_camera_attributes, double p_frame_time);
 	// Samples along the blur per pixel, from ProjectSettings rendering/camera/motion_blur/motion_blur_quality.
 	uint32_t camera_attributes_get_motion_blur_sample_count() const;
 
