@@ -484,13 +484,10 @@ item is a WebGPU spec limit or has a stated reason.
   `threads=yes dlink_enabled=yes` — GDExtension and threads together — was
   broken until 2026-10-07 by two bugs in Emscripten's own glue, and **now
   requires a patched toolchain**: run `misc/emsdk_patches/apply.sh --apply`
-  (`build-linux.sh` does it for you). The two are an initialization-order race
-  in `libdylink.js` that stopped the export booting at all (`0001`), and
-  `-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly in the postamble,
-  which threw on every pthread worker and silently dropped the `Module` exports
-  emitted after it (`0002`). Without them a `threads=yes` dlink build does not
-  boot, and the build warns. `emsdk install` overwrites the toolchain tree, so
-  they must be re-applied after every toolchain change — but scons does now
+  (`build-linux.sh` does it for you). It is an initialization-order race
+  in `libdylink.js` that stopped the export booting at all (`0001`): without it a
+  `threads=yes` dlink build does not boot, and the build warns. `emsdk install` overwrites the toolchain tree, so
+  it must be re-applied after every toolchain change — but scons does now
   relink on its own when the toolchain moves, so there is nothing to delete by
   hand. See `misc/emsdk_patches/README.md` and Task 12 bug #2 / Task 14
   subtask 1.5.

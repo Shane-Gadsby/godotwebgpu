@@ -211,13 +211,8 @@ def configure(env: "SConsEnvironment"):
     if cc_semver < (6, 0, 1):
         print_error("Godot requires Emscripten 6.0.1+. Detected: {}.{}.{}".format(*cc_semver))
         sys.exit(255)
-    # Upstream needs 6.0.12+ for dlink+threads: it has the fix for our patch 0002's bug. An older toolchain with this
-    # fork's patches (misc/emsdk_patches/) has it too, so it passes. 0001 is needed on every version so far.
-    if env["dlink_enabled"] and env["threads"] and cc_semver < (6, 0, 12) and not _emsdk_patches_applied():
-        print_error(
-            "Godot with dlink+threads requires Emscripten 6.0.12+, or this fork's toolchain patches "
-            "('misc/emsdk_patches/apply.sh --apply'). Detected: {}.{}.{}".format(*cc_semver)
-        )
+    if env["dlink_enabled"] and env["threads"] and cc_semver < (6, 0, 12):
+        print_error("Godot with dlink+threads requires Emscripten 6.0.12+. Detected: {}.{}.{}".format(*cc_semver))
         sys.exit(255)
 
     env.Append(LIBEMITTER=[library_emitter])
@@ -407,17 +402,14 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-fvisibility=hidden"])
         env.extra_suffix = ".dlink" + env.extra_suffix
 
-        # A dlink build needs this fork's Emscripten toolchain patches (both of
-        # them are about -sSIDE_MODULE/-sEXPORT_ALL code paths that only a dlink
-        # build takes) -- see misc/emsdk_patches/ and webgpu_notes/TASKS.md Task 12
-        # bug #2. How much it hurts depends on `threads`:
+        # A dlink build needs this fork's Emscripten toolchain patch (it is about a
+        # -sSIDE_MODULE code path that only a dlink build takes) -- see
+        # misc/emsdk_patches/ and webgpu_notes/TASKS.md Task 12 bug #2. How much it
+        # hurts depends on `threads`:
         #   threads=yes -- the export does not boot at all (0001: an ASM_CONSTS
-        #                  initialization race in Emscripten's dylink+pthread glue),
-        #                  and logs ~11 errors per load from 0002's eager heap-view
-        #                  export, which silently drops later Module exports on
-        #                  worker threads.
-        #   threads=no  -- neither symptom can fire (both need a pthread worker),
-        #                  so this is cosmetic, but the patches are still correct.
+        #                  initialization race in Emscripten's dylink+pthread glue).
+        #   threads=no  -- it cannot fire (it needs a pthread worker), so this is
+        #                  cosmetic, but the patch is still correct.
         #
         # This warns rather than fails because the toolchain is outside the repo
         # and may legitimately be patched by other means. It is loud because
@@ -430,12 +422,12 @@ def configure(env: "SConsEnvironment"):
             if env["threads"]:
                 print_warning(
                     "Building with threads=yes and dlink_enabled=yes, but the Emscripten toolchain "
-                    "does not have this fork's patches applied. The resulting export will most "
+                    "does not have this fork's patch applied. The resulting export will most "
                     f"likely fail to start. Run '{apply_sh}' --apply, then rebuild."
                 )
             else:
                 print_info(
-                    "The Emscripten toolchain does not have this fork's patches applied "
+                    "The Emscripten toolchain does not have this fork's patch applied "
                     f"('{apply_sh}' --apply). Harmless for threads=no, but required as soon as "
                     "threads=yes is combined with dlink_enabled=yes."
                 )

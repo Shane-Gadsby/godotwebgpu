@@ -14,22 +14,22 @@ here and are re-applied on demand.
 
 ## When you need this
 
-For **`platform=web dlink_enabled=yes`** builds. Both patches are in code paths
-only a dlink build takes (`-sSIDE_MODULE`, `-sEXPORT_ALL`), and both symptoms need
-a pthread worker to fire, so:
+For **`platform=web dlink_enabled=yes`** builds. The patch is in a code path
+only a dlink build takes (`-sSIDE_MODULE`), and its symptom needs a pthread
+worker to fire, so:
 
-| configuration | without the patches |
+| configuration | without the patch |
 |---|---|
-| `dlink_enabled=yes threads=yes` | **does not boot** (0001), plus ~11 errors/load and silently dropped `Module` exports on worker threads (0002) |
-| `dlink_enabled=yes threads=no` | unaffected — neither symptom can fire, but the patches are still correct |
+| `dlink_enabled=yes threads=yes` | **does not boot** (0001) |
+| `dlink_enabled=yes threads=no` | unaffected — the symptom cannot fire, but the patch is still correct |
 | `dlink_enabled=no` (any `threads`) | unaffected, nothing to apply |
 
-`apply.sh` is all-or-nothing, so just apply it for any dlink build.
+Just apply it for any dlink build.
 
 **`emsdk install` overwrites the toolchain tree, so this must be re-applied after
 every toolchain change**, not just after an emsdk version bump. Every build helper
 and both web CI workflows do it themselves — see "CI and the build helpers" below. A `dlink_enabled=yes` build
-tells you if the patches are missing — loudly when `threads=yes`, as a note
+tells you if the patch is missing — loudly when `threads=yes`, as a note
 otherwise.
 
 ## Current patches
@@ -37,7 +37,12 @@ otherwise.
 | | |
 |---|---|
 | `0001-dylink-asm-consts-pthread-race.patch` | Fixes the `ASM_CONSTS` initialization race that stops a threads + GDExtension build from booting at all. Two halves — `tools/emscripten.py` and `src/lib/libdylink.js` — and **neither is valid without the other**; the patch header explains why the obvious one-line version is worse than the crash. |
-| `0002-export-all-eager-heap-views.patch` | **Not needed from Emscripten 6.0.12**, which skips `HEAP*` in `exportLibrarySymbols()` itself (`fixed_upstream_in` in the table: `--check`/`--apply` skip it there). Before that: Stops `-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly in the postamble, where `growMemViews()` throws on a pthread worker whose `wasmMemory` hasn't arrived yet. Non-fatal but it aborts the export block, so later `Module` exports (`PThread`, `addRunDependency`, …) are silently never assigned on workers. `updateMemoryViews()` already owns those properties. **Do not "fix" this with accessors** — the patch header explains why that breaks `Module.HEAP*` outright. |
+
+`0002-export-all-eager-heap-views` is retired: Emscripten 6.0.12 skips `HEAP*` in
+`exportLibrarySymbols()` itself, and this fork pins 6.0.12 (`platform/web/detect.py`
+refuses dlink+threads below it). It is in git history before 2026-10-31. A patch
+whose fix reaches upstream but cannot go yet takes `fixed_upstream_in` in its table
+entry, and `--status`/`--check`/`--apply` skip it from that version on.
 
 ## How this is built
 
@@ -164,7 +169,6 @@ minified, and for 0001 **both** halves must be present:
 J=bin/godot.web.template_debug.wasm32.dlink.js
 grep -c 'ASM_CONSTS??={}'            $J   # 0001, libdylink.js half   -> 1
 grep -o 'ASM_CONSTS=Object.assign[^{]*' $J   # 0001, emscripten.py half -> matches
-grep -c 'Module\["HEAP8"\]=(growMemViews(),HEAP8)' $J   # 0002 applied    -> 0
 ```
 
 A build carrying only 0001's `Object.assign` half still crashes; only the `??=`

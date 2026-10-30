@@ -25,10 +25,9 @@
 # API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION. threads=yes
 # dlink_enabled=yes (GDExtension + threads together) used to be broken by an
 # Emscripten-internal dylink+pthread initialization race; it now works, but only
-# on a toolchain carrying this fork's two Emscripten patches, which this script
+# on a toolchain carrying this fork's Emscripten patch, which this script
 # applies for you (misc/emsdk_patches/, webgpu_notes/TASKS.md §4.5).
-# Without them that configuration does not boot (0001) and floods the console
-# while silently dropping Module exports on worker threads (0002).
+# Without it that configuration does not boot (0001).
 # If a threaded web export misbehaves under the WebGPU driver, narrow it down
 # against a threads=no build first.
 #

@@ -420,8 +420,8 @@ if (-not $SkipWeb) {
     $webPath = $env:Path
 
     # Half the web templates below are dlink_enabled=yes, which needs this fork's
-    # two Emscripten toolchain patches, and `emsdk install` above overwrites the
-    # toolchain tree -- so apply them here, after the environment is activated, on
+    # Emscripten toolchain patch, and `emsdk install` above overwrites the
+    # toolchain tree -- so apply it here, after the environment is activated, on
     # every run. Idempotent; refuses rather than fuzzily applying if upstream has
     # moved any of the text it pins.
     #

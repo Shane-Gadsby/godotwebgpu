@@ -19,9 +19,8 @@
 # files in this directory for what each change is and why.
 #
 # Needed for `platform=web dlink_enabled=yes` builds. `threads=no` is where it
-# matters least (0002's symptom is pthread-worker-only and 0001 cannot fire
-# without threads at all), but both patches are correct for every dlink build and
-# this is all-or-nothing, so just apply it.
+# matters least (0001 cannot fire without threads at all), but the patch is
+# correct for every dlink build, so just apply it.
 #
 # `emsdk install` overwrites the toolchain tree, so this has to be re-applied
 # after EVERY toolchain change, not just after an emsdk version bump. Every build

@@ -217,9 +217,9 @@ build_templates() {
 	fi
 
 
-	# Half the web templates below are dlink_enabled=yes, which needs this fork's two
-	# Emscripten toolchain patches, and `emsdk install`/an emsdk update overwrites
-	# the toolchain tree -- so apply them here, after the environment is set up, on
+	# Half the web templates below are dlink_enabled=yes, which needs this fork's
+	# Emscripten toolchain patch, and `emsdk install`/an emsdk update overwrites
+	# the toolchain tree -- so apply it here, after the environment is set up, on
 	# every run. Idempotent; refuses rather than fuzzily applying if upstream has
 	# moved any of the text it pins. Only a threads=yes dlink build actually breaks
 	# without them, and these builds are threads=no, so warn and keep going rather

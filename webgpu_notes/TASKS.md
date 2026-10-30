@@ -6251,6 +6251,13 @@ Not done from §2.66's method: the ramp benchmark, Firefox, and per-feature shad
 GDScript got no ablation of their own: only the scene-level comparison covers them. Regressions on the final commit: camera_timing 11/11 on Forward+ and
 Mobile, converter smoke, Chrome smoketest 23/23, off_passes, perf_guard, parity 103/103.
 
+### 4.110 Emscripten patch 0002 retired (October 2026) *(work task 95, from §4.107)*
+
+Emscripten 6.0.12 has 0002's fix (`exportLibrarySymbols()` skips `HEAP*`), so with `~/emsdk` moved to the pin the patch
+and its table entry are gone, and `platform/web/detect.py` now refuses dlink+threads below 6.0.12 outright, as upstream
+does, instead of accepting an older patched toolchain. 0001 stays: the code it changes is the same in 6.0.12.
+`fixed_upstream_in` stays in `emsdk_patch.py` for the next patch that reaches upstream before it can be dropped.
+
 ## 5. References — retired docs
 
 These were consolidated into this file on **2026-10-14** and deleted. Nothing listed here is needed
