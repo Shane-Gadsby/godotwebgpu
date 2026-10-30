@@ -508,6 +508,9 @@ SHADER_REGISTRY = [
      GENERAL_DEFINES_NONE, [
         ("normal", "\n", [VERT, FRAG]),
         ("1d_lut", "\n#define USE_1D_LUT\n", [VERT, FRAG]),
+        # The camera effects compiled in (tone_mapper.cpp: TONEMAP_MOBILE_MODE_CAMERA_EFFECTS + mode).
+        ("normal_camera", "\n#define USE_CAMERA_EFFECTS\n", [VERT, FRAG]),
+        ("1d_lut_camera", "\n#define USE_1D_LUT\n#define USE_CAMERA_EFFECTS\n", [VERT, FRAG]),
     ]),
 
     ("servers/rendering/renderer_rd/shaders/effects/tonemap.glsl",
@@ -516,6 +519,11 @@ SHADER_REGISTRY = [
         ("bicubic", "\n#define USE_GLOW_FILTER_BICUBIC\n", [VERT, FRAG]),
         ("1d_lut", "\n#define USE_1D_LUT\n", [VERT, FRAG]),
         ("bicubic_1d_lut", "\n#define USE_GLOW_FILTER_BICUBIC\n#define USE_1D_LUT\n", [VERT, FRAG]),
+        # The camera effects compiled in (tone_mapper.cpp: TONEMAP_MODE_CAMERA_EFFECTS + mode).
+        ("normal_camera", "\n#define USE_CAMERA_EFFECTS\n", [VERT, FRAG]),
+        ("bicubic_camera", "\n#define USE_GLOW_FILTER_BICUBIC\n#define USE_CAMERA_EFFECTS\n", [VERT, FRAG]),
+        ("1d_lut_camera", "\n#define USE_1D_LUT\n#define USE_CAMERA_EFFECTS\n", [VERT, FRAG]),
+        ("bicubic_1d_lut_camera", "\n#define USE_GLOW_FILTER_BICUBIC\n#define USE_1D_LUT\n#define USE_CAMERA_EFFECTS\n", [VERT, FRAG]),
     ]),
 
     # ── Luminance ───────────────────────────────────────────────────
