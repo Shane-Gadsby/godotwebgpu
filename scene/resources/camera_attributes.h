@@ -272,6 +272,9 @@ public:
 
 	void set_motion_blur_enabled(bool p_enabled);
 	bool is_motion_blur_enabled() const;
+	// The shutter angle is an exposure setting (exposure_shutter_angle); the motion_blur_ names load older scenes.
+	void set_shutter_angle(float p_angle);
+	float get_shutter_angle() const;
 	void set_motion_blur_shutter_angle(float p_angle);
 	float get_motion_blur_shutter_angle() const;
 	void set_motion_blur_strength(float p_strength);
@@ -467,6 +470,17 @@ private:
 	float exposure_shutter_speed = 100.0; // In 1 / seconds;
 
 	bool motion_blur_use_shutter_speed = true;
+
+public:
+	enum ShutterMode {
+		SHUTTER_MODE_SPEED, // exposure_shutter_speed sets the exposure time.
+		SHUTTER_MODE_ANGLE, // exposure_shutter_angle and frame_rate do: angle / 360 / frame_rate.
+	};
+
+private:
+	ShutterMode exposure_shutter_mode = SHUTTER_MODE_SPEED;
+	// The exposure time in seconds, from the shutter speed or the shutter angle.
+	float _get_exposure_time() const;
 	virtual float _get_motion_blur_shutter_time() const override;
 
 	// Camera properties.
@@ -497,6 +511,8 @@ public:
 	void set_shutter_speed(float p_shutter_speed);
 	float get_shutter_speed() const;
 
+	void set_shutter_mode(ShutterMode p_mode);
+	ShutterMode get_shutter_mode() const;
 	void set_motion_blur_use_shutter_speed(bool p_enable);
 	bool is_motion_blur_using_shutter_speed() const;
 
@@ -566,3 +582,4 @@ VARIANT_ENUM_CAST(CameraAttributes::GrainType);
 VARIANT_ENUM_CAST(CameraAttributes::MeteringMode);
 VARIANT_ENUM_CAST(CameraAttributes::LUTInput);
 VARIANT_ENUM_CAST(CameraAttributesPhysical::SensorFormat);
+VARIANT_ENUM_CAST(CameraAttributesPhysical::ShutterMode);
