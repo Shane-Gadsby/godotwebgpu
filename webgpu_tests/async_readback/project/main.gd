@@ -577,6 +577,7 @@ func _test_sync_rd() -> void:
 func _test_multimesh_set_buffer_edit() -> void:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = BoxMesh.new() # An edit without a mesh logs an error, which the web tier counts.
 	mm.instance_count = 4
 	var buf := PackedFloat32Array()
 	for i in 4:
