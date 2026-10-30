@@ -2912,7 +2912,33 @@ Verification (the §4.17 lesson, trap 11: a green container suite missed two bla
   `Texture2D.get_image_awaitable`, autofocus): on a scratch copy of camera-sim (never modify it), its main scene runs
   natively with no errors, and in a web export from the **dlink nothreads** template (camera-sim's preset) both of
   its downloads work. Editor and web templates must be rebuilt from the same commit, or camera-sim's baked shader cache
-  stops matching (tell camera-sim when the rebuilt pair is in place).
+  stops matching (tell camera-sim when the rebuilt pair is in place). Step by step below.
+- **camera-sim smoke check, step by step** (from camera-sim, 2026-10-30; scripts in
+  `webgpu_notes/work/inputs/90-camera-sim-smoke/`; run them against a scratch copy if anything could write into the
+  project; they write only to `<out_dir>`). The two downloads are buttons in the panel under the monitor: **Download
+  Image** (the recorded photo: `main.gd` `capture_camera_image()` turns on POV Cam's `monitoring_clean_texture_enabled`
+  and awaits `get_monitoring_clean_texture().get_image_awaitable()`: a 1280x720 RGB PNG with exposure, DOF, white
+  balance and noise but no zebras/false colour/guides) and **Download Screenshot** (the window: `get_viewport()
+  .get_texture().get_image_awaitable()`, 1656x968). On the web both go through `JavaScriptBridge.download_buffer()`
+  (`camera-sim-photo-<ts>.png` / `camera-sim-screenshot-<ts>.png`); natively they save to Downloads, so the native
+  check calls the functions directly.
+  1. *Native:* `run2.sh <out_dir>` (f/1.4 at 1/4000, focus 2.5 m, MFT/APS-C/FF, 24/200 mm, ISO 3200, Exaggerate
+     noise, `capture`) and `run.sh <out_dir>` (adds `hist`, white balance, zebras/false colour, `shotdl`), both driving
+     the real main scene through `ab_harness.gd` (`--fixed-fps 60`, a real display). Expect no `ERROR`/`SCRIPT ERROR`
+     lines (camera-sim fixed its "Skin bind 'Root'" error on 2026-10-30), `CAPTURE (1280, 720) 4`, the final `DUMP`
+     line ending `Focus: 5.0m / Meter: 0.0 EV (correct)`, and from `run.sh` `HIST total=921600` and
+     `SCREENSHOT (1656, 968)`. Frames can be compared with a pre-sync run; ~3% of pixels differ by 1 level run to run.
+  2. *Web:* export with `DISPLAY=:0 <editor> --path /mnt/109313D2109313D2/godot-game-dev/camera-sim --rendering-driver
+     vulkan --export-release "Web" <dir>/index.html` (not `--headless`: the bake is skipped), check
+     `md5(bin/godot.side.web.template_release.wasm32.nothreads.dlink.wasm) == md5(<dir>/index.side.wasm)`, then
+     `node dl2_test.mjs <dir> <out_dir>` (visible system Chrome with the Vulkan flags, port 8704, 1656x968; it clicks
+     Start, Zebra Lines, False Colour, Download Image, Download Screenshot, then double-clicks Download Image). Expect
+     `WebGPU 1.0 - Forward+`, `game up after Start` ~3.5 s (60-100 s means the bake does not match), `downloaded photo`
+     (~0.5 s) and `downloaded screenshot`, `double-click photo ok`, `ERRORS (excluding Skin bind): 0`; and
+     `<out_dir>/web_photo.png` 1280x720 RGB with no false colour (mean |diff| against `web_start.png`'s monitor crop
+     205,45-1449,745 resized to 1280x720 was 2.5, against 25.8 for `web_overlays.png`). The click coordinates assume
+     camera-sim's current layout. The script does not assert the adapter: confirm the `Forward+` line, and add the
+     project's adapter check if it is reused beyond this.
 
 Timing: a sync touches most of the tree and needs full rebuilds of every variant; do it when no other build or worker
 is using the tree, and land the open camera tasks (85-88) either before or after it, not interleaved. Effort: §4.17
