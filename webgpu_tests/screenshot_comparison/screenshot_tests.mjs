@@ -22,6 +22,7 @@ import { join, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { decodePng, encodePng } from './png.mjs';
+import { FIREFOX_WEBGPU_PREFS } from '../scene_smoketest/firefox_prefs.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -200,12 +201,19 @@ async function captureScreenshots(baseUrl) {
 
     // Try to launch Chrome with WebGPU
     try {
-        const chrome = await chromium.launch({
-            headless: false,
-            args: isCI
-                ? ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu']
-                : ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer'],
-        });
+        // Locally: system Chrome with the Vulkan flags (Playwright's bundled Chromium lost the WebGPU device at the
+        // first present: "A valid external Instance reference no longer exists"), as run_scenes.mjs launches it.
+        const chrome = await chromium.launch(isCI
+            ? {
+                headless: false,
+                args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,UseSkiaRenderer', '--use-angle=swiftshader', '--enable-gpu'],
+            }
+            : {
+                headless: false,
+                executablePath: '/usr/bin/google-chrome-stable',
+                ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
+                args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
+            });
         browsers.push({ name: 'chromium', browser: chrome });
         console.log('  Chromium: launched');
     } catch (e) {
@@ -218,10 +226,7 @@ async function captureScreenshots(baseUrl) {
     try {
         const ff = await firefox.launch({
             headless: false,
-            firefoxUserPrefs: {
-                'dom.webgpu.enabled': true,
-                'gfx.webgpu.force-enabled': true,
-            },
+            firefoxUserPrefs: FIREFOX_WEBGPU_PREFS,
         });
         browsers.push({ name: 'firefox', browser: ff });
         console.log('  Firefox: launched');

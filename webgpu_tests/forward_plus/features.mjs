@@ -113,7 +113,9 @@ export const FEATURES = [
   { id: 'spot_shadow', cat: 'lighting', label: 'Spot shadow', minDelta: 0.415 },
   { id: 'light_projector', cat: 'lighting', label: 'Light projector texture', minDelta: 1.11 },
   { id: 'soft_shadows', cat: 'lighting', label: 'Soft shadows (PCSS)', minDelta: 0.517 },
-  { id: 'shadow_blur', cat: 'lighting', label: 'Shadow blur', minDelta: 1.65 },
+  // 0.18 since the 4.8-beta sync: upstream 0697a5b6c5 removed the shadow acne the blur-off frame used to have, which
+  // was most of the old native delta (5.04 -> 0.558); one third of the new one.
+  { id: 'shadow_blur', cat: 'lighting', label: 'Shadow blur', minDelta: 0.18 },
   { id: 'contact_shadows', cat: 'lighting', label: 'Screen-space contact shadows (4.8)', minDelta: 0.0346 },
   { id: 'light_negative', cat: 'lighting', label: 'Negative light', minDelta: 11.5 },
   { id: 'light_specular', cat: 'lighting', label: 'Light specular contribution', minDelta: 0.14 },

@@ -76,7 +76,7 @@ public:
 			PERSPECTIVE,
 			ORTHOGONAL,
 			FRUSTUM,
-			MULTIVIEW_PROJECTION,
+			XR,
 		};
 		Type type;
 		float fov;
@@ -131,6 +131,9 @@ public:
 	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const;
 	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const;
 	virtual bool is_camera(RID p_camera) const;
+#ifndef XR_DISABLED
+	virtual bool is_xr_camera(RID p_camera) const;
+#endif
 
 	/* OCCLUDER API */
 

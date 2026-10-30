@@ -104,6 +104,14 @@ def _emsdk_patched_files(em_root):
         return []
 
 
+def _emsdk_patches_applied():
+    apply_sh = os.path.join("misc", "emsdk_patches", "apply.sh")
+    try:
+        return subprocess.run([apply_sh, "--check"], capture_output=True).returncode == 0
+    except OSError:
+        return False  # Can't run it (Windows without bash, not executable, ...).
+
+
 def get_toolchain_js_fingerprint():
     """Content hash of the toolchain files that shape the generated JS glue.
 
@@ -201,7 +209,15 @@ def configure(env: "SConsEnvironment"):
 
     # Minimum emscripten requirements.
     if cc_semver < (6, 0, 1):
-        print_error("The minimum Emscripten version to build Godot is 6.0.1, detected: {}.{}.{}".format(*cc_semver))
+        print_error("Godot requires Emscripten 6.0.1+. Detected: {}.{}.{}".format(*cc_semver))
+        sys.exit(255)
+    # Upstream needs 6.0.12+ for dlink+threads; this fork pins an older toolchain whose dlink+threads bugs its own
+    # patches fix (misc/emsdk_patches/), so a patched toolchain passes. See webgpu_notes/TASKS.md §2.63.
+    if env["dlink_enabled"] and env["threads"] and cc_semver < (6, 0, 12) and not _emsdk_patches_applied():
+        print_error(
+            "Godot with dlink+threads requires Emscripten 6.0.12+, or this fork's toolchain patches "
+            "('misc/emsdk_patches/apply.sh --apply'). Detected: {}.{}.{}".format(*cc_semver)
+        )
         sys.exit(255)
 
     env.Append(LIBEMITTER=[library_emitter])
@@ -370,10 +386,6 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=[f"-sDEFAULT_PTHREAD_STACK_SIZE={env['default_pthread_stack_size']}KB"])
         env.Append(LINKFLAGS=["-sPTHREAD_POOL_SIZE=\"Module['emscriptenPoolSize']||8\""])
         env.Append(LINKFLAGS=["-sMAXIMUM_MEMORY=2048MB"])
-        if not env["dlink_enabled"]:
-            # Workaround https://github.com/emscripten-core/emscripten/issues/21844#issuecomment-2116936414.
-            # Not needed (and potentially dangerous) when dlink_enabled=yes, since we set EXPORT_ALL=1 in that case.
-            env["EXPORTED_FUNCTIONS"] += ["__emscripten_thread_crashed"]
 
     elif env["proxy_to_pthread"]:
         print_warning('"threads=no" support requires "proxy_to_pthread=no", disabling proxy to pthread.')
@@ -414,11 +426,7 @@ def configure(env: "SConsEnvironment"):
         # already diagnosed and fixed, which is the same silent-failure shape
         # Task 36's version-hash mismatch had.
         apply_sh = os.path.join("misc", "emsdk_patches", "apply.sh")
-        try:
-            patched = subprocess.run([apply_sh, "--check"], capture_output=True).returncode == 0
-        except OSError:
-            patched = False  # Can't run it (Windows without bash, not executable, ...).
-        if not patched:
+        if not _emsdk_patches_applied():
             if env["threads"]:
                 print_warning(
                     "Building with threads=yes and dlink_enabled=yes, but the Emscripten toolchain "
