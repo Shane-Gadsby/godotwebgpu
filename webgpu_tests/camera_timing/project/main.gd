@@ -74,7 +74,11 @@ func _initialize() -> void:
 	free_box = _moving_box(free_vp)
 
 	# Specular size: a near-mirror sphere under a spot light, its highlight seen with light_specular_size 0 and 0.6 m.
-	spec_vp = _viewport(CameraAttributesPractical.new())
+	# Indoor exposure, as for the flicker wall: the default sunlight exposure leaves an indoor lamp invisible.
+	var spec_attr := CameraAttributesPhysical.new()
+	spec_attr.exposure_aperture = 2.0
+	spec_attr.exposure_sensitivity = 800.0
+	spec_vp = _viewport(spec_attr)
 	spec_vp.size = Vector2i(256, 256)
 	var ball := MeshInstance3D.new()
 	ball.mesh = SphereMesh.new()
@@ -86,7 +90,7 @@ func _initialize() -> void:
 	spec_light = SpotLight3D.new()
 	spec_light.position = Vector3(0.6, 0.6, 2.0)
 	spec_light.look_at_from_position(spec_light.position, Vector3.ZERO)
-	spec_light.light_intensity_lumens = 400.0
+	spec_light.light_intensity_lumens = 2000.0
 	spec_light.spot_range = 10.0
 	spec_vp.add_child(spec_light)
 
@@ -165,9 +169,13 @@ func _process(_delta: float) -> bool:
 		flicker_samples[1000.0].append(_luma(flicker_vp))
 	if frame == 30:
 		spec_peak[0.0] = _highlight(spec_vp)
+		if OS.has_environment("CT_SAVE"):
+			spec_vp.get_texture().get_image().save_png(OS.get_environment("CT_SAVE") + "/spec_0.png")
 		spec_light.light_specular_size = 0.6
 	if frame == 40:
 		spec_peak[0.6] = _highlight(spec_vp)
+		if OS.has_environment("CT_SAVE"):
+			spec_vp.get_texture().get_image().save_png(OS.get_environment("CT_SAVE") + "/spec_06.png")
 	if frame == 90:
 		_finish()
 		return true
