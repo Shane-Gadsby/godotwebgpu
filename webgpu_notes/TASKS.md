@@ -2847,6 +2847,21 @@ also costs ~3.5 ms of GPU on a 4080 at 1080p (6.35 ms with shadow vs 2.79 withou
 Evidence: `webgpu_notes/work/inputs/88-light-specular-size/area/shadow_where.png` (left: the frame; right: where the
 shadow darkens it, x6), `shadow_where_defbias.png`, `full_compare.png`; repro `area.gd` (see §2.60).
 
+Lead's assessment (2026-10-30, before anyone here ran a test): the evidence points to an engine-side area-shadow problem
+but does not prove it. Bias-independent (two settings), no silhouette at all, and a cost (3.5 ms) larger than the whole
+spot-lit frame (3.00 ms) do not look like tuning. Not yet ruled out: it was seen in one complex scene only (MetaHuman,
+the hair's shadow-proxy mesh, range 10, shadow atlas settings); never compared with stock upstream 4.8; area lights
+never run on WebGPU or Mobile here. **First step, ~10 min, no build:** the minimal scene (a box in front of a wall, one
+AreaLight3D with shadows) on the current `bin/` editor, native Vulkan, Forward+. A correct box shadow → it is camera-sim's
+scene (then bisect the scene: hair proxy, range, atlas, cull masks); the same dotted darkening → an engine bug, then the
+same scene on a stock upstream 4.8 build to place it, then Mobile and WebGPU. Screenshot each variant (look hand-off).
+
+Also unexplained, from §2.60 (task 88), worth a look while in the area-light code: the eye-only hybrid's catchlight
+faded in over 12 frames (0 → 263 px) when `eyeEdge` was lit by neither key, steady from frame 1 when it was; a ramp
+over frames suggests something accumulating (auto exposure, a temporal buffer, a lazily allocated shadow/atlas slot),
+not the LTC math. The bright aliased streak on `eyeshell`'s lower edge is more likely a 0.04-roughness mirror catching
+a large light at grazing angles under FXAA only (material + aliasing) than a light bug.
+
 Do: first decide **upstream or fork**: reproduce with a minimal scene (a box in front of a wall, one AreaLight3D) on this
 fork's editor and on a stock upstream build of the same base (4.8). If upstream: check godotengine/godot issues for area
 light shadows, file one if absent (the user decides on reporting), and fix here if it is cheap. If the fork: bisect
