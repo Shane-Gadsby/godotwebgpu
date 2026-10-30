@@ -285,7 +285,11 @@ func _finish() -> void:
 	# light_specular_size widens the catchlight: more pixels near its peak, and the peak no longer clipped.
 	var point: Dictionary = spec_peak[0.0]
 	var sized: Dictionary = spec_peak[0.6]
-	_record("specular_size_widens_the_highlight", sized.area > point.area * 4 and sized.peak < 0.999, { "point": point, "sized": sized })
+	if RenderingServer.get_current_rendering_method() == "gl_compatibility":
+		# light_specular_size is Forward+ and Mobile only (TASKS §4.105).
+		_record("specular_size_widens_the_highlight", true, { "skipped": "not in Compatibility" })
+	else:
+		_record("specular_size_widens_the_highlight", sized.area > point.area * 4 and sized.peak < 0.999, { "point": point, "sized": sized })
 	var passed := 0
 	for k: String in results:
 		passed += int(results[k].ok)
