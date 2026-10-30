@@ -2581,6 +2581,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("light_set_distance_fade", "decal", "enabled", "begin", "shadow", "length"), &RenderingServer::light_set_distance_fade);
 	ClassDB::bind_method(D_METHOD("light_set_reverse_cull_face_mode", "light", "enabled"), &RenderingServer::light_set_reverse_cull_face_mode);
 	ClassDB::bind_method(D_METHOD("light_set_shadow_caster_mask", "light", "mask"), &RenderingServer::light_set_shadow_caster_mask);
+	ClassDB::bind_method(D_METHOD("light_set_flicker", "light", "mains_frequency", "depth", "phase"), &RenderingServer::light_set_flicker);
 	ClassDB::bind_method(D_METHOD("light_set_bake_mode", "light", "bake_mode"), &RenderingServer::light_set_bake_mode);
 	ClassDB::bind_method(D_METHOD("light_set_max_sdfgi_cascade", "light", "cascade"), &RenderingServer::light_set_max_sdfgi_cascade);
 	ClassDB::bind_method(D_METHOD("light_set_allow_contact_shadows", "light", "enable"), &RenderingServer::light_set_allow_contact_shadows);
@@ -2632,6 +2633,7 @@ void RenderingServer::_bind_methods() {
 	BIND_ENUM_CONSTANT(RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS);
 	BIND_ENUM_CONSTANT(RSE::LIGHT_PARAM_INTENSITY);
 	BIND_ENUM_CONSTANT(RSE::LIGHT_PARAM_CONTACT_SHADOW_BLUR);
+	BIND_ENUM_CONSTANT(RSE::LIGHT_PARAM_SPECULAR_SIZE);
 	BIND_ENUM_CONSTANT(RSE::LIGHT_PARAM_MAX);
 
 	BIND_ENUM_CONSTANT(RSE::LIGHT_BAKE_DISABLED);
@@ -3320,6 +3322,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur_quality", "quality"), &RenderingServer::camera_attributes_set_motion_blur_quality);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_motion_blur", "camera_attributes", "enable", "shutter_angle", "shutter_time", "strength", "max_length"), &RenderingServer::camera_attributes_set_motion_blur);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_rolling_shutter", "camera_attributes", "enable", "readout_time"), &RenderingServer::camera_attributes_set_rolling_shutter);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_frame_rate", "camera_attributes", "frame_rate", "hold"), &RenderingServer::camera_attributes_set_frame_rate);
 
 	/* Exposure automation */
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_metering", "camera_attributes", "mode", "spot_size", "spot_point", "highlight_percentile"), &RenderingServer::camera_attributes_set_auto_exposure_metering);

@@ -196,6 +196,8 @@ private:
 		float motion_blur_max_length = 0.05; // Fraction of the frame height.
 		bool rolling_shutter_enabled = false;
 		float rolling_shutter_readout_time = 20.0; // In milliseconds.
+		float frame_rate = 0.0; // The camera's frames per second; 0: the render rate.
+		bool frame_rate_hold = false; // Show a new image only once per camera frame (RendererViewport).
 
 		// Lens optics. The physical lens comes from CameraAttributesPhysical; a focal length of 0 means there is
 		// none (CameraAttributesPractical), and only the frame-relative effects apply.
@@ -405,7 +407,14 @@ public:
 	void camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality p_quality);
 	void camera_attributes_set_motion_blur(RID p_camera_attributes, bool p_enable, float p_shutter_angle, float p_shutter_time, float p_strength, float p_max_length);
 	void camera_attributes_set_rolling_shutter(RID p_camera_attributes, bool p_enable, float p_readout_time);
+	void camera_attributes_set_frame_rate(RID p_camera_attributes, float p_frame_rate, bool p_hold);
+	float camera_attributes_get_frame_rate(RID p_camera_attributes);
+	// The frame rate when the camera holds its frames, else 0.
+	float camera_attributes_get_held_frame_rate(RID p_camera_attributes);
 	ShutterMotion camera_attributes_get_shutter_motion(RID p_camera_attributes, double p_frame_time);
+	// The exposure time in seconds: the physical shutter's, else the shutter angle's share of the camera frame (the render
+	// frame of p_frame_time when no camera frame rate is set). 0 without camera attributes (an instant).
+	double camera_attributes_get_exposure_time(RID p_camera_attributes, double p_frame_time);
 	// Samples along the blur per pixel, from ProjectSettings rendering/camera/motion_blur/motion_blur_quality.
 	uint32_t camera_attributes_get_motion_blur_sample_count() const;
 

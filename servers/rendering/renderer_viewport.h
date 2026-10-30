@@ -80,6 +80,9 @@ public:
 
 		RendererSceneRender::CameraData prev_camera_data;
 		uint64_t prev_camera_data_frame = 0;
+		// CameraAttributes.frame_rate_hold: time since the last camera frame, and whether one has been drawn.
+		double held_frame_time = 0.0;
+		bool held_frame_drawn = false;
 
 		bool use_occlusion_culling = false;
 		bool occlusion_buffer_dirty = false;

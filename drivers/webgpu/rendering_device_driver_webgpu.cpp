@@ -11473,6 +11473,9 @@ uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 		// unmap every upload staging block every frame to flush it via wgpuQueueWriteBuffer.
 		case API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY:
 			return 1;
+		// buffer_get_data() returns nothing until the mapAsync readback has arrived (TASKS §4.96).
+		case API_TRAIT_BUFFER_READBACK_ASYNC:
+			return 1;
 		// See the trait's own doc comment in rendering_device_driver.h: WebGPU object
 		// handles live in a per-thread JS lookup table, so pipeline creation must run
 		// on whichever thread owns the device, not a WorkerThreadPool background

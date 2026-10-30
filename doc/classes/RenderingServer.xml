@@ -197,6 +197,15 @@
 				[/codeblock]
 			</description>
 		</method>
+		<method name="camera_attributes_set_frame_rate">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="frame_rate" type="float" />
+			<param index="2" name="hold" type="bool" />
+			<description>
+				Sets the camera's own [param frame_rate] in frames per second ([code]0[/code]: the render rate), and whether a viewport rendering it [param hold]s each image for one camera frame. See [member CameraAttributes.frame_rate] and [member CameraAttributes.frame_rate_hold].
+			</description>
+		</method>
 		<method name="camera_attributes_set_grain">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />
@@ -303,7 +312,7 @@
 			<param index="4" name="strength" type="float" />
 			<param index="5" name="max_length" type="float" />
 			<description>
-				Sets the motion blur of the camera attributes: whether it is enabled, the [param shutter_angle] in degrees, the [param shutter_time] in seconds (when positive, it is used instead of the angle), the [param strength] multiplier and the [param max_length] as a fraction of the frame height. These take on the same meaning as [member CameraAttributes.motion_blur_enabled], [member CameraAttributes.motion_blur_shutter_angle], [member CameraAttributesPhysical.exposure_shutter_speed], [member CameraAttributes.motion_blur_strength] and [member CameraAttributes.motion_blur_max_length].
+				Sets the motion blur of the camera attributes: whether it is enabled, the [param shutter_angle] in degrees, the [param shutter_time] in seconds (when positive, it is used instead of the angle), the [param strength] multiplier and the [param max_length] as a fraction of the frame height. These take on the same meaning as [member CameraAttributes.motion_blur_enabled], [member CameraAttributes.exposure_shutter_angle], [member CameraAttributesPhysical.exposure_shutter_speed], [member CameraAttributes.motion_blur_strength] and [member CameraAttributes.motion_blur_max_length].
 			</description>
 		</method>
 		<method name="camera_attributes_set_motion_blur_quality">
@@ -2730,6 +2739,16 @@
 			<param index="4" name="length" type="float" />
 			<description>
 				Sets the distance fade for this 3D light. This acts as a form of level of detail (LOD) and can be used to improve performance. Equivalent to [member Light3D.distance_fade_enabled], [member Light3D.distance_fade_begin], [member Light3D.distance_fade_shadow], and [member Light3D.distance_fade_length].
+			</description>
+		</method>
+		<method name="light_set_flicker">
+			<return type="void" />
+			<param index="0" name="light" type="RID" />
+			<param index="1" name="mains_frequency" type="float" />
+			<param index="2" name="depth" type="float" />
+			<param index="3" name="phase" type="float" />
+			<description>
+				Sets the light's flicker on AC mains: the [param mains_frequency] in Hz ([code]0[/code] for a steady light; the lamp pulses at twice it), the [param depth] of each pulse from [code]0[/code] to [code]1[/code], and its [param phase] in degrees. See [member Light3D.flicker_frequency].
 			</description>
 		</method>
 		<method name="light_set_max_sdfgi_cascade">
@@ -5764,7 +5783,10 @@
 		<constant name="LIGHT_PARAM_CONTACT_SHADOW_BLUR" value="21" enum="LightParam">
 			Blurs the edges of the contact shadow. [code]0.0[/code] produces sharp shadows; higher values increase the noise magnitude.
 		</constant>
-		<constant name="LIGHT_PARAM_MAX" value="22" enum="LightParam">
+		<constant name="LIGHT_PARAM_SPECULAR_SIZE" value="22" enum="LightParam">
+			The light's size in meters as its specular highlight sees it: widens the highlight only (omni and spot lights, Forward+ and Mobile).
+		</constant>
+		<constant name="LIGHT_PARAM_MAX" value="23" enum="LightParam">
 			Represents the size of the [enum LightParam] enum.
 		</constant>
 		<constant name="LIGHT_BAKE_DISABLED" value="0" enum="LightBakeMode">

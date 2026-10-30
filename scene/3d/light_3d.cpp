@@ -155,6 +155,61 @@ bool Light3D::get_shadow_reverse_cull_face() const {
 	return reverse_cull;
 }
 
+void Light3D::_update_flicker() {
+	float mains = 0.0f;
+	switch (flicker_frequency) {
+		case FLICKER_50_HZ:
+			mains = 50.0f;
+			break;
+		case FLICKER_60_HZ:
+			mains = 60.0f;
+			break;
+		case FLICKER_CUSTOM:
+			mains = flicker_custom_frequency;
+			break;
+		default:
+			break;
+	}
+	RS::get_singleton()->light_set_flicker(light, mains, flicker_depth, flicker_phase);
+}
+
+void Light3D::set_flicker_frequency(FlickerFrequency p_frequency) {
+	flicker_frequency = p_frequency;
+	_update_flicker();
+	notify_property_list_changed();
+}
+
+Light3D::FlickerFrequency Light3D::get_flicker_frequency() const {
+	return flicker_frequency;
+}
+
+void Light3D::set_flicker_custom_frequency(float p_frequency) {
+	flicker_custom_frequency = MAX(p_frequency, 0.0f);
+	_update_flicker();
+}
+
+float Light3D::get_flicker_custom_frequency() const {
+	return flicker_custom_frequency;
+}
+
+void Light3D::set_flicker_depth(float p_depth) {
+	flicker_depth = CLAMP(p_depth, 0.0f, 1.0f);
+	_update_flicker();
+}
+
+float Light3D::get_flicker_depth() const {
+	return flicker_depth;
+}
+
+void Light3D::set_flicker_phase(float p_phase) {
+	flicker_phase = p_phase;
+	_update_flicker();
+}
+
+float Light3D::get_flicker_phase() const {
+	return flicker_phase;
+}
+
 void Light3D::set_shadow_caster_mask(uint32_t p_caster_mask) {
 	shadow_caster_mask = p_caster_mask;
 	RS::get_singleton()->light_set_shadow_caster_mask(light, shadow_caster_mask);
@@ -356,6 +411,13 @@ bool Light3D::is_editor_only() const {
 }
 
 void Light3D::_validate_property(PropertyInfo &p_property) const {
+	if ((p_property.name == "flicker_custom_frequency" && flicker_frequency != FLICKER_CUSTOM) || ((p_property.name == "flicker_depth" || p_property.name == "flicker_phase") && flicker_frequency == FLICKER_OFF)) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+	}
+	if ((get_light_type() == RSE::LIGHT_DIRECTIONAL || get_light_type() == RSE::LIGHT_AREA) && p_property.name == "light_specular_size") {
+		// Omni and spot lights only: a directional light's size is its angular distance, an area light has its own.
+		p_property.usage = PROPERTY_USAGE_NONE;
+	}
 	if (get_light_type() != RSE::LIGHT_DIRECTIONAL && (p_property.name == "light_angular_distance" || p_property.name == "light_intensity_lux")) {
 		// Angular distance and Light Intensity Lux are only used in DirectionalLight3D.
 		p_property.usage = PROPERTY_USAGE_NONE;
@@ -405,6 +467,14 @@ void Light3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_shadow_reverse_cull_face", "enable"), &Light3D::set_shadow_reverse_cull_face);
 	ClassDB::bind_method(D_METHOD("get_shadow_reverse_cull_face"), &Light3D::get_shadow_reverse_cull_face);
 
+	ClassDB::bind_method(D_METHOD("set_flicker_frequency", "frequency"), &Light3D::set_flicker_frequency);
+	ClassDB::bind_method(D_METHOD("get_flicker_frequency"), &Light3D::get_flicker_frequency);
+	ClassDB::bind_method(D_METHOD("set_flicker_custom_frequency", "frequency"), &Light3D::set_flicker_custom_frequency);
+	ClassDB::bind_method(D_METHOD("get_flicker_custom_frequency"), &Light3D::get_flicker_custom_frequency);
+	ClassDB::bind_method(D_METHOD("set_flicker_depth", "depth"), &Light3D::set_flicker_depth);
+	ClassDB::bind_method(D_METHOD("get_flicker_depth"), &Light3D::get_flicker_depth);
+	ClassDB::bind_method(D_METHOD("set_flicker_phase", "phase"), &Light3D::set_flicker_phase);
+	ClassDB::bind_method(D_METHOD("get_flicker_phase"), &Light3D::get_flicker_phase);
 	ClassDB::bind_method(D_METHOD("set_shadow_caster_mask", "caster_mask"), &Light3D::set_shadow_caster_mask);
 	ClassDB::bind_method(D_METHOD("get_shadow_caster_mask"), &Light3D::get_shadow_caster_mask);
 
@@ -438,8 +508,15 @@ void Light3D::_bind_methods() {
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_angular_distance", PROPERTY_HINT_RANGE, "0,90,0.01,degrees"), "set_param", "get_param", PARAM_SIZE);
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "light_negative"), "set_negative", "is_negative");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_specular", PROPERTY_HINT_RANGE, "0,16,0.001,or_greater"), "set_param", "get_param", PARAM_SPECULAR);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "light_specular_size", PROPERTY_HINT_RANGE, "0,2,0.001,or_greater,suffix:m"), "set_param", "get_param", PARAM_SPECULAR_SIZE);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "light_bake_mode", PROPERTY_HINT_ENUM, "Disabled,Static,Dynamic"), "set_bake_mode", "get_bake_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "light_cull_mask", PROPERTY_HINT_LAYERS_3D_RENDER), "set_cull_mask", "get_cull_mask");
+
+	ADD_GROUP("Flicker", "flicker_");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "flicker_frequency", PROPERTY_HINT_ENUM, "Off,50 Hz Mains,60 Hz Mains,Custom"), "set_flicker_frequency", "get_flicker_frequency");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "flicker_custom_frequency", PROPERTY_HINT_RANGE, "1,500,0.01,or_greater,suffix:Hz"), "set_flicker_custom_frequency", "get_flicker_custom_frequency");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "flicker_depth", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_flicker_depth", "get_flicker_depth");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "flicker_phase", PROPERTY_HINT_RANGE, "0,360,0.1,degrees"), "set_flicker_phase", "get_flicker_phase");
 
 	ADD_GROUP("Shadow", "shadow_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shadow_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_shadow", "has_shadow");
@@ -488,11 +565,17 @@ void Light3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(PARAM_TRANSMITTANCE_BIAS);
 	BIND_ENUM_CONSTANT(PARAM_INTENSITY);
 	BIND_ENUM_CONSTANT(PARAM_CONTACT_SHADOW_BLUR);
+	BIND_ENUM_CONSTANT(PARAM_SPECULAR_SIZE);
 	BIND_ENUM_CONSTANT(PARAM_MAX);
 
 	BIND_ENUM_CONSTANT(BAKE_DISABLED);
 	BIND_ENUM_CONSTANT(BAKE_STATIC);
 	BIND_ENUM_CONSTANT(BAKE_DYNAMIC);
+
+	BIND_ENUM_CONSTANT(FLICKER_OFF);
+	BIND_ENUM_CONSTANT(FLICKER_50_HZ);
+	BIND_ENUM_CONSTANT(FLICKER_60_HZ);
+	BIND_ENUM_CONSTANT(FLICKER_CUSTOM);
 }
 
 Light3D::Light3D(RSE::LightType p_type) {
@@ -543,6 +626,7 @@ Light3D::Light3D(RSE::LightType p_type) {
 	set_param(PARAM_TRANSMITTANCE_BIAS, 0.05);
 	set_param(PARAM_SHADOW_FADE_START, 1);
 	set_param(PARAM_CONTACT_SHADOW_BLUR, 1.0);
+	set_param(PARAM_SPECULAR_SIZE, 0.0);
 	// For OmniLight3D and SpotLight3D, specified in Lumens.
 	set_param(PARAM_INTENSITY, 1000.0);
 	set_temperature(6500.0); // Nearly white.

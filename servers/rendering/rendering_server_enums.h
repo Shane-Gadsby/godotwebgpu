@@ -268,6 +268,7 @@ enum LightParam {
 	LIGHT_PARAM_TRANSMITTANCE_BIAS,
 	LIGHT_PARAM_INTENSITY,
 	LIGHT_PARAM_CONTACT_SHADOW_BLUR,
+	LIGHT_PARAM_SPECULAR_SIZE, // Widens the specular highlight only (meters); see Light3D.light_specular_size.
 	LIGHT_PARAM_MAX,
 };
 

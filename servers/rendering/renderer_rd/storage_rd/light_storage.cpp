@@ -166,6 +166,7 @@ void LightStorage::_light_initialize(RID p_light, RSE::LightType p_type) {
 	light.param[RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS] = 0.05;
 	light.param[RSE::LIGHT_PARAM_INTENSITY] = p_type == RSE::LIGHT_DIRECTIONAL ? 100000.0 : 1000.0;
 	light.param[RSE::LIGHT_PARAM_CONTACT_SHADOW_BLUR] = 1.0;
+	light.param[RSE::LIGHT_PARAM_SPECULAR_SIZE] = 0.0;
 
 	light_owner.initialize_rid(p_light, light);
 }
@@ -323,6 +324,14 @@ void LightStorage::light_set_reverse_cull_face_mode(RID p_light, bool p_enabled)
 
 	light->version++;
 	light->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_LIGHT);
+}
+
+void LightStorage::light_set_flicker(RID p_light, float p_mains_frequency, float p_depth, float p_phase) {
+	Light *light = light_owner.get_or_null(p_light);
+	ERR_FAIL_NULL(light);
+	light->flicker_frequency = MAX(p_mains_frequency, 0.0f);
+	light->flicker_depth = CLAMP(p_depth, 0.0f, 1.0f);
+	light->flicker_phase = p_phase;
 }
 
 void LightStorage::light_set_shadow_caster_mask(RID p_light, uint32_t p_caster_mask) {
@@ -750,6 +759,9 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 
 	Transform3D inverse_transform = p_camera_transform.affine_inverse();
+	// Flickering lights are averaged over this frame's exposure, from the engine clock.
+	const double flicker_time = RSG::rasterizer->get_total_time();
+	const double flicker_exposure = RSG::camera_attributes->camera_attributes_get_exposure_time(p_render_data->camera_attributes, RSG::rasterizer->get_frame_delta_time());
 
 	r_directional_light_count = 0;
 	r_positional_light_count = 0;
@@ -788,7 +800,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 
 				float sign = light->negative ? -1 : 1;
 
-				light_data.energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY];
+				light_data.energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * light_flicker_factor(light->flicker_frequency, light->flicker_depth, light->flicker_phase, flicker_time, flicker_exposure);
 
 				if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
 					light_data.energy *= light->param[RSE::LIGHT_PARAM_INTENSITY];
@@ -1065,7 +1077,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 			}
 		}
 
-		float energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * fade;
+		float energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * fade * light_flicker_factor(light->flicker_frequency, light->flicker_depth, light->flicker_phase, flicker_time, flicker_exposure);
 
 		if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
 			energy *= light->param[RSE::LIGHT_PARAM_INTENSITY];
@@ -1092,6 +1104,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.color[1] = linear_col.g * energy;
 		light_data.color[2] = linear_col.b * energy;
 		light_data.specular_amount = light->param[RSE::LIGHT_PARAM_SPECULAR] * 2.0;
+		light_data.specular_size = light->param[RSE::LIGHT_PARAM_SPECULAR_SIZE];
 		light_data.volumetric_fog_energy = light->param[RSE::LIGHT_PARAM_VOLUMETRIC_FOG_ENERGY];
 		light_data.bake_mode = light->bake_mode;
 

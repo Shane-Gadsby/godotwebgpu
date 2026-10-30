@@ -90,6 +90,7 @@ void LightStorage::_light_initialize(RID p_light, RSE::LightType p_type) {
 	light.param[RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS] = 0.05;
 	light.param[RSE::LIGHT_PARAM_INTENSITY] = p_type == RSE::LIGHT_DIRECTIONAL ? 100000.0 : 1000.0;
 	light.param[RSE::LIGHT_PARAM_CONTACT_SHADOW_BLUR] = 1.0;
+	light.param[RSE::LIGHT_PARAM_SPECULAR_SIZE] = 0.0;
 
 	light_owner.initialize_rid(p_light, light);
 }
@@ -228,6 +229,14 @@ void LightStorage::light_set_cull_mask(RID p_light, uint32_t p_mask) {
 
 	light->version++;
 	light->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_CULL_MASK);
+}
+
+void LightStorage::light_set_flicker(RID p_light, float p_mains_frequency, float p_depth, float p_phase) {
+	Light *light = light_owner.get_or_null(p_light);
+	ERR_FAIL_NULL(light);
+	light->flicker_frequency = MAX(p_mains_frequency, 0.0f);
+	light->flicker_depth = CLAMP(p_depth, 0.0f, 1.0f);
+	light->flicker_phase = p_phase;
 }
 
 void LightStorage::light_set_shadow_caster_mask(RID p_light, uint32_t p_caster_mask) {

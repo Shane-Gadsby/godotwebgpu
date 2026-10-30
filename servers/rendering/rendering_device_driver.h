@@ -1172,6 +1172,12 @@ public:
 		// R8 / RG8 rather than L8 / LA8, and an opaque render target's last
 		// passes write alpha 1 themselves (render_target_needs_opaque_alpha()).
 		API_TRAIT_TEXTURE_VIEW_SWIZZLE,
+		// If non-zero, reading a GPU buffer back is asynchronous: a synchronous
+		// buffer_get_data() returns nothing until the readback arrives (WebGPU,
+		// buffer_get_readback_status()). Shared code that would read back data it
+		// uploaded itself keeps a CPU copy instead (MeshStorage's MultiMesh buffer,
+		// webgpu_notes/TASKS.md §2.55).
+		API_TRAIT_BUFFER_READBACK_ASYNC,
 	};
 
 	enum ShaderChangeInvalidation {

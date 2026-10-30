@@ -2680,7 +2680,7 @@ the shader-corpus / precompile steps; grep `.github/` for `tint`), (2) a cold ca
 (expected; only a second cold run is a problem), and (3) the `dev_mode=yes` web build of the SPIRV-Cross wrapper (the
 one part built with `-fwasm-exceptions`). Effort: one CI run's watching, ~15 min.
 
-### 2.55 Web: MultiMesh set with `multimesh_set_buffer()`, then edited per instance, loses the other instances `OPEN` *(found by work task 81)*
+### 2.55 Web: MultiMesh set with `multimesh_set_buffer()`, then edited per instance, loses the other instances `DONE 2026-10-30` → §4.100 *(found by work task 81)*
 
 Pre-existing (before task 81 too). `MeshStorage::_multimesh_make_local()` builds the CPU cache by reading the GPU buffer
 back; on the web that synchronous read has nothing yet (zeros before §4.96, empty now, and the cache starts as zeros
@@ -2689,7 +2689,7 @@ uploads zeros for every instance but the edited one with the next dirty region. 
 copy in `_multimesh_set_buffer()` (make the cache local from `p_buffer` directly) so no readback is ever needed; test
 with a scene that sets a buffer and then moves one instance, natively and in Chrome. Effort: ~2 h with the test.
 
-### 2.56 Native MP3 playback ends and loops ~50 ms before `AudioStreamMP3.get_length()` `OPEN` *(found by work task 82)*
+### 2.56 Native MP3 playback ends and loops ~50 ms before `AudioStreamMP3.get_length()` `DONE 2026-10-30` → §4.101 *(found by work task 82)*
 
 Natively (PulseAudio driver) `tone.mp3` finishes at 0.497 s against a reported length of 0.548 s, and its loop reads
 40-60 ms ahead of a loop of `get_length()`; the web's Sample rendering loops at `get_length()` and matches the model. One
@@ -2698,7 +2698,7 @@ of the two is wrong for parity, likely the MP3 decoder's padding/delay handling 
 natively with a real audio driver (old and new `main.gd`). Look at the MP3 stream module against an MP3 with known
 encoder padding. Effort: ~2-3 h.
 
-### 2.57 Lights: a mains/flicker frequency option (50 Hz, 60 Hz, 120 Hz) `OPEN` *(user request, 2026-10-30; work task 85)*
+### 2.57 Lights: a mains/flicker frequency option (50 Hz, 60 Hz, 120 Hz) `PHASE 1 DONE 2026-10-30` → §4.102; phase 2 → §2.65 *(user request, 2026-10-30; work task 85)*
 
 The user asked for a light frequency option on the lights, e.g. 50 Hz, 60 Hz, 120 Hz. Real lights on AC mains pulse in
 brightness, and a camera shows it whenever its exposure does not average whole cycles: steady at 1/50 or 1/100 s under
@@ -2728,7 +2728,7 @@ Lead's sketch:
   in all three renderers; WebGPU parity with native (`run_forward_plus.mjs --parity`, a new arm). Look hand-off with
   videos (it plays out over time). Effort: phase 1 ~half a day, phase 2 ~1 day.
 
-### 2.58 Camera frame rate (24, 25, 30, 60 fps ...) `OPEN` *(user request, 2026-10-30; work task 86)*
+### 2.58 Camera frame rate (24, 25, 30, 60 fps ...) `DONE 2026-10-30` → §4.103 *(user request, 2026-10-30; work task 86)*
 
 The user asked for a camera fps option, e.g. 24 fps, 25 fps, 60 fps. Today the camera batch's shutter angle is measured
 against the render frame time (§4.51: blur = motion per frame × exposure time / frame time), so 180° means 1/330 s at
@@ -2754,7 +2754,7 @@ Lead's sketch:
   method), held frames change exactly on camera-frame boundaries, 0 is bit-identical to today in all three renderers,
   WebGPU parity. Look hand-off with videos at 24 fps held and not held. Effort: exposure ~half a day, frame holding ~1 day.
 
-### 2.59 Shutter angle on CameraAttributesPhysical and CameraAttributesPractical `OPEN` *(user request, 2026-10-30; work task 87)*
+### 2.59 Shutter angle on CameraAttributesPhysical and CameraAttributesPractical `DONE 2026-10-30` → §4.104 *(user request, 2026-10-30; work task 87)*
 
 The user asked for a shutter angle on the physical and practical camera attributes. Today the angle only exists as
 `motion_blur_shutter_angle` in the base class's Motion Blur group (§4.51), measured against the render frame time, and
@@ -2780,7 +2780,7 @@ Lead's sketch:
   measurement, within 1%); Physical in Angle mode gives the same EV as the equivalent speed; defaults bit-identical to
   today in all three renderers; WebGPU parity. Effort: ~half a day after §2.58.
 
-### 2.60 A light's size shapes its specular highlight (soft, softbox-sized catchlights) `OPEN` *(camera-sim request, 2026-10-30; work task 88, tag camera-sim)*
+### 2.60 A light's size shapes its specular highlight (soft, softbox-sized catchlights) `DONE 2026-10-30` → §4.105 *(camera-sim request, 2026-10-30; work task 88, tag camera-sim)*
 
 camera-sim (Ava's eyes): the catchlights are hard 1-2 px pure-white sparkles that hop between pixels as she moves.
 Measured by camera-sim natively on Vulkan (1080p, 200 mm close-up, 12 consecutive frames): as is, 2-13 clipped pixels a
@@ -2850,7 +2850,7 @@ Lead's notes:
   renderers; WebGPU parity. Look hand-off: screenshots of each variant and a video of the eyes moving. Effort: area-light
   evaluation ~2 h; the omni/spot opt-in ~1 day (Forward+ and Mobile shaders, light data, docs).
 
-### 2.61 AreaLight3D shadows: no silhouette, a dotted acne-like darkening over everything lit `OPEN` *(found by camera-sim's task 88 evaluation, 2026-10-30; work task 89, tag camera-sim)*
+### 2.61 AreaLight3D shadows: no silhouette, a dotted acne-like darkening over everything lit `ANSWERED 2026-10-30` → §4.106: upstream behavior, not the fork *(found by camera-sim's task 88 evaluation, 2026-10-30; work task 89, tag camera-sim)*
 
 In camera-sim's studio scene (native Vulkan, Forward+, editor of 07:53 Oct 30), an AreaLight3D (0.6 x 0.6 m, normalize
 energy on, range 10) with shadows on casts **no silhouette shadow of the subject on the backdrop** (a SpotLight3D at the
@@ -2903,6 +2903,15 @@ Effort: ~2-4 h.
 `self_test_forward_plus.mjs` fails "no feature has a zero threshold -- dof_nan, glow_nan, ssr_nan, auto_exposure_nan"
 on `webgpu-4.8` before the sync too (the arms came with the NaN-containment work). Either give them the threshold
 their delta test needs or mark them parity-only in `features.mjs` the way the self-test expects. Effort: ~30 min.
+
+### 2.65 Light flicker phase 2: rolling-shutter bands, per pixel in Forward+ `OPEN` *(from §4.102, work task 85)*
+
+Phase 1 scales each flickering light's energy by its waveform averaged over the frame's exposure (all renderers). With
+a rolling shutter each row exposes at a different time, so the bands need the factor per pixel: the light's mains
+frequency, depth and phase in the GPU light data, and the frame time, exposure and readout in the scene data, evaluated
+at the row's readout time in light_process_omni/spot. LightData has one spare float left after §4.105 (specular_size
+took the other), so this grows the struct: check the converter smoke references and the WGSL text scans after it.
+Test: band count = readout time x pulse rate, drifting; off bit-identical. Effort: ~1 day.
 
 ## 3. Traps and lessons — read before debugging
 
@@ -6086,6 +6095,63 @@ so builds now say **4.8.beta**: templates install to `export_templates/4.8.beta/
 correct frame is unchanged, and are judged from above (`maxDelta: 0.05`, enforced by `run_forward_plus.mjs`), as the
 render-info arms already were. The exemption now covers any arm with a real upper bound (`0 < maxDelta < 1`), so a
 zero or huge bound still fails. Self-test PASS.
+
+### 4.100 Web: a MultiMesh set with multimesh_set_buffer() keeps its other instances when one is edited (October 2026) *(work task 83, §2.55)*
+
+New `RDD::API_TRAIT_BUFFER_READBACK_ASYNC` (WebGPU 1, base default 0). On such a driver MeshStorage keeps the last
+`multimesh_set_buffer()` data (copy on write: no copy unless the caller changes its array) and makes the CPU cache
+local from it, and recomputes a mesh change's AABB from it, instead of a GPU read that returns nothing yet. Native is
+unchanged. `async_readback`'s new `multimesh_set_buffer_then_edit`: 75/75 natively and in Chrome, 0 console errors.
+
+### 4.101 MP3: get_length() and seek() leave out the encoder delay and padding (October 2026) *(work task 84, §2.56)*
+
+`drmp3_get_mp3_and_pcm_frame_count()` counts the LAME/Xing delay and padding that reading skips (gapless): tone.mp3
+reported 0.549 s for 0.500 s of audio (ffmpeg's gapless decode agrees), so it ended and looped 49 ms early. Length is
+now frames minus delay minus padding, and seek() adds the delay (dr_mp3 numbers frames from the decoded start). The
+web audio fixture's Ogg/MP3 length check went from 60 ms to 2 ms; audio e2e passes natively and on the web.
+
+### 4.102 Light3D flicker on AC mains, phase 1 (October 2026) *(work task 85, §2.57; user answer `light-flicker-label`)*
+
+`Light3D.flicker_frequency` (Off / 50 Hz / 60 Hz / Custom mains, the lamp pulsing at twice it), `flicker_depth`,
+`flicker_phase`, `flicker_custom_frequency`; `RenderingServer.light_set_flicker()`. Brightness 1 + depth cos(2 pi 2f t
++ phase) averaged in closed form over the frame's exposure (`RendererLightStorage::light_flicker_factor`;
+`camera_attributes_get_exposure_time`: the physical shutter, else the angle's share of the camera or render frame),
+from the engine clock; applied in RD (Forward+, Mobile) and GLES3. `webgpu_tests/camera_timing`: steady at 1/100 s
+(spread 0.0), beating at 1/1000 s (0.47). Phase 2 (rolling-shutter bands) is §2.65.
+
+### 4.103 CameraAttributes.frame_rate and frame_rate_hold (October 2026) *(work task 86, §2.58; user answer `camera-fps-hold`)*
+
+With a camera frame rate, the shutter angle is a share of the camera's frame (180 degrees at 24 fps is 1/48 s on any
+display), and an exposure time and the rolling-shutter readout are capped at one camera frame. `frame_rate_hold`
+(default off, not in the editor) makes RendererViewport draw the camera's viewport only when a camera frame is due and
+keep the image between; a skipped frame records the camera (`RenderingMethod::camera_record_held_frame`, camera setup
+moved into `RendererSceneCull::_camera_data_for_viewport()`), so motion vectors stay one frame long and blur stays
+velocity x exposure. camera_timing: a 24 fps hold changes its image 24 times in 60 frames, a free camera 59 (9/9 camera_timing checks on Forward+, Mobile, Compatibility).
+
+### 4.104 The shutter angle is an exposure setting; Physical Speed/Angle mode (October 2026) *(work task 87, §2.59; user answer `physical-shutter-angle-mode`)*
+
+`CameraAttributes.exposure_shutter_angle` (`motion_blur_shutter_angle` deprecated: still loads, hidden, not saved).
+`CameraAttributesPhysical.exposure_shutter_mode`: Speed as before; Angle exposes for angle / 360 / frame_rate (24 fps
+when 0), which sets the brightness under physical light units and the blur, and shows the speed it amounts to
+read-only. camera_timing: 180 degrees at 24 fps is 1/48 s, at 50 fps 1/100 s; old scenes load.
+
+### 4.105 Light3D.light_specular_size (October 2026) *(work task 88, §2.60; user answer `light-specular-size`; camera-sim)*
+
+Omni and spot lights: the GGX alpha of their specular gets + size / (2 x distance) (roughness widening), through a
+shader-private `light_specular_alpha_widen` set around light_compute() in light_process_omni/spot; LightData's spare
+`pad[0]` is now `specular_size`. A softbox-sized key light gives a softbox-sized, unclipped catchlight on a
+near-mirror, shrinking with distance; no PCSS, no NdotL wrap, diffuse unchanged; 0 is bit-identical (parity 103/103).
+Forward+ and Mobile, not Compatibility. camera_timing: a 0.04-roughness sphere's highlight goes from a clipped 4 px point
+to a 47 px catchlight peaking at 0.79 with a 0.6 m size (Mobile alike).
+
+### 4.106 AreaLight3D shadows are upstream's behavior (October 2026) *(work task 89, §2.61)*
+
+Minimal scene (a box before a wall, one shadowed light, native Vulkan): the area light's shadow is present but a very
+soft, dotted blob with no umbra, where a spot casts a crisp one. The fork's only change to `light_process_area()` is
+reading the shadow atlas through `textureLod_linear_depth()`; swapping upstream's two reads back gives the same frame
+(mean 0.0002, sampling noise). So it is upstream Godot's own area shadow (PCSS-style sampling noise meant for TAA), not
+the fork; no open upstream issue describes it (#119183, #120162, #120412, #120742 are closed). Off camera-sim's path
+since §4.105. Reporting it upstream is the user's call (board hand-off `area-light-shadow-upstream`).
 
 ## 5. References — retired docs
 

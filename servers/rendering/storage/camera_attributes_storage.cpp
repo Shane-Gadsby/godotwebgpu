@@ -557,6 +557,35 @@ void RendererCameraAttributes::camera_attributes_set_rolling_shutter(RID p_camer
 	cam_attributes->rolling_shutter_readout_time = MAX(p_readout_time, 0.0f);
 }
 
+void RendererCameraAttributes::camera_attributes_set_frame_rate(RID p_camera_attributes, float p_frame_rate, bool p_hold) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->frame_rate = MAX(p_frame_rate, 0.0f);
+	cam_attributes->frame_rate_hold = p_hold;
+}
+
+float RendererCameraAttributes::camera_attributes_get_frame_rate(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	return cam_attributes ? cam_attributes->frame_rate : 0.0f;
+}
+
+float RendererCameraAttributes::camera_attributes_get_held_frame_rate(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	return cam_attributes && cam_attributes->frame_rate_hold ? cam_attributes->frame_rate : 0.0f;
+}
+
+double RendererCameraAttributes::camera_attributes_get_exposure_time(RID p_camera_attributes, double p_frame_time) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes) {
+		return 0.0;
+	}
+	const double frame = cam_attributes->frame_rate > 0.0f ? 1.0 / cam_attributes->frame_rate : MAX(p_frame_time, 0.0);
+	if (cam_attributes->motion_blur_shutter_time > 0.0f) {
+		return frame > 0.0 ? MIN((double)cam_attributes->motion_blur_shutter_time, frame) : (double)cam_attributes->motion_blur_shutter_time;
+	}
+	return cam_attributes->motion_blur_shutter_angle / 360.0 * frame;
+}
+
 RendererCameraAttributes::ShutterMotion RendererCameraAttributes::camera_attributes_get_shutter_motion(RID p_camera_attributes, double p_frame_time) {
 	ShutterMotion motion;
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
@@ -567,10 +596,16 @@ RendererCameraAttributes::ShutterMotion RendererCameraAttributes::camera_attribu
 	// measure against; take 60 fps so a camera moved while the game is frozen still blurs as a camera would.
 	const double frame_time = p_frame_time > 1e-6 ? p_frame_time : 1.0 / 60.0;
 
+	// A camera with its own frame rate exposes for a share of its own frame, not the render's: 180 degrees at 24 fps is
+	// 1/48 s on any display. It cannot expose or read out for longer than that frame.
+	const double camera_frame = cam_attributes->frame_rate > 0.0f ? 1.0 / cam_attributes->frame_rate : 0.0;
 	if (cam_attributes->motion_blur_enabled && cam_attributes->motion_blur_max_length > 0.0f) {
 		double exposure_frames;
 		if (cam_attributes->motion_blur_shutter_time > 0.0f) {
-			exposure_frames = cam_attributes->motion_blur_shutter_time / frame_time;
+			const double exposure = camera_frame > 0.0 ? MIN((double)cam_attributes->motion_blur_shutter_time, camera_frame) : (double)cam_attributes->motion_blur_shutter_time;
+			exposure_frames = exposure / frame_time;
+		} else if (camera_frame > 0.0) {
+			exposure_frames = cam_attributes->motion_blur_shutter_angle / 360.0 * camera_frame / frame_time;
 		} else {
 			exposure_frames = cam_attributes->motion_blur_shutter_angle / 360.0;
 		}
@@ -578,7 +613,8 @@ RendererCameraAttributes::ShutterMotion RendererCameraAttributes::camera_attribu
 		motion.max_length = cam_attributes->motion_blur_max_length;
 	}
 	if (cam_attributes->rolling_shutter_enabled) {
-		motion.rolling_shutter = cam_attributes->rolling_shutter_readout_time * 0.001 / frame_time;
+		const double readout = cam_attributes->rolling_shutter_readout_time * 0.001;
+		motion.rolling_shutter = (camera_frame > 0.0 ? MIN(readout, camera_frame) : readout) / frame_time;
 	}
 	return motion;
 }

@@ -59,6 +59,7 @@ public:
 		PARAM_TRANSMITTANCE_BIAS = RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS,
 		PARAM_INTENSITY = RSE::LIGHT_PARAM_INTENSITY,
 		PARAM_CONTACT_SHADOW_BLUR = RSE::LIGHT_PARAM_CONTACT_SHADOW_BLUR,
+		PARAM_SPECULAR_SIZE = RSE::LIGHT_PARAM_SPECULAR_SIZE,
 		PARAM_MAX = RSE::LIGHT_PARAM_MAX
 	};
 
@@ -68,7 +69,21 @@ public:
 		BAKE_DYNAMIC,
 	};
 
+	// The AC mains a lamp runs on; it pulses at twice this frequency.
+	enum FlickerFrequency {
+		FLICKER_OFF,
+		FLICKER_50_HZ,
+		FLICKER_60_HZ,
+		FLICKER_CUSTOM,
+	};
+
 private:
+	FlickerFrequency flicker_frequency = FLICKER_OFF;
+	float flicker_custom_frequency = 50.0;
+	float flicker_depth = 0.5;
+	float flicker_phase = 0.0;
+	void _update_flicker();
+
 	Color color;
 	real_t param[PARAM_MAX] = {};
 	bool shadow = false;
@@ -141,6 +156,15 @@ public:
 	void set_shadow_reverse_cull_face(bool p_enable);
 	bool get_shadow_reverse_cull_face() const;
 
+	void set_flicker_frequency(FlickerFrequency p_frequency);
+	FlickerFrequency get_flicker_frequency() const;
+	void set_flicker_custom_frequency(float p_frequency);
+	float get_flicker_custom_frequency() const;
+	void set_flicker_depth(float p_depth);
+	float get_flicker_depth() const;
+	void set_flicker_phase(float p_phase);
+	float get_flicker_phase() const;
+
 	void set_shadow_caster_mask(uint32_t p_caster_mask);
 	uint32_t get_shadow_caster_mask() const;
 
@@ -168,6 +192,7 @@ public:
 
 VARIANT_ENUM_CAST(Light3D::Param);
 VARIANT_ENUM_CAST(Light3D::BakeMode);
+VARIANT_ENUM_CAST(Light3D::FlickerFrequency);
 
 class DirectionalLight3D : public Light3D {
 	GDCLASS(DirectionalLight3D, Light3D);

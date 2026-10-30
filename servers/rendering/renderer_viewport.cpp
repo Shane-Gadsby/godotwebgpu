@@ -1263,6 +1263,27 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 
 		visible = visible && vp->size.x > 1 && vp->size.y > 1 && vp->view_count > 0;
 
+		// A camera holding its frames at its own frame rate: draw only when its next frame is due, keep the last image
+		// otherwise (the render target is left as it is), and record the camera so motion vectors stay one frame long.
+		if (visible && !vp->disable_3d && vp->camera.is_valid() && vp->scenario.is_valid()) {
+			const RID attributes = RSG::scene->camera_get_effective_attributes(vp->camera, vp->scenario);
+			const float held_fps = attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_held_frame_rate(attributes) : 0.0f;
+			if (held_fps > 0.0f) {
+				const double camera_frame = 1.0 / held_fps;
+				vp->held_frame_time += RSG::rasterizer->get_frame_delta_time();
+				if (vp->held_frame_drawn && vp->held_frame_time < camera_frame) {
+					RSG::scene->camera_record_held_frame(vp->camera, vp->self, vp->size);
+					visible = false;
+				} else {
+					vp->held_frame_time = vp->held_frame_drawn ? Math::fmod(vp->held_frame_time, camera_frame) : 0.0;
+					vp->held_frame_drawn = true;
+				}
+			} else {
+				vp->held_frame_drawn = false;
+				vp->held_frame_time = 0.0;
+			}
+		}
+
 		// Diagnostic: log each viewport's visibility on first 3 frames.
 		{
 		}

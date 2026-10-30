@@ -386,6 +386,11 @@ public:
 	virtual void render_empty_scene(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_scenario, RID p_shadow_atlas, float p_window_output_max_value) = 0;
 
 	virtual void render_camera(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_camera, RID p_scenario, RID p_viewport, Size2 p_viewport_size, uint32_t p_jitter_phase_count, float p_mesh_lod_threshold, RID p_shadow_atlas, float p_window_output_max_value, RenderingServerTypes::RenderInfo *r_render_info = nullptr) = 0;
+	// A viewport whose camera holds its frames (CameraAttributes.frame_rate_hold) skips rendering between camera frames.
+	// The attributes the camera renders with (its own, else the scenario's) say whether; a skipped frame still records
+	// the camera, so that the next render's motion vectors span one frame, as the instances' do.
+	virtual RID camera_get_effective_attributes(RID p_camera, RID p_scenario) = 0;
+	virtual void camera_record_held_frame(RID p_camera, RID p_viewport, Size2 p_viewport_size) = 0;
 
 	virtual void update() = 0;
 	virtual void render_probes() = 0;
