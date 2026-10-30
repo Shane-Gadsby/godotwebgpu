@@ -440,7 +440,7 @@ Error GDScriptAnalyzer::resolve_class_inheritance(GDScriptParser::ClassNode *p_c
 			if (p_class->extends_path.is_relative_path()) {
 				p_class->extends_path = class_type.script_path.get_base_dir().path_join(p_class->extends_path).simplify_path();
 			}
-			if (!p_class->extends_path.has_extension(GDScriptLanguage::get_singleton()->get_extension())) {
+			if (!GDScriptLanguage::is_gdscript_path(p_class->extends_path)) { // GDB
 				push_error(vformat(R"("%s" is not a GDScript.)", p_class->extends_path), p_class, p_class->extends_end_line, p_class->extends_start_column, p_class->extends_end_line, p_class->extends_end_column);
 				return ERR_PARSE_ERROR;
 			}
@@ -477,7 +477,7 @@ Error GDScriptAnalyzer::resolve_class_inheritance(GDScriptParser::ClassNode *p_c
 
 				if (GDScript::is_canonically_equal_paths(base_path, parser->script_path)) {
 					base = parser->head->self_type;
-				} else if (base_path.has_extension(GDScriptLanguage::get_singleton()->get_extension())) {
+				} else if (GDScriptLanguage::is_gdscript_path(base_path)) { // GDB
 					Ref<GDScriptParserRef> base_parser = parser->get_depended_parser_for(base_path);
 					if (base_parser.is_null()) {
 						push_error(vformat(R"(Could not resolve super class "%s".)", name), id);
