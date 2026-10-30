@@ -71,6 +71,9 @@ public:
 	virtual PackedInt32Array camera_get_monitoring_histogram(RID p_camera, RSE::CameraMonitoringHistogramChannel p_channel) const = 0;
 	virtual uint64_t camera_get_monitoring_histogram_serial(RID p_camera) const = 0;
 	virtual bool is_camera(RID p_camera) const = 0;
+#ifndef XR_DISABLED
+	virtual bool is_xr_camera(RID p_camera) const = 0;
+#endif
 
 	virtual RID occluder_allocate() = 0;
 	virtual void occluder_initialize(RID p_occluder) = 0;

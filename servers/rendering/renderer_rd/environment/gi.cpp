@@ -4037,7 +4037,7 @@ void GI::RenderBuffersGI::free_data() {
 	}
 }
 
-void GI::process_gi(Ref<RenderSceneBuffersRD> p_render_buffers, const RID *p_normal_roughness_slices, RID p_voxel_gi_buffer, RID p_environment, uint32_t p_view_count, const Projection *p_projections, const Vector3 *p_eye_offsets, const Transform3D &p_cam_transform, const PagedArray<RID> &p_voxel_gi_instances) {
+void GI::process_gi(Ref<RenderSceneBuffersRD> p_render_buffers, const RID *p_normal_roughness_slices, const RID *p_voxel_gi_buffer_slices, RID p_environment, uint32_t p_view_count, const Projection *p_projections, const Vector3 *p_eye_offsets, const Transform3D &p_cam_transform, const PagedArray<RID> &p_voxel_gi_instances) {
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
 
@@ -4258,7 +4258,7 @@ void GI::process_gi(Ref<RenderSceneBuffersRD> p_render_buffers, const RID *p_nor
 				// gi.glsl declares this binding `utexture2D voxel_gi_buffer` (an unsigned-integer
 				// sample type) -- when VoxelGI is inactive, the fallback must match that sample
 				// type, not DEFAULT_RD_TEXTURE_BLACK's Float/Unorm format.
-				RID buffer = p_voxel_gi_buffer.is_valid() ? p_voxel_gi_buffer : texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_UINT);
+				RID buffer = p_voxel_gi_buffer_slices[v].is_valid() ? p_voxel_gi_buffer_slices[v] : texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_UINT);
 				u.append_id(buffer);
 				uniforms.push_back(u);
 			}
