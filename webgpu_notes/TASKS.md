@@ -3692,6 +3692,15 @@ fails the MinGW template (`expected unqualified-id before '='`); also `small`, `
 `scene/` changes, build `platform=windows use_mingw=yes target=template_release d3d12=no` and the minimal template
 (`linux_builds.yml`'s flags), and dump the extension API to check no builtin class gained an enum.
 
+
+113. **A script error in the Forward+ fixture fails every later parity arm, not just its own** (2026-10-30, the 4.8-beta
+   sync, work task 90). The native reference renders every arm in one editor process; `fp_scene.gd`'s reset assigned
+   `shadow_contact_shadows_opacity`, a property upstream removed (f2b24fac07), so each reset aborted at that line and the
+   lines after it (hiding the omni and spot lights, ...) never ran. Each arm then rendered with the previous arms' lights
+   still on: 0.3 off native on the first arms, 13-43 by the material arms, then a GPU out-of-memory that looked like a
+   driver regression. The web side reloads per arm and was right all along. Cost: a full parity run plus a file-level
+   bisect of the renderer. `run_forward_plus.mjs --parity` now fails at once when the native run logs a `SCRIPT ERROR`.
+   After an upstream sync, grep fixtures and test projects for removed properties first (`SCRIPT ERROR` in any log).
 ---
 
 ### Measurement traps (found 2026-10-15)

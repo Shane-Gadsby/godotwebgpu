@@ -277,6 +277,15 @@ async function main() {
       console.log((r.stdout || '').split('\n').slice(-8).join('\n'));
       process.exit(2);
     }
+    // A script error in fp_scene.gd aborts that configuration's reset halfway, and every later arm then renders
+    // with the leftovers (lights still on, ...): the whole matrix fails parity with no hint why. On the 4.8-beta
+    // sync an assignment to a property upstream had removed did exactly that (TASKS §3 trap 113).
+    const scriptErrors = `${r.stdout || ''}\n${r.stderr || ''}`.split('\n').filter((l) => l.includes('SCRIPT ERROR'));
+    if (scriptErrors.length) {
+      console.log(`  FAIL -- the native reference run logged ${scriptErrors.length} script error(s); fix fp_scene.gd first:`);
+      console.log([...new Set(scriptErrors)].slice(0, 5).map((l) => `    ${l}`).join('\n'));
+      process.exit(1);
+    }
   }
 
   const { server, url } = await startServer(parity);
