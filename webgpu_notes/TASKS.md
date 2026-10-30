@@ -2913,6 +2913,36 @@ at the row's readout time in light_process_omni/spot. LightData has one spare fl
 took the other), so this grows the struct: check the converter smoke references and the WGSL text scans after it.
 Test: band count = readout time x pulse rate, drifting; off bit-identical. Effort: ~1 day.
 
+### 2.66 Unused features must not slow WebGPU rendering `OPEN` *(user request, 2026-10-30; work task 94)*
+
+The user asked that every feature added over the last few weeks cost nothing meaningful when it is not used. The
+features: the camera batch (grain, LUT, lens optics and the CameraEffects UBO, motion blur and rolling shutter, metering,
+auto white balance, noise reduction, sharpening, monitoring overlays and histograms, bokeh shapes, tilt-shift,
+starburst, halation, lens flare, veiling glare, longitudinal CA, local exposure, light shafts; §4.47-4.59), micro
+shadows, camera frame rate/hold and shutter angle (§4.103-4.104), light flicker (§4.102, §2.65 phase 2: per-light and
+SceneData growth, a branch per omni/spot), light_specular_size (§4.105), the MultiMesh buffer copy (§4.100), MetaHuman,
+Box3D (default physics, CPU), braced GDScript. Off means their defaults, as a project that never touches them.
+
+Method (compare like with like, Forward+ on the RTX 4080 and the Razr 60, Chrome; Firefox once):
+1. **Baseline**: `6be4634c33` (2026-10-20, before MetaHuman and the camera batch). The 4.8 beta sync
+   (§4.98) lies in between, so also build a third point: the sync merge's upstream parent alone is not runnable with the
+   fork's driver, so instead compare HEAD against HEAD with each feature group's always-on cost removed (ablation
+   builds), and use the baseline only for the overall number.
+2. **Per frame on the CPU**: `perf_guard` (WebGPU calls and bytes per frame) and `perf_guard/api_profile.mjs` /
+   `cpu_steady.mjs` on the scene smoketest exports and the benchmark scenes (`webgpu_tests/benchmark`): anything
+   new per frame with the features off (uniform uploads, CameraEffects UBO writes, metering or histogram readbacks,
+   per-viewport frame-hold lookups, light flicker factors).
+3. **Per frame on the GPU**: `perf_guard/gpu_time.mjs --uncapped --passes`: passes that run although their feature
+   is off, and the scene pass itself (shader branches, larger LightData/SceneData, specialization constants that do
+   not fold). Shader size: WGSL of the scene shader variants then and now (`wgsl_precompiled.gen.h`), and pipeline
+   count at load (startup_phases).
+4. **The ramp benchmark** (`run_ramp.sh`, README table) for the overall number: within noise of the baseline, or the
+   difference explained by the sync.
+5. Anything above noise gets fixed so the off path skips it (a specialization constant or define instead of a runtime
+   branch, a UBO write only on change, a pass not dispatched), each with before/after numbers.
+Deliverable: a table per feature group (CPU ms, GPU ms, calls, bytes, shader size; off vs baseline), fixes, and a
+perf_guard budget that would catch a new always-on cost. Effort: ~1-2 days.
+
 ## 3. Traps and lessons — read before debugging
 
 - **Profiling a phone over USB (2026-10-17):** `adb reverse` + a localhost server gives WebGPU a secure
