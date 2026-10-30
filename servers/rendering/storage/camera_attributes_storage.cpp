@@ -574,6 +574,18 @@ float RendererCameraAttributes::camera_attributes_get_held_frame_rate(RID p_came
 	return cam_attributes && cam_attributes->frame_rate_hold ? cam_attributes->frame_rate : 0.0f;
 }
 
+double RendererCameraAttributes::camera_attributes_get_exposure_time(RID p_camera_attributes, double p_frame_time) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes) {
+		return 0.0;
+	}
+	const double frame = cam_attributes->frame_rate > 0.0f ? 1.0 / cam_attributes->frame_rate : MAX(p_frame_time, 0.0);
+	if (cam_attributes->motion_blur_shutter_time > 0.0f) {
+		return frame > 0.0 ? MIN((double)cam_attributes->motion_blur_shutter_time, frame) : (double)cam_attributes->motion_blur_shutter_time;
+	}
+	return cam_attributes->motion_blur_shutter_angle / 360.0 * frame;
+}
+
 RendererCameraAttributes::ShutterMotion RendererCameraAttributes::camera_attributes_get_shutter_motion(RID p_camera_attributes, double p_frame_time) {
 	ShutterMotion motion;
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);

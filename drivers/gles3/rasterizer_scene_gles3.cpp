@@ -1747,6 +1747,9 @@ void RasterizerSceneGLES3::_setup_environment(const RenderDataGLES3 *p_render_da
 
 // Puts lights into Uniform Buffers. Needs to be called before _fill_list as this caches the index of each light in the Uniform Buffer
 void RasterizerSceneGLES3::_setup_lights(const RenderDataGLES3 *p_render_data, bool p_using_shadows, uint32_t &r_directional_light_count, uint32_t &r_omni_light_count, uint32_t &r_spot_light_count, uint32_t &r_area_light_count, uint32_t &r_directional_shadow_count) {
+	// Flickering lights are averaged over this frame's exposure, from the engine clock.
+	const double flicker_time = RSG::rasterizer->get_total_time();
+	const double flicker_exposure = RSG::camera_attributes->camera_attributes_get_exposure_time(p_render_data->camera_attributes, RSG::rasterizer->get_frame_delta_time());
 	GLES3::LightStorage *light_storage = GLES3::LightStorage::get_singleton();
 	GLES3::Config *config = GLES3::Config::get_singleton();
 
@@ -1801,7 +1804,7 @@ void RasterizerSceneGLES3::_setup_lights(const RenderDataGLES3 *p_render_data, b
 
 				float sign = light_storage->light_is_negative(base) ? -1 : 1;
 
-				light_data.energy = sign * light_storage->light_get_param(base, RSE::LIGHT_PARAM_ENERGY);
+				light_data.energy = sign * light_storage->light_get_param(base, RSE::LIGHT_PARAM_ENERGY) * light_storage->light_get_flicker_factor(base, flicker_time, flicker_exposure);
 
 				if (is_using_physical_light_units()) {
 					light_data.energy *= light_storage->light_get_param(base, RSE::LIGHT_PARAM_INTENSITY);
@@ -2044,7 +2047,7 @@ void RasterizerSceneGLES3::_setup_lights(const RenderDataGLES3 *p_render_data, b
 			}
 		}
 
-		float energy = sign * light_storage->light_get_param(base, RSE::LIGHT_PARAM_ENERGY) * fade;
+		float energy = sign * light_storage->light_get_param(base, RSE::LIGHT_PARAM_ENERGY) * fade * light_storage->light_get_flicker_factor(base, flicker_time, flicker_exposure);
 
 		if (is_using_physical_light_units()) {
 			energy *= light_storage->light_get_param(base, RSE::LIGHT_PARAM_INTENSITY);
