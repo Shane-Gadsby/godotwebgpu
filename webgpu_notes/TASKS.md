@@ -2898,7 +2898,7 @@ move the pin, the CI `EM_VERSION` and the patch pins to 6.0.12 (dropping a patch
 6.0.9 stays. Test: the threads+dlink web template boots with a GDExtension, no `ASM_CONSTS`/heap-view errors.
 Effort: ~2-4 h.
 
-### 2.64 Forward+ matrix self-test: four NaN arms with a zero threshold `OPEN` *(pre-existing; found by §4.98)*
+### 2.64 Forward+ matrix self-test: four NaN arms with a zero threshold `DONE 2026-10-30` → §4.99 *(pre-existing; found by §4.98)*
 
 `self_test_forward_plus.mjs` fails "no feature has a zero threshold -- dof_nan, glow_nan, ssr_nan, auto_exposure_nan"
 on `webgpu-4.8` before the sync too (the arms came with the NaN-containment work). Either give them the threshold
@@ -6079,6 +6079,13 @@ so builds now say **4.8.beta**: templates install to `export_templates/4.8.beta/
   screenshot comparison (Chrome); `build-linux.sh` all 11 variants (27.5 min); camera-sim natively against a pre-sync
   baseline (worst frame 0.033 mean) and on the web (Forward+, start 4.2 s, both downloads, photo 1280x720 without
   overlays, 0 errors). Real-GPU tiers ran on Xvfb (`local_ci.sh` now does by default, and passes `WEBGPU_REAL_GPU=1`).
+
+### 4.99 Forward+ self-test accepts the NaN-containment arms (October 2026) *(work task 92, §2.64)*
+
+`self_test_forward_plus.mjs` called the four `*_nan` arms "zero threshold": they have `minDelta: 0` because their
+correct frame is unchanged, and are judged from above (`maxDelta: 0.05`, enforced by `run_forward_plus.mjs`), as the
+render-info arms already were. The exemption now covers any arm with a real upper bound (`0 < maxDelta < 1`), so a
+zero or huge bound still fails. Self-test PASS.
 
 ## 5. References — retired docs
 
