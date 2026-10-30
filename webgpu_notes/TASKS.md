@@ -2883,66 +2883,26 @@ light shadows, file one if absent (the user decides on reporting), and fix here 
 through the camera batch and renderer changes. Then check WebGPU (add an `area_light` arm to the Forward+ matrix with
 `--parity`, shared with §2.60) and Mobile. Effort: ~2-4 h to place it; the fix unknown.
 
-### 2.62 Sync with upstream Godot (4.8 beta) `OPEN` *(user request via camera-sim, 2026-10-30; work task 90, tag camera-sim)*
+### 2.62 Sync with upstream Godot (4.8 beta) `DONE 2026-10-30` → §4.98 *(user request via camera-sim; work task 90, tag camera-sim)*
 
-The user asked (from the camera-sim session) to pull the latest upstream Godot changes in. State on 2026-10-30 after
-`git fetch upstream`: `webgpu-4.8`'s merge-base with `upstream/master` is `e7cfa294a0` (2026-10-02, the §4.17 sync);
-`upstream/master` is `7be59b463a` (2026-10-29), **603 commits ahead**, and has gone to **4.8 beta** (`version.py`
-`status = "beta"`; the fork says `"dev"`). No `4.8` branch or 4.8 tag upstream yet, so the target is master's tip at
-merge time (record the hash); beta means feature freeze, a good point to sync. Plain merge since the lineage repair
-(§4.18), on a `sync/4.8-beta` branch like §4.3 (4.7.2) and §4.17 (4.8). Merge, not rebase; nobody pushes.
+Merged upstream master `7be59b463a` (4.8 beta) on `sync/4.8-beta`, verified, merged into `webgpu-4.8`. The camera-sim
+smoke check used for it (both downloads, native and web) is in `webgpu_notes/work/inputs/90-camera-sim-smoke/`: reuse
+it on the next sync.
 
-Known conflict spots:
-- `RenderingDevice::_stall_for_frame()`, restructured in §4.82.
-- The deliberate divergences from upstream, e.g. the one noted in §4.47 (line ~4942); grep §4 for "divergence".
-- Everything the camera batch touched: camera attributes, DOF, lights, motion blur, grain (§4.47-4.55), plus the
-  scene shaders the WebGPU passes depend on; the Box3D module against any physics-header changes (as in §4.17); the
-  braced GDScript files (`// GDB`); `platform/web` (shell, audio, render thread).
+### 2.63 Emscripten 6.0.12 for dlink+threads `OPEN` *(from §4.98)*
 
-Verification (the §4.17 lesson, trap 11: a green container suite missed two black-3D regressions):
-- `./webgpu_tests/local_ci.sh --dev-mode`; converter smoke against the stored references (`converter_smoke/run.sh`;
-  an upstream shader change can move bindings: regenerate the references only after reading why); shader corpus.
-- **Real GPU:** the Forward+ matrix with `--parity` (`WEBGPU_REAL_GPU=1`), Chrome and Firefox.
-- The other tiers touched by the merge: web audio, braced GDScript (`tests/braced_gdscript/run.sh`), Box3D scenes,
-  MetaHuman `run.sh`, async readback, editor drop.
-- Before a PR to `main`: MinGW Windows template and the minimal template (§3 trap 112), `pre-commit` from `origin/main`.
-- **camera-sim smoke check** (it depends on fork-only APIs: `CameraAttributesPhysical.dof_physical_blur_size` /
-  `dof_legacy_gather`, `sensor_size`, `Light3D.light_temperature_enabled`, `Camera3D.get_monitoring_histogram` /
-  `monitoring_histogram_*`, `monitoring_clean_texture_enabled` / `get_monitoring_clean_texture`,
-  `Texture2D.get_image_awaitable`, autofocus): on a scratch copy of camera-sim (never modify it), its main scene runs
-  natively with no errors, and in a web export from the **dlink nothreads** template (camera-sim's preset) both of
-  its downloads work. Editor and web templates must be rebuilt from the same commit, or camera-sim's baked shader cache
-  stops matching (tell camera-sim when the rebuilt pair is in place). Step by step below.
-- **camera-sim smoke check, step by step** (from camera-sim, 2026-10-30; scripts in
-  `webgpu_notes/work/inputs/90-camera-sim-smoke/`; run them against a scratch copy if anything could write into the
-  project; they write only to `<out_dir>`). The two downloads are buttons in the panel under the monitor: **Download
-  Image** (the recorded photo: `main.gd` `capture_camera_image()` turns on POV Cam's `monitoring_clean_texture_enabled`
-  and awaits `get_monitoring_clean_texture().get_image_awaitable()`: a 1280x720 RGB PNG with exposure, DOF, white
-  balance and noise but no zebras/false colour/guides) and **Download Screenshot** (the window: `get_viewport()
-  .get_texture().get_image_awaitable()`, 1656x968). On the web both go through `JavaScriptBridge.download_buffer()`
-  (`camera-sim-photo-<ts>.png` / `camera-sim-screenshot-<ts>.png`); natively they save to Downloads, so the native
-  check calls the functions directly.
-  1. *Native:* `run2.sh <out_dir>` (f/1.4 at 1/4000, focus 2.5 m, MFT/APS-C/FF, 24/200 mm, ISO 3200, Exaggerate
-     noise, `capture`) and `run.sh <out_dir>` (adds `hist`, white balance, zebras/false colour, `shotdl`), both driving
-     the real main scene through `ab_harness.gd` (`--fixed-fps 60`, a real display). Expect no `ERROR`/`SCRIPT ERROR`
-     lines (camera-sim fixed its "Skin bind 'Root'" error on 2026-10-30), `CAPTURE (1280, 720) 4`, the final `DUMP`
-     line ending `Focus: 5.0m / Meter: 0.0 EV (correct)`, and from `run.sh` `HIST total=921600` and
-     `SCREENSHOT (1656, 968)`. Frames can be compared with a pre-sync run; ~3% of pixels differ by 1 level run to run.
-  2. *Web:* export with `DISPLAY=:0 <editor> --path /mnt/109313D2109313D2/godot-game-dev/camera-sim --rendering-driver
-     vulkan --export-release "Web" <dir>/index.html` (not `--headless`: the bake is skipped), check
-     `md5(bin/godot.side.web.template_release.wasm32.nothreads.dlink.wasm) == md5(<dir>/index.side.wasm)`, then
-     `node dl2_test.mjs <dir> <out_dir>` (visible system Chrome with the Vulkan flags, port 8704, 1656x968; it clicks
-     Start, Zebra Lines, False Colour, Download Image, Download Screenshot, then double-clicks Download Image). Expect
-     `WebGPU 1.0 - Forward+`, `game up after Start` ~3.5 s (60-100 s means the bake does not match), `downloaded photo`
-     (~0.5 s) and `downloaded screenshot`, `double-click photo ok`, `ERRORS (excluding Skin bind): 0`; and
-     `<out_dir>/web_photo.png` 1280x720 RGB with no false colour (mean |diff| against `web_start.png`'s monitor crop
-     205,45-1449,745 resized to 1280x720 was 2.5, against 25.8 for `web_overlays.png`). The click coordinates assume
-     camera-sim's current layout. The script does not assert the adapter: confirm the `Forward+` line, and add the
-     project's adapter check if it is reused beyond this.
+Upstream (0fd56b4b3e) now requires Emscripten 6.0.12+ for `dlink_enabled=yes threads=yes`; this fork pins 6.0.9 with its
+two toolchain patches (`misc/emsdk_patches/`, §4.5), and `platform/web/detect.py` accepts a patched 6.0.9 in place of
+6.0.12. Find out what 6.0.12 fixes (whether it includes 0001's ASM_CONSTS race or 0002's eager heap views), then either
+move the pin, the CI `EM_VERSION` and the patch pins to 6.0.12 (dropping a patch it makes unnecessary), or record why
+6.0.9 stays. Test: the threads+dlink web template boots with a GDExtension, no `ASM_CONSTS`/heap-view errors.
+Effort: ~2-4 h.
 
-Timing: a sync touches most of the tree and needs full rebuilds of every variant; do it when no other build or worker
-is using the tree, and **land it before the camera tasks 85-88** (user, 2026-10-30), so they are built on the synced tree. Effort: §4.17
-(2,794 commits, 109 conflicts) took about a day plus the real-GPU follow-up; 603 commits, perhaps half that.
+### 2.64 Forward+ matrix self-test: four NaN arms with a zero threshold `OPEN` *(pre-existing; found by §4.98)*
+
+`self_test_forward_plus.mjs` fails "no feature has a zero threshold -- dof_nan, glow_nan, ssr_nan, auto_exposure_nan"
+on `webgpu-4.8` before the sync too (the arms came with the NaN-containment work). Either give them the threshold
+their delta test needs or mark them parity-only in `features.mjs` the way the self-test expects. Effort: ~30 min.
 
 ## 3. Traps and lessons — read before debugging
 
@@ -6057,6 +6017,35 @@ lead on the merged tree: CI-like Chrome (two cores) 2/2 PASS with timers up to 0
 Chrome PASS. Found: §2.56 (native MP3 ~50 ms short). `generator_no_skips` fails in a *threaded* export starved to two
 cores (before this too; CI exports only nothreads). Whether CI's frames got slower since `508f4ed3b2` was not measured
 (local lateness stayed below CI's); the next CI log carries `_late` values. §3 trap 111.
+
+### 4.98 Phase 18 — Godot 4.8 beta upstream sync (October 2026) *(work task 90, user request via camera-sim)*
+
+`webgpu-4.8` + upstream master `7be59b463a4798834d72d6d0a2942ddd01d920ee` (2026-10-29, `version.py` `status = "beta"`,
+so builds now say **4.8.beta**: templates install to `export_templates/4.8.beta/`, `build-linux.sh` writes
+`builds/4.8.beta/`): 603 commits, 1,134 files, 15 conflicts, plain merge on `sync/4.8-beta` (merge `63e989166c`).
+- **Resolutions.** Web audio (`library_godot_audio.js`, `audio_driver_web.cpp`, the position worklet): ours; upstream's
+  fb7c356152 is the final version of the PR cherry-picked as 16a69c7728 before §4.30's rewrite, whose later fixes the
+  rewrite already covers. `detect.py`: ours; upstream's 6.0.12 minimum for dlink+threads also accepts this fork's patched
+  6.0.9 (§2.63). `SCsub`: upstream's duplicate MODULARIZE dropped. `engine.js`: upstream's `@export` annotations
+  (`prefetch` gets one); `config.js`: ours, because upstream's `Object.keys(cfg)` loop needs `@export` on every key and
+  ours have none (closure would rename them and drop e.g. `preinitializedWebGPUDevice`). Forward+: upstream's
+  post-transparent resolve skip (d6b16e695b) also resolves depth for the shutter motion blur and light shafts, velocity
+  for the motion blur. `gi.cpp`: per-view slices with our uint fallback. Metering with `get_internal_texture(0)`.
+  `get_shader_spirv_version(ShaderStage)` in the WebGPU container and `shader_rd.cpp`'s dump check.
+- **Found by the tests.** Upstream's two new `.gd`-only checks in `resolve_class_inheritance` (66718544bf) broke `.gd`
+  extending `.gdb` -> `is_gdscript_path()` (273ba99397). The Forward+ fixture assigned the removed
+  `shadow_contact_shadows_opacity` (f2b24fac07): every native parity arm failed (trap 113, 498f3ff189).
+  `shadow_blur`'s threshold recalibrated after upstream's acne fix (0697a5b6c5, 654116a275). Two test harnesses launched
+  headless or bundled Chromium, broken by Chrome 156.0.8078.79 (a312bbdaad).
+- **Verified** (all from this branch's own builds): compile gate with `dev_mode=yes` (`scons -k`, every error in one
+  pass); WGSL precompile 311/311; unit tests (all but `[IP] resolve_hostname`, which fails on this machine because
+  `/etc/hosts` maps `::1` to `ip6-localhost`); braced GDScript `--quick`; `local_ci.sh` stages 0-2 (converter smoke against
+  the stored references, driver/preprocessing/spec-constant tests, web audio parity); scene smoketest Chrome and Firefox
+  (22 + baked); perf guard; font and fog; **Forward+ parity on the RTX 4080, 103/103, baked 100/100** (each pre-sync
+  baked delta unchanged); WebRTC 706/706 nothreads and threads; audio end to end both exports; resource lifecycle;
+  screenshot comparison (Chrome); `build-linux.sh` all 11 variants (27.5 min); camera-sim natively against a pre-sync
+  baseline (worst frame 0.033 mean) and on the web (Forward+, start 4.2 s, both downloads, photo 1280x720 without
+  overlays, 0 errors). Real-GPU tiers ran on Xvfb (`local_ci.sh` now does by default, and passes `WEBGPU_REAL_GPU=1`).
 
 ## 5. References — retired docs
 
