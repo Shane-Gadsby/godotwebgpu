@@ -21,7 +21,10 @@ struct LightData { //this structure needs to be as packed as possible
 	float specular_amount;
 	float shadow_opacity;
 	float specular_size; // Meters; widens the specular highlight only.
-	float pad;
+	float flicker_pulse_frequency; // Hz; 0: steady, or flicker already in color (no rolling shutter).
+	float flicker_depth;
+	float flicker_phase; // Radians.
+	float pad[2];
 
 	vec4 atlas_rect; // rect in the shadow atlas
 	mat4 shadow_matrix;

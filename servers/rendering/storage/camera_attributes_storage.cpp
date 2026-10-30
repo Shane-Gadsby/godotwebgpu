@@ -586,6 +586,15 @@ double RendererCameraAttributes::camera_attributes_get_exposure_time(RID p_camer
 	return cam_attributes->motion_blur_shutter_angle / 360.0 * frame;
 }
 
+double RendererCameraAttributes::camera_attributes_get_rolling_shutter_readout(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	if (!cam_attributes || !cam_attributes->rolling_shutter_enabled) {
+		return 0.0;
+	}
+	const double readout = cam_attributes->rolling_shutter_readout_time * 0.001;
+	return cam_attributes->frame_rate > 0.0f ? MIN(readout, 1.0 / cam_attributes->frame_rate) : readout;
+}
+
 RendererCameraAttributes::ShutterMotion RendererCameraAttributes::camera_attributes_get_shutter_motion(RID p_camera_attributes, double p_frame_time) {
 	ShutterMotion motion;
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);

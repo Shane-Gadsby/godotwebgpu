@@ -762,6 +762,8 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 	// Flickering lights are averaged over this frame's exposure, from the engine clock.
 	const double flicker_time = RSG::rasterizer->get_total_time();
 	const double flicker_exposure = RSG::camera_attributes->camera_attributes_get_exposure_time(p_render_data->camera_attributes, RSG::rasterizer->get_frame_delta_time());
+	// Under a rolling shutter each row exposes at its own time: omni and spot lights flicker per row in the shader.
+	const bool flicker_per_row = RSG::camera_attributes->camera_attributes_get_rolling_shutter_readout(p_render_data->camera_attributes) > 0.0;
 
 	r_directional_light_count = 0;
 	r_positional_light_count = 0;
@@ -1077,7 +1079,11 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 			}
 		}
 
-		float energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * fade * light_flicker_factor(light->flicker_frequency, light->flicker_depth, light->flicker_phase, flicker_time, flicker_exposure);
+		const bool row_flicker = flicker_per_row && light->flicker_frequency > 0.0f && light->flicker_depth > 0.0f && (light->type == RSE::LIGHT_OMNI || light->type == RSE::LIGHT_SPOT);
+		float energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * fade * (row_flicker ? 1.0f : light_flicker_factor(light->flicker_frequency, light->flicker_depth, light->flicker_phase, flicker_time, flicker_exposure));
+		light_data.flicker_pulse_frequency = row_flicker ? 2.0f * light->flicker_frequency : 0.0f;
+		light_data.flicker_depth = light->flicker_depth;
+		light_data.flicker_phase = Math::deg_to_rad(light->flicker_phase);
 
 		if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
 			energy *= light->param[RSE::LIGHT_PARAM_INTENSITY];
