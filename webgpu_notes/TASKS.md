@@ -2771,6 +2771,49 @@ Lead's sketch (settle the open point with the user before building):
   measurement, within 1%); Physical in Angle mode gives the same EV as the equivalent speed; defaults bit-identical to
   today in all three renderers; WebGPU parity. Effort: ~half a day after §2.58.
 
+### 2.60 A light's size shapes its specular highlight (soft, softbox-sized catchlights) `OPEN` *(camera-sim request, 2026-10-30; work task 88, tag camera-sim)*
+
+camera-sim (Ava's eyes): the catchlights are hard 1-2 px pure-white sparkles that hop between pixels as she moves.
+Measured by camera-sim natively on Vulkan (1080p, 200 mm close-up, 12 consecutive frames): as is, 2-13 clipped pixels a
+frame at 26 distinct positions; key spot light `light_specular` 0 → 0; WET roughness 1.0 → 0; room DirectionalLight
+specular off → no change; animation paused → a steady 6. So: the key spot light's specular on `eye_shell`/`eye_edge`.
+Causes:
+1. `modules/metahuman`'s WET shader (`editor/metahuman_shaders.h`, `eye_shell` and `eye_edge`) has roughness 0.04, a
+   near-mirror cornea and lower-lid tear line (physically right).
+2. Omni/spot lights are punctual for specular: `light_size` only becomes `A` in `light_compute()`
+   (`scene_forward_lights_inc.glsl`), which wraps `NdotL` and offsets the `dot()`s; it never widens the GGX lobe, so a key
+   light standing in for a softbox at 1.5 m reflects in a GGX(α 0.0016) cornea as a sub-pixel point that clips.
+3. camera-sim renders with FXAA only (no TAA/FSR 2), so the sub-pixel highlight aliases and pops frame to frame.
+
+Wanted: a light's specular highlight with the light's physical size, so a key light set to a softbox (~0.6 m at 1.5 m)
+gives a soft, softbox-sized catchlight on the cornea and every glossy surface, changing with size and distance (camera-sim
+teaches portrait lighting; that is the point). **Constraint:** usable without what `light_size` does today, since in
+camera-sim any `light_size` > 0 turns on PCSS, which smears the hair's shadow-proxy mesh into dark cheek blotches, and
+its `NdotL` wrap blew out the eye whites at 0.3 m. Default off / pixel-identical; Forward+ and WebGPU at least, Mobile if
+cheap.
+
+Lead's notes:
+- **First, try `AreaLight3D`** (upstream since 4.7, LTC, all three renderers, ran on WebGPU since the 4.7.2 sync, §4.3):
+  a rectangular light with `area_size`, whose specular already has the light's real size and shape: a softbox *is* a
+  rectangle. Check it on Ava's eyes with camera-sim's harness, and what its shadows do to the hair proxy (they soften by
+  the area size too). Not in the Forward+ matrix: add an `area_light` arm with `--parity` whatever the outcome.
+- **If area lights do not fit** (shadow behavior, cost, no spot cone), an opt-in on omni/spot that widens only the
+  specular: Karis 2013's representative point with energy normalization (sphere/disc), or roughness widening
+  α' = clamp(α + size / (2 · distance)). Either a separate `light_specular_size` property or a flag making `light_size`
+  shape the specular only. Put the choice to the user (hand-off `light-specular-size`).
+- **WET roughness interaction:** once lights have size, 0.04 is right. Until then a rougher shell (0.15) gives a soft
+  round catchlight but lights `eye_edge` as a white streak along the lower lid (visible in `compare.png`'s wet15 and
+  wet25 rows). Don't fix the eyes by raising roughness; re-check `eye_edge` once the specular has size.
+- Evidence (copied from camera-sim's scratchpad): `webgpu_notes/work/inputs/88-light-specular-size/` — `compare.png`
+  (zoomed eyes: as is / wet 0.15 / wet 0.25), `compare_taa.png` (as is / TAA only / TAA + wet 0.15), `eyes.gd` (a
+  SceneTree script: `DISPLAY=:0 <editor> --path /mnt/109313D2109313D2/godot-game-dev/camera-sim --rendering-driver vulkan
+  --fixed-fps 60 --script eyes.gd`, env `OUT=<dir> VARIANT=default|nospec|wet15|taa|taa+wet15`; saves 12 consecutive
+  320x160 eye crops of the 1920x1080 SubViewport). Never modify camera-sim; scratch copies only.
+- Test: clipped-pixel count and positions over 12 frames with camera-sim's harness (target: a stable catchlight, no
+  hopping); highlight size scales with light size / distance as the model predicts; off is bit-identical in all three
+  renderers; WebGPU parity. Look hand-off: screenshots of each variant and a video of the eyes moving. Effort: area-light
+  evaluation ~2 h; the omni/spot opt-in ~1 day (Forward+ and Mobile shaders, light data, docs).
+
 ## 3. Traps and lessons — read before debugging
 
 - **Profiling a phone over USB (2026-10-17):** `adb reverse` + a localhost server gives WebGPU a secure
