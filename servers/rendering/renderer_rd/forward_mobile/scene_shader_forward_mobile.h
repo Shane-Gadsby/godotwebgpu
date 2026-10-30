@@ -140,6 +140,7 @@ public:
 				// `2.0` if `true`, `1.0` if `false`.
 				uint32_t luminance_multiplier : 1;
 				uint32_t material_feedback : 1;
+				uint32_t light_extras : 1; // LightStorage::get_positional_light_extras_used(): specular size, flicker per row.
 			};
 		};
 	};

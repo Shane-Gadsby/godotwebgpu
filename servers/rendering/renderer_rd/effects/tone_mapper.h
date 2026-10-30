@@ -82,7 +82,9 @@ private:
 		TONEMAP_MODE_1D_LUT_MULTIVIEW,
 		TONEMAP_MODE_BICUBIC_GLOW_FILTER_1D_LUT_MULTIVIEW,
 
-		TONEMAP_MODE_MAX
+		// The same eight with the camera effects compiled in (USE_CAMERA_EFFECTS): this plus one of the above.
+		TONEMAP_MODE_CAMERA_EFFECTS,
+		TONEMAP_MODE_MAX = TONEMAP_MODE_CAMERA_EFFECTS * 2
 	};
 
 	enum TonemapModeMobile {
@@ -96,7 +98,9 @@ private:
 		TONEMAP_MOBILE_MODE_SUBPASS_MULTIVIEW,
 		TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT_MULTIVIEW,
 
-		TONEMAP_MOBILE_MODE_MAX
+		// The same eight with the camera effects compiled in (USE_CAMERA_EFFECTS): this plus one of the above.
+		TONEMAP_MOBILE_MODE_CAMERA_EFFECTS,
+		TONEMAP_MOBILE_MODE_MAX = TONEMAP_MOBILE_MODE_CAMERA_EFFECTS * 2
 	};
 
 	enum Flags {
@@ -292,6 +296,8 @@ public:
 	// The CameraEffects uniform buffer for a tonemap pass of these render buffers: their own, updated to the camera
 	// attributes' current parameters, or the shared all-zero buffer when no effect uses it. Call it before the pass's
 	// draw list begins (buffers cannot be updated inside one).
+	// Whether a pass needs the tonemap variants with the camera effects compiled in (USE_CAMERA_EFFECTS).
+	bool _uses_camera_effects(const TonemapSettings &p_settings) const;
 	RID get_camera_effects_buffer(const Ref<RenderSceneBuffersRD> &p_render_buffers, RID p_camera_attributes, const CameraEffectsContext &p_context);
 
 	// The EnvironmentEffects uniform buffer for a tonemap pass of these render buffers: their own, filled from the

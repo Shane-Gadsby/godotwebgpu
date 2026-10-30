@@ -770,6 +770,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 
 	omni_light_count = 0;
 	spot_light_count = 0;
+	positional_light_extras_used = false;
 	area_light_count = 0;
 	uint32_t directional_contact_shadows_count = 0;
 
@@ -1111,6 +1112,9 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.color[2] = linear_col.b * energy;
 		light_data.specular_amount = light->param[RSE::LIGHT_PARAM_SPECULAR] * 2.0;
 		light_data.specular_size = light->param[RSE::LIGHT_PARAM_SPECULAR_SIZE];
+		if ((type == RSE::LIGHT_OMNI || type == RSE::LIGHT_SPOT) && (row_flicker || light_data.specular_size > 0.0f)) {
+			positional_light_extras_used = true;
+		}
 		light_data.volumetric_fog_energy = light->param[RSE::LIGHT_PARAM_VOLUMETRIC_FOG_ENERGY];
 		light_data.bake_mode = light->bake_mode;
 
