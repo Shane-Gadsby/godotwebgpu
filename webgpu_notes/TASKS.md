@@ -2904,7 +2904,7 @@ Effort: ~2-4 h.
 on `webgpu-4.8` before the sync too (the arms came with the NaN-containment work). Either give them the threshold
 their delta test needs or mark them parity-only in `features.mjs` the way the self-test expects. Effort: ~30 min.
 
-### 2.65 Light flicker phase 2: rolling-shutter bands, per pixel in Forward+ `OPEN` *(from §4.102, work task 85)*
+### 2.65 Light flicker phase 2: rolling-shutter bands, per pixel in Forward+ `DONE 2026-10-30` → §4.108 *(from §4.102, work task 85)*
 
 Phase 1 scales each flickering light's energy by its waveform averaged over the frame's exposure (all renderers). With
 a rolling shutter each row exposes at a different time, so the bands need the factor per pixel: the light's mains
@@ -6164,6 +6164,18 @@ build-linux.sh, build-windows.ps1, build-macos.sh (which still said 4.0.11) and 
 Verified: a `dlink_enabled=yes threads=yes` template built with a scratch 6.0.12 plus 0001 (both halves in the linked
 JS), the WebRTC fixture exported threaded with GDExtension support: all 9 fixtures pass in Chrome (86 assertions), no
 `growMemViews` errors. `~/emsdk` moves to 6.0.12 on the next build without `--skip-install`.
+
+### 4.108 Light flicker under a rolling shutter: per-row bands (October 2026) *(work task 93, §2.65)*
+
+With a rolling shutter on (`camera_attributes_get_rolling_shutter_readout()` > 0), omni and spot lights that flicker
+are evaluated per pixel at their row's readout time (`light_flicker_row()` in scene_forward_lights_inc.glsl, the CPU's
+closed form; row time = frame time + readout x (y/H - 0.5), as the rolling shutter effect), and the CPU leaves the frame
+average out of their energy; area and directional lights keep the CPU average. LightData grows one 16-byte row (pulse
+frequency, depth, phase) and SceneData gains `flicker_timing` (time mod 100 s, a whole number of pulses for mains given
+to 0.01 Hz, exposure, readout). Forward+ and Mobile; Compatibility keeps the frame average. camera_timing 11/11 on all
+three renderers (bands: per-row range 0.83 over a 20 ms readout of a 100 Hz pulse; 0.0096 without a rolling shutter);
+parity 103/103, converter smoke and its references unchanged, Chrome smoketest 23/23. User look
+`look-flicker-rolling-bands`: looks right.
 
 ## 5. References — retired docs
 
