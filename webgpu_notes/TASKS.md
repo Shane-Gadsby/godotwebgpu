@@ -2913,7 +2913,7 @@ at the row's readout time in light_process_omni/spot. LightData has one spare fl
 took the other), so this grows the struct: check the converter smoke references and the WGSL text scans after it.
 Test: band count = readout time x pulse rate, drifting; off bit-identical. Effort: ~1 day.
 
-### 2.66 Unused features must not slow WebGPU rendering `OPEN` *(user request, 2026-10-30; work task 94)*
+### 2.66 Unused features must not slow WebGPU rendering `DONE 2026-10-30` → §4.109 *(user request, 2026-10-30; work task 94)*
 
 The user asked that every feature added over the last few weeks cost nothing meaningful when it is not used. The
 features: the camera batch (grain, LUT, lens optics and the CameraEffects UBO, motion blur and rolling shutter, metering,
@@ -3733,6 +3733,17 @@ fails the MinGW template (`expected unqualified-id before '='`); also `small`, `
       new `export_templates/` folder. Threads variants of audio e2e and WebRTC need that build's threads templates.
    9. Merge into `webgpu-4.8`, write §4.x, and only then rebuild the main checkout and install (the user's call: it
       replaces their editor and camera-sim's), editor and templates from one commit.
+115. **On Mali a feature's shader code costs even when a branch skips it, and Forward+ fills its light buffers late**
+    (2026-10-30, §4.109). Three things that each looked done. (a) A uniform branch around light_specular_size and
+    per-row flicker gave Mobile its cost back and Forward+ nothing: only compiling the code out did (a specialization
+    constant: Dawn substitutes it before the driver sees the shader). (b) Assigning a private global only inside that
+    branch made Forward+ worse than no branch, 8.2 -> 9.1 ms, since it then carries from one light to the next; assign it
+    on both paths. (c) `base_specialization` in `RenderForwardClustered::_render_scene()` is built before
+    `_pre_opaque_render()` runs `update_light_buffers()`. A bit set there from light state is the **previously rendered
+    viewport's**, not a frame late: only camera_timing, with its many SubViewports, showed it, as lost flicker bands and
+    highlights on Forward+ alone. Set such a bit after `_pre_opaque_render()`, beside `cluster_has_area_light`. Mobile
+    fills its buffers first. And one phone round proves little: the same export moved 7.3-8.9 ms in a run; alternate
+    builds, at least 4 rounds, and read a pass that contains none of the change as the noise floor.
 ---
 
 ### Measurement traps (found 2026-10-15)
@@ -6206,6 +6217,39 @@ to 0.01 Hz, exposure, readout). Forward+ and Mobile; Compatibility keeps the fra
 three renderers (bands: per-row range 0.83 over a 20 ms readout of a 100 Hz pulse; 0.0096 without a rolling shutter);
 parity 103/103, converter smoke and its references unchanged, Chrome smoketest 23/23. User look
 `look-flicker-rolling-bands`: looks right.
+
+### 4.109 Unused features cost nothing measurable (October 2026) *(work task 94, §2.66)*
+
+Compared, with every feature at its defaults: `6be4634c33` (2026-10-20, before MetaHuman and the camera batch),
+`0354ea15e7` (SPIRV-Cross, before the features: "before" below), HEAD, and ablation builds of HEAD ("code removed":
+the feature's shader code deleted). Two costs were real, both on Mali only, both now gone:
+
+| Razr 60 (Mali-G615), ms/frame | before | HEAD | fixed | code removed |
+|---|---|---|---|---|
+| Tonemap passes, benchmark_postfx | 1.22 | 2.25 | 1.30 | |
+| Tonemap passes, demo_3d_particles | 0.77 | 0.98 | 0.75 | |
+| Particles colour pass (mean of 4) | 7.98 | 8.19 | 7.90 | 7.67 |
+| Postfx main pass (mean of 3) | 3.17 | 3.38 | 3.11 | 3.10 |
+
+- **Tonemap** (`USE_CAMERA_EFFECTS`): every mode has a twin with the camera effects; `ToneMapper::_uses_camera_effects()`
+  picks it when a camera effects buffer, white balance, grain or a camera LUT is in use. 12 new WGSL modules in the
+  stored references (323), the 311 existing ones unchanged.
+- **Scene shaders** (`light_extras`, Forward+ `packed_1` bit 8, Mobile `packed_2` bit 2): light_specular_size and
+  per-row flicker fold away unless `LightStorage::get_positional_light_extras_used()`. A scene that starts using either
+  compiles new pipelines (ubershader meanwhile), as `cluster_has_area_light` does. Trap 115 has why it is not a branch.
+- **Micro shadows**: an ablation changed nothing measurable, so the uniform branch stays.
+- **Not ours**: benchmark_postfx's six reflection probes cost +0.5 ms (6.82 -> 7.35) with all of the above removed. That
+  is upstream's 73400efabc: Mobile read the positional soft shadow sample counts from the wrong bits and took 0 penumbra
+  samples, so this is correct work, not a regression.
+- **RTX 4080**: nothing measurable (particles 0.42 -> 0.43 ms, lights 0.61 -> 0.60, frame_time 1.28 -> 1.28). perf_guard
+  against the baseline: calls identical, writes +0.2-2 KB per frame. No opt-in feature's pass runs in a default-settings
+  scene, and `perf_guard/off_passes.mjs` (local_ci) now fails if one does.
+- **Converter**: no reason to go back to Tint (user question). `pre-SPIR-V-Cross` vs SPIRV-Cross on the 4080: -2% to +21%,
+  at most 0.07 ms; on the Razr 60: -8% to +6%, mixed.
+
+Not done from §2.66's method: the ramp benchmark, Firefox, and per-feature shader sizes. MetaHuman, Box3D and braced
+GDScript got no ablation of their own: only the scene-level comparison covers them. Regressions on the final commit: camera_timing 11/11 on Forward+ and
+Mobile, converter smoke, Chrome smoketest 23/23, off_passes, perf_guard, parity 103/103.
 
 ## 5. References — retired docs
 
