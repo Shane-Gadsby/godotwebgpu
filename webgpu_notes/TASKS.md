@@ -6257,6 +6257,12 @@ Emscripten 6.0.12 has 0002's fix (`exportLibrarySymbols()` skips `HEAP*`), so wi
 and its table entry are gone, and `platform/web/detect.py` now refuses dlink+threads below 6.0.12 outright, as upstream
 does, instead of accepting an older patched toolchain. 0001 stays: the code it changes is the same in 6.0.12.
 `fixed_upstream_in` stays in `emsdk_patch.py` for the next patch that reaches upstream before it can be dropped.
+Verified on `~/emsdk` 6.0.12 with 0001 alone: `build-linux.sh` clean (24 min, ccache), both halves of 0001 in the linked
+JS, Chrome smoketest 23/23, WebRTC 353 assertions across nothreads, threads and dlink, and threads + GDExtension 86
+assertions. That last combination is the one 0001 exists for, and **no tier loads it**: webrtc_parity's `threads`
+uses the non-dlink template and its `dlink` the nothreads one, and local_ci only compiles the threaded dlink template. It
+was run by hand from a scratch copy of the fixture with `WebGPU-Threads` pointed at
+`godot.web.template_release.wasm32.dlink.zip` and `variant/extensions_support=true`.
 
 ## 5. References — retired docs
 
