@@ -2809,10 +2809,49 @@ Lead's notes:
   SceneTree script: `DISPLAY=:0 <editor> --path /mnt/109313D2109313D2/godot-game-dev/camera-sim --rendering-driver vulkan
   --fixed-fps 60 --script eyes.gd`, env `OUT=<dir> VARIANT=default|nospec|wet15|taa|taa+wet15`; saves 12 consecutive
   320x160 eye crops of the 1920x1080 SubViewport). Never modify camera-sim; scratch copies only.
+- **AreaLight3D evaluated by camera-sim (2026-10-30, native Vulkan, 4080, editor of 07:53):** key SpotLight3D (energy
+  1.5, 55°, `light_size` 0, bias 0.01 / normal bias 0.5, `shadow_blur` 3) replaced by an AreaLight3D at the same
+  transform, 0.6 x 0.6 m, `normalize_energy` on, energy 1.3 (cheek luminance 0.591 vs 0.590).
+  - *Specular: as hoped.* A softbox-shaped catchlight (a clipped square, ~270 px at 200 mm / 2.5 m), steady: 269-283
+    clipped px a frame, against the spot's 2-13 hopping over 26 positions. The eye shell's lower edge also gets a bright,
+    aliased streak, from `eyeshell` itself (it stays with `eyeEdge` unlit).
+  - *Shadow: broken*, so it cannot replace the key: §2.61 (task 89).
+  - *Cost* (`viewport_get_measured_render_time_gpu`, median of 120 frames): spot 3.00 ms, area with shadow 6.35 ms,
+    area without shadow 2.79 ms: the area shadow alone is ~3.5 ms.
+  - *Hybrid works:* spot unchanged, plus a shadowless AreaLight3D at the key's transform with `light_cull_mask` only
+    layer 20; `eyeshell_lod0` (and `eyeEdge`) on layer 20, the camera sees it, the spot's mask drops it. Wide shot
+    pixel-identical to spot-only (mean |d| 0.00), face crop differs only in the eyes (1.58), catchlight the softbox
+    square, +0.3-0.46 ms. Unexplained: with only `eyeshell` on layer 20 (`eyeEdge` lit by neither key) the catchlight
+    faded in over 12 frames (0 → 263 px) instead of being steady; with `eyeEdge` on layer 20 too, steady from frame 1.
+  - Not tested: WebGPU, Mobile. Files: `inputs/88-light-specular-size/area/` (`eyes_hybrid.png`, `eyes_compare.png`,
+    `face_compare.png`, `full_compare.png`, `shadow_where*.png`; `area.gd`, env `OUT`, `VARIANT=spot|area`, `AREA=w,h`,
+    `ENERGY`, `NOSHADOW=1`, `DEFAULTBIAS=1`, `HYBRID=edge|noedge`).
+  - Lead's reading: the hybrid is a usable camera-sim workaround today (its call, not an engine change). For the engine
+    task, the open questions are now the fade-in, the lower-edge streak, and whether a specular-only size on omni/spot is
+    still wanted given the hybrid. The catchlight is hard-edged because the cornea is a near-mirror, which is right for a
+    softbox.
 - Test: clipped-pixel count and positions over 12 frames with camera-sim's harness (target: a stable catchlight, no
   hopping); highlight size scales with light size / distance as the model predicts; off is bit-identical in all three
   renderers; WebGPU parity. Look hand-off: screenshots of each variant and a video of the eyes moving. Effort: area-light
   evaluation ~2 h; the omni/spot opt-in ~1 day (Forward+ and Mobile shaders, light data, docs).
+
+### 2.61 AreaLight3D shadows: no silhouette, a dotted acne-like darkening over everything lit `OPEN` *(found by camera-sim's task 88 evaluation, 2026-10-30; work task 89, tag camera-sim)*
+
+In camera-sim's studio scene (native Vulkan, Forward+, editor of 07:53 Oct 30), an AreaLight3D (0.6 x 0.6 m, normalize
+energy on, range 10) with shadows on casts **no silhouette shadow of the subject on the backdrop** (a SpotLight3D at the
+same transform casts a clear one); instead the shadow darkens everything the light reaches (backdrop, her front, shirt)
+with a dotted, acne-like texture. Same with bias 0.01 / normal bias 0.5 and with AreaLight3D's defaults 0.1 / 1.0.
+`light_size` 0, so no PCSS (`soft_shadow_size` comes from `PARAM_SIZE`, not `area_size`: `light_storage.cpp:1241`). It
+also costs ~3.5 ms of GPU on a 4080 at 1080p (6.35 ms with shadow vs 2.79 without).
+
+Evidence: `webgpu_notes/work/inputs/88-light-specular-size/area/shadow_where.png` (left: the frame; right: where the
+shadow darkens it, x6), `shadow_where_defbias.png`, `full_compare.png`; repro `area.gd` (see §2.60).
+
+Do: first decide **upstream or fork**: reproduce with a minimal scene (a box in front of a wall, one AreaLight3D) on this
+fork's editor and on a stock upstream build of the same base (4.8). If upstream: check godotengine/godot issues for area
+light shadows, file one if absent (the user decides on reporting), and fix here if it is cheap. If the fork: bisect
+through the camera batch and renderer changes. Then check WebGPU (add an `area_light` arm to the Forward+ matrix with
+`--parity`, shared with §2.60) and Mobile. Effort: ~2-4 h to place it; the fix unknown.
 
 ## 3. Traps and lessons — read before debugging
 
