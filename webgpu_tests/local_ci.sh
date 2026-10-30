@@ -14,6 +14,12 @@
 #   ./webgpu_tests/local_ci.sh --bake       # Also export + test the BAKED Forward+ fixture (needs xvfb-run; minutes)
 #   ./webgpu_tests/local_ci.sh --dev-mode   # Build with dev_mode=yes, as CI does
 #                                           # (warnings=extra werror=yes)
+#   ./webgpu_tests/local_ci.sh --on-desktop # Open the test browsers on your own display, to watch them
+#
+# On Linux the whole run happens inside its own Xvfb display (xvfb-run), so the headed test browsers and
+# native reference renders never take focus or cover the desktop. They still get the real GPU there: headed
+# Chrome reports the NVIDIA adapter on Xvfb and Firefox a non-fallback one (only --headless is limited to
+# swiftshader, TASKS §3 trap 43). --on-desktop, CI, or no xvfb-run keeps the current DISPLAY.
 #
 # What the rebuild builds, and why it matters:
 #   The editor, the dlink web template, and the **non-dlink, nothreads** one --
@@ -58,6 +64,7 @@ DO_BAKE=false
 QUICK=false
 DO_DLINK=true
 DEV_MODE=false
+ON_DESKTOP=false
 REBUILD_EXPLICIT=""  # "", "yes", or "no"
 EXPORT_EXPLICIT=""   # "", "yes", or "no"
 for arg in "$@"; do
@@ -70,7 +77,17 @@ for arg in "$@"; do
     [[ "$arg" == "--no-dlink" ]] && DO_DLINK=false
     [[ "$arg" == "--bake" ]] && DO_BAKE=true
     [[ "$arg" == "--dev-mode" ]] && DEV_MODE=true
+    [[ "$arg" == "--on-desktop" ]] && ON_DESKTOP=true
 done
+
+# Run everything on a display of its own (see the header), unless asked not to.
+if [[ "$ON_DESKTOP" == false && -z "${CI:-}" && -z "${LOCAL_CI_IN_XVFB:-}" && "$(uname)" == "Linux" ]]; then
+    if command -v xvfb-run >/dev/null 2>&1; then
+        export LOCAL_CI_IN_XVFB=1
+        exec xvfb-run -a -s "-screen 0 1920x1080x24" "$SCRIPT_DIR/$(basename "$0")" "$@"
+    fi
+    echo "  xvfb-run not found: the test browsers will open on this display (apt install xvfb to keep them off it)."
+fi
 
 # dev_mode=yes is what CI builds with (webgpu_tests.yml's SCONS_FLAGS), and in
 # Godot it implies warnings=extra werror=yes. Nothing local used it, which is how
@@ -233,6 +250,11 @@ else
 fi
 if [[ "$NO_SAFARI" == true ]]; then
     echo "  Safari: skipped (--no-safari)"
+fi
+if [[ -n "${LOCAL_CI_IN_XVFB:-}" ]]; then
+    echo "  Display: its own Xvfb ($DISPLAY) — --on-desktop to watch the browsers"
+else
+    echo "  Display: ${DISPLAY:-none}"
 fi
 echo ""
 

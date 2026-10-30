@@ -130,6 +130,7 @@ cd webgpu_tests/benchmark && ./run_ramp.sh && python3 readme_perf_table.py resul
 ./webgpu_tests/local_ci.sh --no-export      # rebuild but keep the existing exports
 ./webgpu_tests/local_ci.sh --no-dlink       # skip the dlink template compile check
 ./webgpu_tests/local_ci.sh --dev-mode       # build with dev_mode=yes (werror), as CI does
+./webgpu_tests/local_ci.sh --on-desktop     # open the test browsers on your display (default on Linux: its own Xvfb)
 ```
 
 `local_ci.sh` builds the editor, the dlink web template (a compile check only — nothing loads it) and the **non-dlink nothreads** one, which with the editor is the pair the scene smoketest exports with. It re-exports every scene from them before testing, so a green run reflects the working tree. It sources `$EMSDK_ENV` (default `~/emsdk/emsdk_env.sh`) itself when `emcc` is not on `PATH`.
@@ -139,6 +140,8 @@ cd webgpu_tests/benchmark && ./run_ramp.sh && python3 readme_perf_table.py resul
 Main's 📊 Static checks run `prek` over **every file the merge brings**, notes, result JSON and helper scripts under `webgpu_notes/` included, and when they fail no build runs. Before a PR to `main`, run `pre-commit run --from-ref origin/main --to-ref HEAD` with the fixes staged (pre-commit stashes unstaged changes and checks the committed text), `webgpu_notes/TASKS.md` §3 trap 75. A new folder under `tests/` must also be added to the tests unit in `scu_builders.py`, or CI's `scu_build=yes` GCC sanitizer editor fails to link it an hour into the run (trap 74).
 
 On GitHub, `🔗 GHA` (`runner.yml`) builds everything on a push to `main` and drafts a release. The Linux sanitizer editors (ASan/UBSan/TSan, `linux_builds.yml`'s `sanitizers-linux` job) run in the same workflow, but the release does not wait for them, since they ship nothing; the release does ship a Linux `precision=double` editor (`-linux-double.zip`) alongside the three standard editors. To build only an editor, run `🐧 Linux editor`, `🍎 macOS editor`, `🏁 Windows editor` or `🖥️ All editors` (`.github/workflows/editor_*.yml`) from the Actions tab; each uploads the editor zipped by `.github/actions/package-editor`, exactly as a release ships it. Editors must be zipped on the runner that built them — `actions/upload-artifact` drops Unix permissions, which is how every Linux and macOS release up to v1.5 shipped an editor that could not start (§3 trap 41). Keep the manual workflows' flags in step with the release editor jobs in `*_builds.yml`.
+
+On Linux, `local_ci.sh` re-runs itself under `xvfb-run` so the headed test browsers never take focus or cover the desktop; headed Chrome and Firefox still get the real GPU there (only `--headless` is limited to swiftshader). Run other window-opening tiers the same way: `xvfb-run -a -s "-screen 0 1920x1080x24" <command>`.
 
 Every Playwright launch in these tiers must set `headless` explicitly (`headless: isCI`, or `false` for real-GPU runs): Playwright defaults to headless, where Chrome gets only the swiftshader fallback adapter and loses the WebGPU device at the first canvas present — a failure that comes and goes with startup time, which is how `webrtc_parity` bisected to an innocent commit (`webgpu_notes/TASKS.md` §3 trap 43).
 
