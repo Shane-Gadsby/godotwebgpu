@@ -3661,6 +3661,39 @@ fails the MinGW template (`expected unqualified-id before '='`); also `small`, `
    driver regression. The web side reloads per arm and was right all along. Cost: a full parity run plus a file-level
    bisect of the renderer. `run_forward_plus.mjs --parity` now fails at once when the native run logs a `SCRIPT ERROR`.
    After an upstream sync, grep fixtures and test projects for removed properties first (`SCRIPT ERROR` in any log).
+
+114. **Upstream sync: the playbook** (2026-10-30, written after the 4.8 beta sync, §4.98; ~6 h, two of them lost to
+   things below). In order:
+   1. `git fetch upstream`, then `misc/scripts/upstream_sync_report.py --project <each project that depends on the
+      fork, e.g. camera-sim>`: predicted conflicts, files changed on both sides, driver interface changes, **script API
+      upstream removed that a fixture or project still uses** (trap 113), new `.gd`-only checks (they must become
+      `is_gdscript_path()`, `// GDB`), version status and Emscripten minimum changes, upstream fixes to files this fork
+      rewrote. Fix the removed-API uses in the same merge.
+   2. Before touching anything, record baselines with the current `bin/` editor: camera-sim's native harness on a
+      scratch copy (`webgpu_notes/work/inputs/90-camera-sim-smoke/`), and keep that editor binary for A/B (a frozen
+      copy outside `bin/`). Native-vs-native A/B is what finds a fixture or engine change fastest.
+   3. Merge in a **new worktree** (`git worktree add -b sync/<name> ../godotwebgpu-<n> webgpu-4.8`), never in the main
+      checkout: other sessions run the `bin/` editor there. Copy the test `node_modules` into the new worktree
+      (`webgpu_tests/*/node_modules`), or the first `local_ci.sh` aborts on module-not-found before any browser tier.
+   4. Resolve with a reason per conflict in the merge commit. A conflict where upstream changed code this fork rewrote
+      (web audio, the web shell) is usually upstream finishing a fix the fork already has or re-implemented: diff
+      upstream's final version against the one cherry-picked earlier (`git diff <picked> <final> -- <file>`) to see
+      what is genuinely new. A closure-compiler or `werror` change upstream makes the fork's JS/C++ additions a CI risk.
+   5. **Compile gate, once**: wgsl_cli, editor and the dlink + nothreads web templates, all `dev_mode=yes` with
+      `scons -k` (every error in one pass; GCC's `-Wshadow` catches what the web's clang does not).
+   6. **Batches, not reruns**: engine unit tests (`--test`) + braced `--quick`; then `local_ci.sh --dev-mode
+      --no-safari --bake` (Xvfb and the real GPU by default now); fix everything a batch found, rerun only what failed
+      (`run_forward_plus.mjs --feature a,b`). When parity fails everywhere at once, suspect the fixture or the
+      environment before the renderer: check the native log for `SCRIPT ERROR` and compare native-vs-native first.
+   7. A threshold that fails after a sync is not automatically a web bug: measure the native on/off delta with both
+      editors (`--fp-matrix --fp-only`). Upstream fixing an artifact the old baseline contained (0697a5b6c5's acne) is a
+      recalibration, said in the commit.
+   8. Full `build-linux.sh` in the worktree with `EDITORS_DIR`/`TPZ_COPY_DIR` pointed at missing folders (so the user's
+      editor stays), then camera-sim native and web against it with private `XDG_DATA_HOME`/`XDG_CONFIG_HOME`/
+      `XDG_CACHE_HOME` (export templates symlinked to `builds/<version>/templates`): a new `status` (dev -> beta) means a
+      new `export_templates/` folder. Threads variants of audio e2e and WebRTC need that build's threads templates.
+   9. Merge into `webgpu-4.8`, write §4.x, and only then rebuild the main checkout and install (the user's call: it
+      replaces their editor and camera-sim's), editor and templates from one commit.
 ---
 
 ### Measurement traps (found 2026-10-15)
