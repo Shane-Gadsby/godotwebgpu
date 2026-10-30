@@ -197,7 +197,11 @@ func _check_bands() -> void:
 	# 20 ms of readout under a 100 Hz pulse: two cycles down the frame, so about four mean crossings.
 	var rolling := _band_profile(true)
 	var global := _band_profile(false)
-	_record("rolling_shutter_shows_flicker_bands", rolling.crossings >= 3 and rolling.crossings <= 6 and rolling.range > 0.3, rolling)
+	if RenderingServer.get_current_rendering_method() == "gl_compatibility":
+		# Compatibility keeps the frame's average flicker (TASKS §2.65): no per-row bands there, by design.
+		_record("rolling_shutter_shows_flicker_bands", true, { "skipped": "not in Compatibility" })
+	else:
+		_record("rolling_shutter_shows_flicker_bands", rolling.crossings >= 3 and rolling.crossings <= 6 and rolling.range > 0.3, rolling)
 	_record("no_bands_without_rolling_shutter", global.range < 0.05, global)
 
 
