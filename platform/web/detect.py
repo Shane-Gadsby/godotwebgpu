@@ -211,8 +211,8 @@ def configure(env: "SConsEnvironment"):
     if cc_semver < (6, 0, 1):
         print_error("Godot requires Emscripten 6.0.1+. Detected: {}.{}.{}".format(*cc_semver))
         sys.exit(255)
-    # Upstream needs 6.0.12+ for dlink+threads; this fork pins an older toolchain whose dlink+threads bugs its own
-    # patches fix (misc/emsdk_patches/), so a patched toolchain passes. See webgpu_notes/TASKS.md §2.63.
+    # Upstream needs 6.0.12+ for dlink+threads: it has the fix for our patch 0002's bug. An older toolchain with this
+    # fork's patches (misc/emsdk_patches/) has it too, so it passes. 0001 is needed on every version so far.
     if env["dlink_enabled"] and env["threads"] and cc_semver < (6, 0, 12) and not _emsdk_patches_applied():
         print_error(
             "Godot with dlink+threads requires Emscripten 6.0.12+, or this fork's toolchain patches "

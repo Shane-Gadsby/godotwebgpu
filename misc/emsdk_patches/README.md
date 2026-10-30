@@ -37,7 +37,7 @@ otherwise.
 | | |
 |---|---|
 | `0001-dylink-asm-consts-pthread-race.patch` | Fixes the `ASM_CONSTS` initialization race that stops a threads + GDExtension build from booting at all. Two halves — `tools/emscripten.py` and `src/lib/libdylink.js` — and **neither is valid without the other**; the patch header explains why the obvious one-line version is worse than the crash. |
-| `0002-export-all-eager-heap-views.patch` | Stops `-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly in the postamble, where `growMemViews()` throws on a pthread worker whose `wasmMemory` hasn't arrived yet. Non-fatal but it aborts the export block, so later `Module` exports (`PThread`, `addRunDependency`, …) are silently never assigned on workers. `updateMemoryViews()` already owns those properties. **Do not "fix" this with accessors** — the patch header explains why that breaks `Module.HEAP*` outright. |
+| `0002-export-all-eager-heap-views.patch` | **Not needed from Emscripten 6.0.12**, which skips `HEAP*` in `exportLibrarySymbols()` itself (`fixed_upstream_in` in the table: `--check`/`--apply` skip it there). Before that: Stops `-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly in the postamble, where `growMemViews()` throws on a pthread worker whose `wasmMemory` hasn't arrived yet. Non-fatal but it aborts the export block, so later `Module` exports (`PThread`, `addRunDependency`, …) are silently never assigned on workers. `updateMemoryViews()` already owns those properties. **Do not "fix" this with accessors** — the patch header explains why that breaks `Module.HEAP*` outright. |
 
 ## How this is built
 
