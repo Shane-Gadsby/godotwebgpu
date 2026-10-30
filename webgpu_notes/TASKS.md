@@ -6117,7 +6117,7 @@ web audio fixture's Ogg/MP3 length check went from 60 ms to 2 ms; audio e2e pass
 + phase) averaged in closed form over the frame's exposure (`RendererLightStorage::light_flicker_factor`;
 `camera_attributes_get_exposure_time`: the physical shutter, else the angle's share of the camera or render frame),
 from the engine clock; applied in RD (Forward+, Mobile) and GLES3. `webgpu_tests/camera_timing`: steady at 1/100 s
-(spread 0.0), beating at 1/1000 s (0.47). Phase 2 (rolling-shutter bands) is §2.65.
+(spread 0.0), beating at 1/1000 s (0.47). Phase 2 (rolling-shutter bands) is §2.65. User look `look-light-flicker`: looks right.
 
 ### 4.103 CameraAttributes.frame_rate and frame_rate_hold (October 2026) *(work task 86, §2.58; user answer `camera-fps-hold`)*
 
@@ -6127,6 +6127,7 @@ display), and an exposure time and the rolling-shutter readout are capped at one
 keep the image between; a skipped frame records the camera (`RenderingMethod::camera_record_held_frame`, camera setup
 moved into `RendererSceneCull::_camera_data_for_viewport()`), so motion vectors stay one frame long and blur stays
 velocity x exposure. camera_timing: a 24 fps hold changes its image 24 times in 60 frames, a free camera 59 (9/9 camera_timing checks on Forward+, Mobile, Compatibility).
+User look `look-frame-rate-hold`: looks right.
 
 ### 4.104 The shutter angle is an exposure setting; Physical Speed/Angle mode (October 2026) *(work task 87, §2.59; user answer `physical-shutter-angle-mode`)*
 
@@ -6142,7 +6143,7 @@ shader-private `light_specular_alpha_widen` set around light_compute() in light_
 `pad[0]` is now `specular_size`. A softbox-sized key light gives a softbox-sized, unclipped catchlight on a
 near-mirror, shrinking with distance; no PCSS, no NdotL wrap, diffuse unchanged; 0 is bit-identical (parity 103/103).
 Forward+ and Mobile, not Compatibility. camera_timing: a 0.04-roughness sphere's highlight goes from a clipped 4 px point
-to a 47 px catchlight peaking at 0.79 with a 0.6 m size (Mobile alike).
+to a 47 px catchlight peaking at 0.79 with a 0.6 m size (Mobile alike). User look `look-light-specular-size`: looks right.
 
 ### 4.106 AreaLight3D shadows are upstream's behavior (October 2026) *(work task 89, §2.61)*
 
@@ -6151,7 +6152,7 @@ soft, dotted blob with no umbra, where a spot casts a crisp one. The fork's only
 reading the shadow atlas through `textureLod_linear_depth()`; swapping upstream's two reads back gives the same frame
 (mean 0.0002, sampling noise). So it is upstream Godot's own area shadow (PCSS-style sampling noise meant for TAA), not
 the fork; no open upstream issue describes it (#119183, #120162, #120412, #120742 are closed). Off camera-sim's path
-since §4.105. Reporting it upstream is the user's call (board hand-off `area-light-shadow-upstream`).
+since §4.105. Not reported upstream (user answer `area-light-shadow-upstream`, 2026-10-30: don't report).
 ### 4.107 Emscripten 6.0.12, the pin (October 2026) *(work task 91, §2.63)*
 
 Upstream Godot (0fd56b4b3e, PR #124321: "regression fixed upstream in 6.0.12") needs 6.0.12 for dlink+threads. What
