@@ -38,7 +38,7 @@ after an Emscripten bump. The symptom is a worker throwing
 
 **To bring it back:** delete the `fixed_upstream_in` line from its entry in `emsdk_patch.py`, then `./apply.sh --apply`
 (a pin mismatch means a new Emscripten moved the text: re-derive the hunks). Build helpers and CI apply it from then on, and
-scons relinks on its own. Check both halves with the greps under "Verifying" below.
+scons relinks on its own. Check both halves with the greps under "Gotcha that wasted a day".
 
 A patch whose fix arrives upstream takes `fixed_upstream_in` the same way, and `--status`/`--check`/`--apply` skip it from
 that version on.
