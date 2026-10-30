@@ -18,9 +18,10 @@
 #   ./webgpu_tests/local_ci.sh --no-real-gpu # Skip the real-GPU tiers even when a GPU is present
 #
 # On Linux the whole run happens inside its own Xvfb display (xvfb-run), so the headed test browsers and
-# native reference renders never take focus or cover the desktop. They still get the real GPU there: headed
-# Chrome reports the NVIDIA adapter on Xvfb and Firefox a non-fallback one (only --headless is limited to
-# swiftshader, TASKS §3 trap 43). --on-desktop, CI, or no xvfb-run keeps the current DISPLAY.
+# native reference renders never take focus or cover the desktop. Headed Chrome keeps the NVIDIA adapter there and
+# its canvas composites; Firefox gets a real adapter and runs, but cannot composite a WebGPU canvas on Xvfb, so its
+# pixel checks (fog, font, screenshot comparison) SKIP -- --on-desktop runs them. --on-desktop, CI, or no xvfb-run
+# keeps the current DISPLAY.
 #
 # What the rebuild builds, and why it matters:
 #   The editor, the dlink web template, and the **non-dlink, nothreads** one --
@@ -270,7 +271,7 @@ else
     echo "  Real GPU: no — the Forward+ matrix, parity and Chrome fog tiers will SKIP"
 fi
 if [[ -n "${LOCAL_CI_IN_XVFB:-}" ]]; then
-    echo "  Display: its own Xvfb ($DISPLAY) — --on-desktop to watch the browsers"
+    echo "  Display: its own Xvfb ($DISPLAY) — Firefox's pixel checks SKIP here; --on-desktop runs them"
 else
     echo "  Display: ${DISPLAY:-none}"
 fi
