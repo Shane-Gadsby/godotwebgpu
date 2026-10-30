@@ -256,6 +256,8 @@ func _process(_delta: float) -> void:
 			vps["w333"].vp.get_texture().get_image()
 		8:
 			_test_sync_invalid()
+		9:
+			_test_multimesh_set_buffer_edit()
 		10:
 			# A later frame, with a new pattern this frame: the readback must see this frame's draw.
 			for w in WIDTHS:
@@ -568,6 +570,32 @@ func _test_sync_rd() -> void:
 		var kind := _mesh_arrays_kind(sync_mesh.surface_get_arrays(0))
 		var want := "empty" if web else "data"
 		_record("sync_mesh_arrays_frame5", "" if kind == want else "returned %s, not %s" % [kind, want], { "returned": kind })
+
+
+# multimesh_set_buffer(), then one instance edited: the others must survive. The edit makes the CPU copy local, which on
+# the web used to read the GPU buffer back, get nothing yet, and upload zeros for every other instance (TASKS §2.55).
+func _test_multimesh_set_buffer_edit() -> void:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.instance_count = 4
+	var buf := PackedFloat32Array()
+	for i in 4:
+		buf.append_array([1, 0, 0, i + 1, 0, 1, 0, 2 * i + 1, 0, 0, 1, 3 * i + 1])
+	mm.buffer = buf
+	var moved := Transform3D(Basis(), Vector3(-5, -6, -7))
+	mm.set_instance_transform(1, moved)
+	var err := ""
+	for i in 4:
+		var want := moved if i == 1 else Transform3D(Basis(), Vector3(i + 1, 2 * i + 1, 3 * i + 1))
+		var got := mm.get_instance_transform(i)
+		if not got.is_equal_approx(want):
+			err += "instance %d is %s, want %s; " % [i, got, want]
+	var back := RenderingServer.multimesh_get_buffer(mm.get_rid())
+	if back.size() != buf.size():
+		err += "multimesh_get_buffer() has %d floats, want %d; " % [back.size(), buf.size()]
+	elif back[3] != 1.0 or back[11] != 1.0 or back[15] != -5.0:
+		err += "multimesh_get_buffer() reads %s; " % [back.slice(0, 16)]
+	_record("multimesh_set_buffer_then_edit", err.strip_edges())
 
 
 func _mesh_arrays_kind(p_arrays: Array) -> String:

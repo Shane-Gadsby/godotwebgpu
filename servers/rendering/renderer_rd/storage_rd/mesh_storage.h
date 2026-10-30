@@ -247,6 +247,9 @@ private:
 		uint32_t custom_data_offset_cache = 0;
 
 		Vector<float> data_cache; //used if individual setting is used
+		// Drivers with asynchronous readback (the web): the last multimesh_set_buffer() data, kept (copy on write) so
+		// that making the cache local does not have to read the buffer back, which returns nothing yet (TASKS §2.55).
+		Vector<float> set_buffer_copy;
 		bool *data_cache_dirty_regions = nullptr;
 		uint32_t data_cache_dirty_region_count = 0;
 		bool *previous_data_cache_dirty_regions = nullptr;
