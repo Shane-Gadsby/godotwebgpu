@@ -2941,7 +2941,7 @@ Verification (the §4.17 lesson, trap 11: a green container suite missed two bla
      project's adapter check if it is reused beyond this.
 
 Timing: a sync touches most of the tree and needs full rebuilds of every variant; do it when no other build or worker
-is using the tree, and land the open camera tasks (85-88) either before or after it, not interleaved. Effort: §4.17
+is using the tree, and **land it before the camera tasks 85-88** (user, 2026-10-30), so they are built on the synced tree. Effort: §4.17
 (2,794 commits, 109 conflicts) took about a day plus the real-GPU follow-up; 603 commits, perhaps half that.
 
 ## 3. Traps and lessons — read before debugging
