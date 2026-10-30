@@ -1806,6 +1806,7 @@ void MeshStorage::_multimesh_allocate_data(RID p_multimesh, int p_instances, RSE
 
 	//print_line("allocate, elements: " + itos(p_instances) + " 2D: " + itos(p_transform_format == RSE::MULTIMESH_TRANSFORM_2D) + " colors " + itos(multimesh->uses_colors) + " data " + itos(multimesh->uses_custom_data) + " stride " + itos(multimesh->stride_cache) + " total size " + itos(multimesh->stride_cache * multimesh->instances));
 	multimesh->data_cache = Vector<float>();
+	multimesh->set_buffer_copy = Vector<float>();
 	multimesh->aabb = AABB();
 	multimesh->aabb_dirty = false;
 	multimesh->visible_instances = MIN(multimesh->visible_instances, multimesh->instances);
@@ -1912,7 +1913,9 @@ void MeshStorage::_multimesh_set_mesh(RID p_multimesh, RID p_mesh) {
 		_multimesh_mark_all_dirty(multimesh, false, true);
 	} else if (multimesh->instances) {
 		//need to re-create AABB unfortunately, calling this has a penalty
-		if (multimesh->buffer_set) {
+		if (multimesh->buffer_set && !multimesh->set_buffer_copy.is_empty()) {
+			_multimesh_re_create_aabb(multimesh, multimesh->set_buffer_copy.ptr(), multimesh->instances);
+		} else if (multimesh->buffer_set) {
 			Vector<uint8_t> buffer = RD::get_singleton()->buffer_get_data(multimesh->buffer);
 			// Empty on the web until the asynchronous readback has arrived (work task 81): keep the current AABB then.
 			if ((uint64_t)buffer.size() >= (uint64_t)(multimesh->motion_vectors_current_offset + multimesh->instances) * multimesh->stride_cache * sizeof(float)) {
@@ -1943,7 +1946,16 @@ void MeshStorage::_multimesh_make_local(MultiMesh *multimesh) const {
 	{
 		float *w = multimesh->data_cache.ptrw();
 
-		if (multimesh->buffer_set) {
+		if (multimesh->buffer_set && !multimesh->set_buffer_copy.is_empty()) {
+			// The data multimesh_set_buffer() uploaded, for both halves when motion vectors are on (as if nothing moved).
+			const size_t size = multimesh->set_buffer_copy.size() * sizeof(float);
+			memset(w, 0, buffer_size * sizeof(float));
+			memcpy(w + multimesh->motion_vectors_current_offset * multimesh->stride_cache, multimesh->set_buffer_copy.ptr(), size);
+			if (multimesh->motion_vectors_enabled) {
+				memcpy(w + multimesh->motion_vectors_previous_offset * multimesh->stride_cache, multimesh->set_buffer_copy.ptr(), size);
+			}
+			multimesh->set_buffer_copy = Vector<float>(); // The cache holds it from now on.
+		} else if (multimesh->buffer_set) {
 			Vector<uint8_t> buffer = RD::get_singleton()->buffer_get_data(multimesh->buffer);
 			{
 				const uint8_t *r = buffer.ptr();
@@ -2379,7 +2391,12 @@ void MeshStorage::_multimesh_set_buffer(RID p_multimesh, const Vector<float> &p_
 		float *cache_data = multimesh->data_cache.ptrw();
 		memcpy(cache_data + (multimesh->motion_vectors_current_offset * multimesh->stride_cache), p_buffer.ptr(), p_buffer.size() * sizeof(float));
 		_multimesh_mark_all_dirty(multimesh, true, true); //update AABB
-	} else if (multimesh->mesh.is_valid()) {
+		return;
+	}
+	if (RD::get_singleton()->get_device_driver()->api_trait_get(RDD::API_TRAIT_BUFFER_READBACK_ASYNC)) {
+		multimesh->set_buffer_copy = p_buffer; // Copy on write: no copy unless the caller changes its array.
+	}
+	if (multimesh->mesh.is_valid()) {
 		//if we have a mesh set, we need to re-generate the AABB from the new data
 		const float *data = p_buffer.ptr();
 
