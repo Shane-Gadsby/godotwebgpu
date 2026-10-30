@@ -55,6 +55,18 @@
 		<member name="editor_only" type="bool" setter="set_editor_only" getter="is_editor_only" default="false">
 			If [code]true[/code], the light only appears in the editor and will not be visible at runtime. If [code]true[/code], the light will never be baked in [LightmapGI] regardless of its [member light_bake_mode].
 		</member>
+		<member name="flicker_custom_frequency" type="float" setter="set_flicker_custom_frequency" getter="get_flicker_custom_frequency" default="50.0">
+			The mains frequency in Hz when [member flicker_frequency] is [constant FLICKER_CUSTOM]. The lamp pulses at twice this frequency.
+		</member>
+		<member name="flicker_depth" type="float" setter="set_flicker_depth" getter="get_flicker_depth" default="0.5">
+			How far the brightness dips in each pulse, from [code]0[/code] (steady) to [code]1[/code] (fully off at the bottom). Incandescent lamps flicker little (about [code]0.1[/code]); magnetic-ballast fluorescent tubes and cheap LED drivers a lot ([code]0.5[/code] to [code]1[/code]).
+		</member>
+		<member name="flicker_frequency" type="int" setter="set_flicker_frequency" getter="get_flicker_frequency" enum="Light3D.FlickerFrequency" default="0">
+			The AC mains the lamp runs on, which makes it pulse in brightness at twice that frequency (100 Hz on 50 Hz mains). A camera shows it whenever its exposure does not cover whole pulses: steady at 1/50 or 1/100 s under 50 Hz mains, beating at 1/200 s or at a frame rate off the mains (see [member CameraAttributes.frame_rate] and [member CameraAttributes.exposure_shutter_angle]). The brightness is averaged over the camera's exposure, so its mean is the light's energy. Light2D is not affected.
+		</member>
+		<member name="flicker_phase" type="float" setter="set_flicker_phase" getter="get_flicker_phase" default="0.0">
+			The phase of the pulse, in degrees. Lights on different phases of a three-phase supply are 120 degrees apart, so their flicker partly cancels.
+		</member>
 		<member name="light_angular_distance" type="float" setter="set_param" getter="get_param" default="0.0" keywords="pcss">
 			The light's angular size in degrees. Increasing this will make shadows softer at greater distances (also called percentage-closer soft shadows, or PCSS). Only available for [DirectionalLight3D]s. For reference, the Sun from the Earth is approximately [code]0.5[/code]. Increasing this value above [code]0.0[/code] for lights with shadows enabled will have a noticeable performance cost due to PCSS.
 			[b]Note:[/b] [member light_angular_distance] is not affected by [member Node3D.scale] (the light's scale or its parent's scale).
@@ -230,6 +242,18 @@
 		<constant name="BAKE_DYNAMIC" value="2" enum="BakeMode">
 			Light is taken into account in dynamic baking ([VoxelGI] and SDFGI ([member Environment.sdfgi_enabled])). The light can be moved around or modified with global illumination updating in real-time. The light's global illumination appearance will be slightly different compared to [constant BAKE_STATIC]. This has a greater performance cost compared to [constant BAKE_STATIC]. When using SDFGI, the update speed of dynamic lights is affected by [member ProjectSettings.rendering/global_illumination/sdfgi/frames_to_update_lights].
 			[b]Note:[/b] When using [LightmapGI], the light's indirect light is baked, but direct light and shadows remain real-time. This mode allows performing [i]subtle[/i] changes to a light's color, energy, and position while still looking fairly correct. For example, you can use this to create flickering static torches that have their indirect light baked.
+		</constant>
+		<constant name="FLICKER_OFF" value="0" enum="FlickerFrequency">
+			The light is steady.
+		</constant>
+		<constant name="FLICKER_50_HZ" value="1" enum="FlickerFrequency">
+			50 Hz mains (Europe, most of Asia, Africa and Oceania): the lamp pulses at 100 Hz.
+		</constant>
+		<constant name="FLICKER_60_HZ" value="2" enum="FlickerFrequency">
+			60 Hz mains (the Americas, parts of Asia): the lamp pulses at 120 Hz.
+		</constant>
+		<constant name="FLICKER_CUSTOM" value="3" enum="FlickerFrequency">
+			The mains frequency is [member flicker_custom_frequency].
 		</constant>
 	</constants>
 </class>
