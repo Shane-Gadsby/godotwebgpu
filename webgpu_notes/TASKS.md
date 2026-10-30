@@ -2883,6 +2883,41 @@ light shadows, file one if absent (the user decides on reporting), and fix here 
 through the camera batch and renderer changes. Then check WebGPU (add an `area_light` arm to the Forward+ matrix with
 `--parity`, shared with §2.60) and Mobile. Effort: ~2-4 h to place it; the fix unknown.
 
+### 2.62 Sync with upstream Godot (4.8 beta) `OPEN` *(user request via camera-sim, 2026-10-30; work task 90, tag camera-sim)*
+
+The user asked (from the camera-sim session) to pull the latest upstream Godot changes in. State on 2026-10-30 after
+`git fetch upstream`: `webgpu-4.8`'s merge-base with `upstream/master` is `e7cfa294a0` (2026-10-02, the §4.17 sync);
+`upstream/master` is `7be59b463a` (2026-10-29), **603 commits ahead**, and has gone to **4.8 beta** (`version.py`
+`status = "beta"`; the fork says `"dev"`). No `4.8` branch or 4.8 tag upstream yet, so the target is master's tip at
+merge time (record the hash); beta means feature freeze, a good point to sync. Plain merge since the lineage repair
+(§4.18), on a `sync/4.8-beta` branch like §4.3 (4.7.2) and §4.17 (4.8). Merge, not rebase; nobody pushes.
+
+Known conflict spots:
+- `RenderingDevice::_stall_for_frame()`, restructured in §4.82.
+- The deliberate divergences from upstream, e.g. the one noted in §4.47 (line ~4942); grep §4 for "divergence".
+- Everything the camera batch touched: camera attributes, DOF, lights, motion blur, grain (§4.47-4.55), plus the
+  scene shaders the WebGPU passes depend on; the Box3D module against any physics-header changes (as in §4.17); the
+  braced GDScript files (`// GDB`); `platform/web` (shell, audio, render thread).
+
+Verification (the §4.17 lesson, trap 11: a green container suite missed two black-3D regressions):
+- `./webgpu_tests/local_ci.sh --dev-mode`; converter smoke against the stored references (`converter_smoke/run.sh`;
+  an upstream shader change can move bindings: regenerate the references only after reading why); shader corpus.
+- **Real GPU:** the Forward+ matrix with `--parity` (`WEBGPU_REAL_GPU=1`), Chrome and Firefox.
+- The other tiers touched by the merge: web audio, braced GDScript (`tests/braced_gdscript/run.sh`), Box3D scenes,
+  MetaHuman `run.sh`, async readback, editor drop.
+- Before a PR to `main`: MinGW Windows template and the minimal template (§3 trap 112), `pre-commit` from `origin/main`.
+- **camera-sim smoke check** (it depends on fork-only APIs: `CameraAttributesPhysical.dof_physical_blur_size` /
+  `dof_legacy_gather`, `sensor_size`, `Light3D.light_temperature_enabled`, `Camera3D.get_monitoring_histogram` /
+  `monitoring_histogram_*`, `monitoring_clean_texture_enabled` / `get_monitoring_clean_texture`,
+  `Texture2D.get_image_awaitable`, autofocus): on a scratch copy of camera-sim (never modify it), its main scene runs
+  natively with no errors, and in a web export from the **dlink nothreads** template (camera-sim's preset) both of
+  its downloads work. Editor and web templates must be rebuilt from the same commit, or camera-sim's baked shader cache
+  stops matching (tell camera-sim when the rebuilt pair is in place).
+
+Timing: a sync touches most of the tree and needs full rebuilds of every variant; do it when no other build or worker
+is using the tree, and land the open camera tasks (85-88) either before or after it, not interleaved. Effort: §4.17
+(2,794 commits, 109 conflicts) took about a day plus the real-GPU follow-up; 603 commits, perhaps half that.
+
 ## 3. Traps and lessons — read before debugging
 
 - **Profiling a phone over USB (2026-10-17):** `adb reverse` + a localhost server gives WebGPU a secure
