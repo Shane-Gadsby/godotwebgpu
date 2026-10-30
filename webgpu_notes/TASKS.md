@@ -2889,7 +2889,7 @@ Merged upstream master `7be59b463a` (4.8 beta) on `sync/4.8-beta`, verified, mer
 smoke check used for it (both downloads, native and web) is in `webgpu_notes/work/inputs/90-camera-sim-smoke/`: reuse
 it on the next sync.
 
-### 2.63 Emscripten 6.0.12 for dlink+threads `OPEN` *(from §4.98)*
+### 2.63 Emscripten 6.0.12 for dlink+threads `DONE 2026-10-30` → §4.107 *(from §4.98)*
 
 Upstream (0fd56b4b3e) now requires Emscripten 6.0.12+ for `dlink_enabled=yes threads=yes`; this fork pins 6.0.9 with its
 two toolchain patches (`misc/emsdk_patches/`, §4.5), and `platform/web/detect.py` accepts a patched 6.0.9 in place of
@@ -6086,6 +6086,18 @@ so builds now say **4.8.beta**: templates install to `export_templates/4.8.beta/
 correct frame is unchanged, and are judged from above (`maxDelta: 0.05`, enforced by `run_forward_plus.mjs`), as the
 render-info arms already were. The exemption now covers any arm with a real upper bound (`0 < maxDelta < 1`), so a
 zero or huge bound still fails. Self-test PASS.
+
+### 4.107 Emscripten 6.0.12, the pin (October 2026) *(work task 91, §2.63)*
+
+Upstream Godot (0fd56b4b3e, PR #124321: "regression fixed upstream in 6.0.12") needs 6.0.12 for dlink+threads. What
+6.0.12 changed: `exportLibrarySymbols()` skips `HEAP*` (`&& !ident.startsWith('HEAP')`), which is this fork's patch
+0002 (its pinned line is gone there). 0001 (the dylink+pthread ASM_CONSTS race) is not in 6.0.12: its upstream text
+is unchanged and it applies cleanly. The patch table gains `fixed_upstream_in` (0002: 6.0.12), honored by
+--status/--check/--apply, so 6.0.12 is complete with 0001 and 6.0.9 still needs both. The pin moved to 6.0.12 in
+build-linux.sh, build-windows.ps1, build-macos.sh (which still said 4.0.11) and both web CI workflows.
+Verified: a `dlink_enabled=yes threads=yes` template built with a scratch 6.0.12 plus 0001 (both halves in the linked
+JS), the WebRTC fixture exported threaded with GDExtension support: all 9 fixtures pass in Chrome (86 assertions), no
+`growMemViews` errors. `~/emsdk` moves to 6.0.12 on the next build without `--skip-install`.
 
 ## 5. References — retired docs
 
