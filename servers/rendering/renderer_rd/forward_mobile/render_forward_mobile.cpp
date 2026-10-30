@@ -1238,6 +1238,7 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		base_specialization.use_directional_soft_shadows = p_render_data->directional_light_count > 0 ? p_render_data->directional_light_soft_shadows : false;
 		base_specialization.directional_lights = SceneShaderForwardMobile::shader_count_for(p_render_data->directional_light_count);
 		base_specialization.directional_light_blend_splits = light_storage->get_directional_light_blend_splits(p_render_data->directional_light_count);
+		base_specialization.light_extras = light_storage->get_positional_light_extras_used();
 
 		if (!is_environment(p_render_data->environment) || !environment_get_fog_enabled(p_render_data->environment)) {
 			base_specialization.disable_fog = true;

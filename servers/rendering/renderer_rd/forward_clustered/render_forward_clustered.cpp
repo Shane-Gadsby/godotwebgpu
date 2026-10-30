@@ -2436,6 +2436,8 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	}
 	_pre_opaque_render(p_render_data, using_ssao, using_ssil, using_ssr, using_sscs, using_sdfgi || using_voxelgi, normal_roughness_views, voxel_gi_views);
 
+	// Known only now: _pre_opaque_render() fills the light buffers. The depth pre-pass above does no lighting.
+	base_specialization.light_extras = RendererRD::LightStorage::get_singleton()->get_positional_light_extras_used();
 	if (current_cluster_builder) {
 		base_specialization.cluster_has_area_light = current_cluster_builder->get_cluster_count_by_type(ClusterBuilderRD::ELEMENT_TYPE_AREA_LIGHT) != 0;
 	}

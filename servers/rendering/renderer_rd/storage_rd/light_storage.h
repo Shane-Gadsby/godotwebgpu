@@ -195,6 +195,9 @@ private:
 	uint32_t max_lights;
 	uint32_t omni_light_count = 0;
 	uint32_t spot_light_count = 0;
+	// Some omni or spot light in the buffers has a specular size or flickers per row: the scene shaders compile both out
+	// otherwise (the light_extras specialization constant).
+	bool positional_light_extras_used = false;
 	uint32_t area_light_count = 0;
 	LightData *omni_lights = nullptr;
 	LightData *spot_lights = nullptr;
@@ -876,6 +879,7 @@ public:
 		}
 		return false;
 	}
+	bool get_positional_light_extras_used() const { return positional_light_extras_used; }
 	void update_light_buffers(RenderDataRD *p_render_data, const PagedArray<RID> &p_lights, const Transform3D &p_camera_transform, RID p_shadow_atlas, bool p_using_shadows, uint32_t &r_directional_light_count, uint32_t &r_positional_light_count, bool &r_directional_light_soft_shadows);
 
 	/* REFLECTION PROBE */

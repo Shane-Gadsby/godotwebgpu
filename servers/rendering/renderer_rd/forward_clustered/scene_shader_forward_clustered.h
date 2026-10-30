@@ -130,6 +130,7 @@ public:
 				uint32_t cluster_has_area_light : 1;
 				uint32_t use_lightmap_specular : 1;
 				uint32_t material_feedback : 1;
+				uint32_t light_extras : 1; // LightStorage::get_positional_light_extras_used(): specular size, flicker per row.
 			};
 		};
 

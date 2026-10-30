@@ -763,9 +763,13 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	}
 
 	vec3 light_rel_vec_norm = light_rel_vec / light_length;
-	light_specular_alpha_widen = half(omni_lights.data[idx].specular_size / (2.0 * max(light_length, 0.001)));
-	if (omni_lights.data[idx].flicker_pulse_frequency > 0.0) {
-		color *= light_flicker_row(omni_lights.data[idx].flicker_pulse_frequency, omni_lights.data[idx].flicker_depth, omni_lights.data[idx].flicker_phase, light_flicker_row_time(screen_uv), scene_data_block.data.flicker_timing.y);
+	// Assigned on both paths, so the value is never carried from one light to the next (Mali spends registers on that).
+	light_specular_alpha_widen = half(0.0);
+	if (sc_light_extras()) {
+		light_specular_alpha_widen = half(omni_lights.data[idx].specular_size / (2.0 * max(light_length, 0.001)));
+		if (omni_lights.data[idx].flicker_pulse_frequency > 0.0) {
+			color *= light_flicker_row(omni_lights.data[idx].flicker_pulse_frequency, omni_lights.data[idx].flicker_depth, omni_lights.data[idx].flicker_phase, light_flicker_row_time(screen_uv), scene_data_block.data.flicker_timing.y);
+		}
 	}
 	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, omni_attenuation * shadow, f0, roughness, metallic, half(omni_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
@@ -969,9 +973,13 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		}
 	}
 
-	light_specular_alpha_widen = half(spot_lights.data[idx].specular_size / (2.0 * max(light_length, 0.001)));
-	if (spot_lights.data[idx].flicker_pulse_frequency > 0.0) {
-		color *= light_flicker_row(spot_lights.data[idx].flicker_pulse_frequency, spot_lights.data[idx].flicker_depth, spot_lights.data[idx].flicker_phase, light_flicker_row_time(screen_uv), scene_data_block.data.flicker_timing.y);
+	// Assigned on both paths, so the value is never carried from one light to the next (Mali spends registers on that).
+	light_specular_alpha_widen = half(0.0);
+	if (sc_light_extras()) {
+		light_specular_alpha_widen = half(spot_lights.data[idx].specular_size / (2.0 * max(light_length, 0.001)));
+		if (spot_lights.data[idx].flicker_pulse_frequency > 0.0) {
+			color *= light_flicker_row(spot_lights.data[idx].flicker_pulse_frequency, spot_lights.data[idx].flicker_depth, spot_lights.data[idx].flicker_phase, light_flicker_row_time(screen_uv), scene_data_block.data.flicker_timing.y);
+		}
 	}
 	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, spot_attenuation * shadow, f0, roughness, metallic, half(spot_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED

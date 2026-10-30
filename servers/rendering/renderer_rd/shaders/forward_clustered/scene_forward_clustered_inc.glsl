@@ -163,6 +163,12 @@ bool sc_material_feedback() {
 	return ((sc_packed_1() >> 7) & 1U) != 0;
 }
 
+// Some omni or spot light has a specular size or flickers per row (LightStorage::get_positional_light_extras_used()).
+// A constant, so a scene without either compiles that per-light code out: as a uniform branch it still cost Mali ~5%.
+bool sc_light_extras() {
+	return ((sc_packed_1() >> 8) & 1U) != 0;
+}
+
 float sc_luminance_multiplier() {
 	// Not used in clustered renderer but we share some code with the mobile renderer that requires this.
 	return 1.0;
