@@ -526,6 +526,12 @@ run_test "Perf guard — WebGPU calls per frame" \
     "$SCRIPT_DIR/perf_guard" \
     node run_perf_guard.mjs
 
+# Features this fork adds cost nothing when off: no pass of theirs runs in a default-settings scene (TASKS §2.66).
+# Needs the real GPU's timestamp queries; SKIPs without WEBGPU_REAL_GPU.
+run_test "Perf guard — no opt-in feature passes when off" \
+    "$SCRIPT_DIR/perf_guard" \
+    node off_passes.mjs
+
 run_test "Font rendering colors — Chrome" \
     "$SCRIPT_DIR/scene_smoketest" \
     node test_font_visual.mjs --browser chrome
