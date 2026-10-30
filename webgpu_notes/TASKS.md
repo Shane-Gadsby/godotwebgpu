@@ -6126,7 +6126,7 @@ display), and an exposure time and the rolling-shutter readout are capped at one
 (default off, not in the editor) makes RendererViewport draw the camera's viewport only when a camera frame is due and
 keep the image between; a skipped frame records the camera (`RenderingMethod::camera_record_held_frame`, camera setup
 moved into `RendererSceneCull::_camera_data_for_viewport()`), so motion vectors stay one frame long and blur stays
-velocity x exposure. camera_timing: a 24 fps hold changes its image 24 times in 60 frames, a free camera 59.
+velocity x exposure. camera_timing: a 24 fps hold changes its image 24 times in 60 frames, a free camera 59 (9/9 camera_timing checks on Forward+, Mobile, Compatibility).
 
 ### 4.104 The shutter angle is an exposure setting; Physical Speed/Angle mode (October 2026) *(work task 87, §2.59; user answer `physical-shutter-angle-mode`)*
 
@@ -6141,7 +6141,8 @@ Omni and spot lights: the GGX alpha of their specular gets + size / (2 x distanc
 shader-private `light_specular_alpha_widen` set around light_compute() in light_process_omni/spot; LightData's spare
 `pad[0]` is now `specular_size`. A softbox-sized key light gives a softbox-sized, unclipped catchlight on a
 near-mirror, shrinking with distance; no PCSS, no NdotL wrap, diffuse unchanged; 0 is bit-identical (parity 103/103).
-Forward+ and Mobile, not Compatibility.
+Forward+ and Mobile, not Compatibility. camera_timing: a 0.04-roughness sphere's highlight goes from a clipped 4 px point
+to a 47 px catchlight peaking at 0.79 with a 0.6 m size (Mobile alike).
 
 ### 4.106 AreaLight3D shadows are upstream's behavior (October 2026) *(work task 89, §2.61)*
 
