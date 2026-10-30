@@ -18,9 +18,9 @@
 # entry in emsdk_patch.py plus a .patch file, not editing shell. Read the .patch
 # files in this directory for what each change is and why.
 #
-# Needed for `platform=web dlink_enabled=yes` builds. `threads=no` is where it
-# matters least (0001 cannot fire without threads at all), but the patch is
-# correct for every dlink build, so just apply it.
+# Applies what the active Emscripten version needs for `platform=web
+# dlink_enabled=yes` builds: nothing on the pinned 6.0.12, where 0001 is retired
+# but kept (README.md, "Retired patches").
 #
 # `emsdk install` overwrites the toolchain tree, so this has to be re-applied
 # after EVERY toolchain change, not just after an emsdk version bump. Every build

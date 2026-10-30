@@ -326,16 +326,16 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 	# shellcheck source=/dev/null
 	source "$EMSDK_DIR/emsdk_env.sh" > /dev/null
 
-	# Half the web templates below are dlink_enabled=yes, which needs this fork's
-	# Emscripten toolchain patch, and `emsdk install`/an emsdk update
-	# overwrites the toolchain tree -- so apply it here, after the environment is
+	# Half the web templates below are dlink_enabled=yes. This applies whatever
+	# Emscripten patch this version still needs (none on 6.0.12), and `emsdk install`/an
+	# emsdk update overwrites the toolchain tree -- so run it here, after the environment is
 	# set up, on every run. Idempotent; refuses rather than fuzzily applying if
 	# upstream has moved any of the text it pins. Only a threads=yes dlink build
 	# actually breaks without them, and these builds are threads=no, so warn and
 	# keep going rather than failing the whole run. See misc/emsdk_patches/README.md.
 	step "Applying Emscripten toolchain patches..."
 	if ./misc/emsdk_patches/apply.sh --apply; then
-		ok "Emscripten toolchain patched."
+		ok "Emscripten toolchain ready."
 	else
 		warn "Could not patch the Emscripten toolchain. These threads=no templates are fine"
 		warn "without it, but a threads=yes dlink build would not boot. See"

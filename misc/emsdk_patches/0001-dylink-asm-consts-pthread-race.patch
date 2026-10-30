@@ -1,5 +1,9 @@
 GODOT WEBGPU PATCH: fix the Emscripten dylink + pthread ASM_CONSTS race
 
+RETIRED from Emscripten 6.0.12 (2026-10-31), kept in case it is needed again:
+unpatched 6.0.12 boots a real threads+dlink export, cause unknown. See
+README.md, "Retired patches", and webgpu_notes/TASKS.md section 4.112.
+
 Derived against: emsdk / Emscripten 6.0.9
 Upstream status:  not reported upstream as of 2026-10-07; no known upstream fix
 Tracked in:       webgpu_notes/TASKS.md Task 12 bug #2, Task 14 subtask 1.5

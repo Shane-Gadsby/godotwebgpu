@@ -46,6 +46,10 @@ PATCHES = [
         "id": "0001-dylink-asm-consts-pthread-race",
         "marker": "GODOT WEBGPU PATCH (dylink+pthread ASM_CONSTS race)",
         "derived_against": "6.0.12",
+        # Retired, kept in case it is needed again. Unpatched 6.0.9 never boots a threads+dlink export; unpatched 6.0.12
+        # boots one, with a real GDExtension, every time, for a reason nobody has found (TASKS.md §4.112). Delete this
+        # line to bring the patch back: every build helper and CI then applies it again.
+        "fixed_upstream_in": "6.0.12",
         "required_for": "platform=web threads=yes dlink_enabled=yes",
         "summary": "side module's EM_ASM registration races the main module's ASM_CONSTS initializer",
         "hunks": [
@@ -271,7 +275,7 @@ def cmd_status(root, version, args):
         state = patch_state(root, patch)
         label = patch["id"]
         if not needed(patch, version):
-            print(f"{label}: NOT NEEDED (fixed upstream in Emscripten {patch['fixed_upstream_in']})")
+            print(f"{label}: NOT NEEDED from Emscripten {patch['fixed_upstream_in']}")
             continue
         if state == "applied":
             print(f"{label}: APPLIED")
@@ -303,6 +307,9 @@ def cmd_check(root, version, args):
 def cmd_apply(root, version, args):
     wanted = [p for p in PATCHES if needed(p, version)]
     todo = [p for p in wanted if patch_state(root, p) != "applied"]
+    if not wanted:
+        print(f"no patch needed on Emscripten {version} at {root} -- nothing to do")
+        return 0
     if not todo:
         print(f"already applied ({len(wanted)} patches, Emscripten {version} at {root}) -- nothing to do")
         return 0

@@ -6280,11 +6280,23 @@ Proving the variant can fail turned up the finding. Real threads + dlink export,
 
 So the tier does catch the crash, and on 6.0.12 this export does not need 0001. The cause is **not known**: the linked JS
 has the same order in both versions (`addEmAsm`'s `ASM_CONSTS[start]=` ~860 KB ahead of the initializer), so the hazard
-is still in the text and something else changed what runs first on a worker. By the patch's own "when this can be
-deleted" rule it should go, with `apply.sh`, but that is a decision for the user, not made here: only this
-fixture on a release template was tried, with no GDExtension actually loaded (its extension is excluded by
-`exclude_tags`). The earlier "0001 is still needed" (§4.107, §4.110) rested on its pinned text being unchanged, which says
+is still in the text and something else changed what runs first on a worker. This fixture on a release template, with no GDExtension actually loaded (its extension is excluded by
+`exclude_tags`), was not enough to retire the patch; §4.112 finished the check. The earlier "0001 is still needed" (§4.107, §4.110) rested on its pinned text being unchanged, which says
 nothing about whether the bug still fires: test the behavior.
+
+### 4.112 Emscripten patch 0001 retired, and kept (October 2026) *(work task 97, user decision; from §4.111)*
+
+The check §4.111 left open, on an unpatched 6.0.12: a threads + dlink export of a threaded 3D project (`--render-thread
+separate`, four GDScript `Thread`s) with a real GDExtension, a C side module whose own `EM_ASM` bodies go through
+`addEmAsm()` on every worker that loads it. It ran `EM_ASM` on the main thread, on a pthread at startup and on one spawned
+3 s later. **10 of 10 boots passed, 5 debug and 5 release**: Chrome on the 4080, every `EM_ASM` result correct, no page
+error, box on screen. The fixture was a scratch project; the alarm that stays is webrtc_parity's `threads_dlink`.
+
+So nothing is active on 6.0.12, and `~/emsdk` is unpatched. 0001 stays in `misc/emsdk_patches/` with
+`fixed_upstream_in: "6.0.12"`, the same switch 0002 used: `apply.sh` and the build helpers' calls to it stay, and do
+nothing on 6.0.12. Deleting that one line brings it back (`misc/emsdk_patches/README.md`, "Retired patches"). The patch's
+own rule said delete it and `apply.sh`; the user asked to keep it, because the cause of the fix is unknown and the
+hazard is still in the generated JS, so a later Emscripten could bring the crash back. Not tested: Firefox, Safari.
 
 ## 5. References — retired docs
 

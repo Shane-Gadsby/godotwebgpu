@@ -14,35 +14,34 @@ here and are re-applied on demand.
 
 ## When you need this
 
-For **`platform=web dlink_enabled=yes`** builds. The patch is in a code path
-only a dlink build takes (`-sSIDE_MODULE`), and its symptom needs a pthread
-worker to fire, so:
+**On the pinned Emscripten 6.0.12, you don't: no patch is active.** The tooling is still run by every build helper
+and both web CI workflows, so `--apply` is a no-op there. Applying a patch again only takes the steps under
+"Retired patches".
 
-| configuration | without the patch |
-|---|---|
-| `dlink_enabled=yes threads=yes` | **does not boot** on 6.0.9 (0001); boots on 6.0.12 for a reason not yet known (TASKS §4.111) |
-| `dlink_enabled=yes threads=no` | unaffected — the symptom cannot fire, but the patch is still correct |
-| `dlink_enabled=no` (any `threads`) | unaffected, nothing to apply |
+Up to 6.0.9, `dlink_enabled=yes threads=yes` **does not boot** without `0001`. `emsdk install` overwrites the toolchain
+tree, so a patch has to be re-applied after every toolchain change, which those helpers do. A `dlink_enabled=yes` build
+tells you if a needed patch is missing.
 
-Just apply it for any dlink build.
-
-**`emsdk install` overwrites the toolchain tree, so this must be re-applied after
-every toolchain change**, not just after an emsdk version bump. Every build helper
-and both web CI workflows do it themselves — see "CI and the build helpers" below. A `dlink_enabled=yes` build
-tells you if the patch is missing — loudly when `threads=yes`, as a note
-otherwise.
-
-## Current patches
+## Retired patches
 
 | | |
 |---|---|
-| `0001-dylink-asm-consts-pthread-race.patch` | Fixes the `ASM_CONSTS` initialization race that stops a threads + GDExtension build from booting at all. Two halves — `tools/emscripten.py` and `src/lib/libdylink.js` — and **neither is valid without the other**; the patch header explains why the obvious one-line version is worse than the crash. |
+| `0001-dylink-asm-consts-pthread-race.patch` | **Kept, not applied from 6.0.12** (`fixed_upstream_in` in its table entry). Fixes the `ASM_CONSTS` initialization race that stopped a threads + GDExtension build booting at all. Two halves — `tools/emscripten.py` and `src/lib/libdylink.js` — and **neither is valid without the other**; the patch header explains why the obvious one-line version is worse than the crash. |
+| `0002-export-all-eager-heap-views` | **Deleted**, in git history before 2026-10-31. 6.0.12 skips `HEAP*` in `exportLibrarySymbols()` itself. |
 
-`0002-export-all-eager-heap-views` is retired: Emscripten 6.0.12 skips `HEAP*` in
-`exportLibrarySymbols()` itself, and this fork pins 6.0.12 (`platform/web/detect.py`
-refuses dlink+threads below it). It is in git history before 2026-10-31. A patch
-whose fix reaches upstream but cannot go yet takes `fixed_upstream_in` in its table
-entry, and `--status`/`--check`/`--apply` skip it from that version on.
+**Nobody knows why 6.0.12 stopped needing `0001`.** Unpatched 6.0.9 fails every boot; unpatched 6.0.12 passes every boot,
+debug and release, with a real GDExtension running `EM_ASM` on workers, but the generated JS still has `addEmAsm` ahead of
+the `ASM_CONSTS` initializer (TASKS §4.112). So it could come back with a later Emscripten. The alarm is
+`webgpu_tests/webrtc_parity`'s `threads_dlink` variant in `local_ci.sh`: GitHub CI does not run it, so run `local_ci.sh`
+after an Emscripten bump. The symptom is a worker throwing
+`Cannot set properties of undefined (setting '<addr>')` and a page that never finishes loading.
+
+**To bring it back:** delete the `fixed_upstream_in` line from its entry in `emsdk_patch.py`, then `./apply.sh --apply`
+(a pin mismatch means a new Emscripten moved the text: re-derive the hunks). Build helpers and CI apply it from then on, and
+scons relinks on its own. Check both halves with the greps under "Verifying" below.
+
+A patch whose fix arrives upstream takes `fixed_upstream_in` the same way, and `--status`/`--check`/`--apply` skip it from
+that version on.
 
 ## How this is built
 

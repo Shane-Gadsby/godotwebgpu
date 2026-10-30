@@ -192,9 +192,9 @@ jobs:
       - name: Verify Emscripten setup
         run: emcc -v
 
-      # dlink_enabled=yes builds need this fork's Emscripten toolchain patch, and
+      # Applies whatever Emscripten patch this version still needs (none on 6.0.12).
       # setup-emsdk above lays down a fresh toolchain tree every run, so it has to
-      # be applied here. See misc/emsdk_patches/README.md.
+      # run here. See misc/emsdk_patches/README.md.
       #
       # Run for every web job, not just the dlink ones: it is harmless for the
       # others (neither patched code path is taken without -sSIDE_MODULE /

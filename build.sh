@@ -217,16 +217,16 @@ build_templates() {
 	fi
 
 
-	# Half the web templates below are dlink_enabled=yes, which needs this fork's
-	# Emscripten toolchain patch, and `emsdk install`/an emsdk update overwrites
-	# the toolchain tree -- so apply it here, after the environment is set up, on
+	# Half the web templates below are dlink_enabled=yes. This applies whatever
+	# Emscripten patch this version still needs (none on 6.0.12), and `emsdk install`/an
+	# emsdk update overwrites the toolchain tree -- so run it here, after the environment is set up, on
 	# every run. Idempotent; refuses rather than fuzzily applying if upstream has
 	# moved any of the text it pins. Only a threads=yes dlink build actually breaks
 	# without them, and these builds are threads=no, so warn and keep going rather
 	# than failing the whole run. See misc/emsdk_patches/README.md.
 	echo -e "${BOLD}Applying Emscripten toolchain patches...${NC}"
 	if ./misc/emsdk_patches/apply.sh --apply; then
-		echo -e "${BOLD}Emscripten toolchain patched.${NC}"
+		echo -e "${BOLD}Emscripten toolchain ready.${NC}"
 	else
 		echo -e "${YELLOW}Warning: could not patch the Emscripten toolchain. These threads=no${NC}" >&2
 		echo -e "${YELLOW}templates are fine without it, but a threads=yes dlink build would not${NC}" >&2

@@ -419,9 +419,9 @@ if (-not $SkipWeb) {
     . (Join-Path $EmsdkDir "emsdk_env.ps1")
     $webPath = $env:Path
 
-    # Half the web templates below are dlink_enabled=yes, which needs this fork's
-    # Emscripten toolchain patch, and `emsdk install` above overwrites the
-    # toolchain tree -- so apply it here, after the environment is activated, on
+    # Half the web templates below are dlink_enabled=yes. This applies whatever
+    # Emscripten patch this version still needs (none on 6.0.12), and `emsdk install`
+    # above overwrites the toolchain tree -- so run it here, after the environment is activated, on
     # every run. Idempotent; refuses rather than fuzzily applying if upstream has
     # moved any of the text it pins.
     #
@@ -434,7 +434,7 @@ if (-not $SkipWeb) {
     Write-Step "Applying Emscripten toolchain patches..."
     python -I (Join-Path $RepoRoot "misc\emsdk_patches\emsdk_patch.py") apply
     if ($LASTEXITCODE -eq 0) {
-        Write-Ok "Emscripten toolchain patched."
+        Write-Ok "Emscripten toolchain ready."
     } else {
         Write-Warn "Could not patch the Emscripten toolchain. These threads=no templates are fine"
         Write-Warn "without it, but a threads=yes dlink build would not boot. See"

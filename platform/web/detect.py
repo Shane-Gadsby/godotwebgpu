@@ -402,6 +402,8 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-fvisibility=hidden"])
         env.extra_suffix = ".dlink" + env.extra_suffix
 
+        # No patch is needed from Emscripten 6.0.12 on, where `--check` passes and this
+        # stays quiet (TASKS.md §4.112). Below it:
         # A dlink build needs this fork's Emscripten toolchain patch (it is about a
         # -sSIDE_MODULE code path that only a dlink build takes) -- see
         # misc/emsdk_patches/ and webgpu_notes/TASKS.md Task 12 bug #2. How much it
