@@ -141,7 +141,9 @@ void AudioStreamPlaybackMP3::seek(double p_time) {
 	}
 
 	frames_mixed = uint32_t(mp3_stream->sample_rate * p_time);
-	drmp3_seek_to_pcm_frame(&mp3d, (uint64_t)frames_mixed);
+	// dr_mp3 counts PCM frames from the start of the decoded stream, encoder delay included, and skips that delay
+	// only when reading from frame 0: a position in the audio is that many frames further in.
+	drmp3_seek_to_pcm_frame(&mp3d, frames_mixed > 0 ? (uint64_t)frames_mixed + mp3d.delayInPCMFrames : 0);
 }
 
 void AudioStreamPlaybackMP3::tag_used_streams() {
@@ -230,7 +232,10 @@ void AudioStreamMP3::set_data(const Vector<uint8_t> &p_data) {
 
 	channels = mp3d->channels;
 	sample_rate = mp3d->sampleRate;
-	length = float(pcm_frames) / (mp3d->sampleRate);
+	// The frame count includes the encoder delay and padding that a LAME/Xing tag declares, which reading skips
+	// (gapless playback): without them, playback ended and looped ~50 ms before this length (TASKS §2.56).
+	const drmp3_uint64 trimmed = (uint64_t)mp3d->delayInPCMFrames + mp3d->paddingInPCMFrames;
+	length = float(pcm_frames > trimmed ? pcm_frames - trimmed : pcm_frames) / (mp3d->sampleRate);
 
 	// Initialize seek table.
 	drmp3_uint32 seek_count = mp3_frames / 20;
