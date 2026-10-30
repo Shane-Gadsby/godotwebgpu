@@ -2706,7 +2706,10 @@ brightness, and a camera shows it whenever its exposure does not average whole c
 frame under a rolling shutter (`CameraAttributes.rolling_shutter_*`, §4.51). A camera-sim feature, alongside the camera
 batch's shutter, motion blur and rolling shutter.
 
-Lead's sketch (settle the open points with the user before building):
+**Decided (user, hand-off `light-flicker-label`, 2026-10-30): label by mains frequency**; the lamp pulses at twice it
+(100/120 Hz), plus Custom.
+
+Lead's sketch:
 - **Light3D property** (Light group; Light2D too if cheap): `light_flicker_frequency`, an enum Off (DC, today's
   behavior, the default) / 50 Hz / 60 Hz / 120 Hz / Custom with a Hz value, and a modulation depth (incandescent pulses
   a little, magnetic-ballast fluorescent and cheap LED drivers a lot; maybe presets by lamp type).
@@ -2731,7 +2734,10 @@ The user asked for a camera fps option, e.g. 24 fps, 25 fps, 60 fps. Today the c
 against the render frame time (§4.51: blur = motion per frame × exposure time / frame time), so 180° means 1/330 s at
 165 Hz and 1/120 s at 60 Hz; a film camera's 180° at 24 fps is 1/48 s whatever the display does.
 
-Lead's sketch (settle the open points with the user before building):
+**Decided (user, hand-off `camera-fps-hold`, 2026-10-30): optional hold**: exposure always follows the camera rate;
+frame holding is a separate tick box, default off.
+
+Lead's sketch:
 - **CameraAttributes property** `frame_rate`: 0 = follow the render rate (today's behavior, the default), presets
   23.976 / 24 / 25 / 29.97 / 30 / 48 / 50 / 59.94 / 60 / 120, or any value.
 - **Exposure from it:** shutter angle → exposure time = angle / 360 / frame_rate, so motion blur matches the camera
@@ -2755,7 +2761,10 @@ The user asked for a shutter angle on the physical and practical camera attribut
 `CameraAttributesPhysical` hides it whenever `motion_blur_use_shutter_speed` is on (the default), so a physical camera
 cannot be set by angle at all.
 
-Lead's sketch (settle the open point with the user before building):
+**Decided (user, hand-off `physical-shutter-angle-mode`, 2026-10-30): a mode switch** on Physical, Speed or Angle;
+the chosen one drives exposure, brightness and blur, the other shows read-only.
+
+Lead's sketch:
 - **An exposure setting, not a motion blur one:** `exposure_shutter_angle` (1-360°, default 180) in the Exposure group of
   both classes; motion blur, rolling shutter and light flicker (§2.57) all read the exposure time from it. Keep
   `motion_blur_shutter_angle` loading (compat `_set`/`_get` onto the new property) so existing scenes keep their value.
@@ -2791,6 +2800,12 @@ teaches portrait lighting; that is the point). **Constraint:** usable without wh
 camera-sim any `light_size` > 0 turns on PCSS, which smears the hair's shadow-proxy mesh into dark cheek blotches, and
 its `NdotL` wrap blew out the eye whites at 0.3 m. Default off / pixel-identical; Forward+ and WebGPU at least, Mobile if
 cheap.
+
+**Decided (user, hand-off `light-specular-size`, 2026-10-30): `light_specular_size`**, a new omni/spot property that
+only widens the specular highlight (no PCSS, no `NdotL` wrap), independent of `light_size`. camera-sim will not use the
+spot + area-light hybrid below; it waits for this and will set its key/fill/rim spots' specular size to the softbox
+size. The AreaLight3D notes below are kept as the evaluation that led here; §2.61 is off camera-sim's path but still a
+real bug.
 
 Lead's notes:
 - **First, try `AreaLight3D`** (upstream since 4.7, LTC, all three renderers, ran on WebGPU since the 4.7.2 sync, §4.3):
