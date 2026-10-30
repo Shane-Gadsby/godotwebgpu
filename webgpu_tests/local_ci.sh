@@ -15,6 +15,7 @@
 #   ./webgpu_tests/local_ci.sh --dev-mode   # Build with dev_mode=yes, as CI does
 #                                           # (warnings=extra werror=yes)
 #   ./webgpu_tests/local_ci.sh --on-desktop # Open the test browsers on your own display, to watch them
+#   ./webgpu_tests/local_ci.sh --no-real-gpu # Skip the real-GPU tiers even when a GPU is present
 #
 # On Linux the whole run happens inside its own Xvfb display (xvfb-run), so the headed test browsers and
 # native reference renders never take focus or cover the desktop. They still get the real GPU there: headed
@@ -65,6 +66,7 @@ QUICK=false
 DO_DLINK=true
 DEV_MODE=false
 ON_DESKTOP=false
+REAL_GPU=auto
 REBUILD_EXPLICIT=""  # "", "yes", or "no"
 EXPORT_EXPLICIT=""   # "", "yes", or "no"
 for arg in "$@"; do
@@ -78,6 +80,7 @@ for arg in "$@"; do
     [[ "$arg" == "--bake" ]] && DO_BAKE=true
     [[ "$arg" == "--dev-mode" ]] && DEV_MODE=true
     [[ "$arg" == "--on-desktop" ]] && ON_DESKTOP=true
+    [[ "$arg" == "--no-real-gpu" ]] && REAL_GPU=no
 done
 
 # Run everything on a display of its own (see the header), unless asked not to.
@@ -87,6 +90,16 @@ if [[ "$ON_DESKTOP" == false && -z "${CI:-}" && -z "${LOCAL_CI_IN_XVFB:-}" && "$
         exec xvfb-run -a -s "-screen 0 1920x1080x24" "$SCRIPT_DIR/$(basename "$0")" "$@"
     fi
     echo "  xvfb-run not found: the test browsers will open on this display (apt install xvfb to keep them off it)."
+fi
+
+# The Forward+ matrix, its parity run and Chrome's fog test need Chrome on the real Vulkan adapter (WEBGPU_REAL_GPU=1;
+# swiftshader renders several Forward+ effects not at all), and SKIP without it. Pass it whenever Vulkan lists a real
+# GPU, so a local run tests them instead of skipping them silently; CI keeps its own setting.
+if [[ "$REAL_GPU" == auto && -z "${CI:-}" && -z "${WEBGPU_REAL_GPU:-}" ]] && command -v vulkaninfo >/dev/null 2>&1 &&
+        vulkaninfo --summary 2>/dev/null | grep -Eq "PHYSICAL_DEVICE_TYPE_(DISCRETE|INTEGRATED)_GPU"; then
+    export WEBGPU_REAL_GPU=1
+elif [[ "$REAL_GPU" == no ]]; then
+    unset WEBGPU_REAL_GPU
 fi
 
 # dev_mode=yes is what CI builds with (webgpu_tests.yml's SCONS_FLAGS), and in
@@ -250,6 +263,11 @@ else
 fi
 if [[ "$NO_SAFARI" == true ]]; then
     echo "  Safari: skipped (--no-safari)"
+fi
+if [[ -n "${WEBGPU_REAL_GPU:-}" ]]; then
+    echo "  Real GPU: yes — Forward+ matrix, parity and Chrome fog run on it (--no-real-gpu to skip them)"
+else
+    echo "  Real GPU: no — the Forward+ matrix, parity and Chrome fog tiers will SKIP"
 fi
 if [[ -n "${LOCAL_CI_IN_XVFB:-}" ]]; then
     echo "  Display: its own Xvfb ($DISPLAY) — --on-desktop to watch the browsers"

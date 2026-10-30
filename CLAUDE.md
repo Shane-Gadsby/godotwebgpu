@@ -131,6 +131,7 @@ cd webgpu_tests/benchmark && ./run_ramp.sh && python3 readme_perf_table.py resul
 ./webgpu_tests/local_ci.sh --no-dlink       # skip the dlink template compile check
 ./webgpu_tests/local_ci.sh --dev-mode       # build with dev_mode=yes (werror), as CI does
 ./webgpu_tests/local_ci.sh --on-desktop     # open the test browsers on your display (default on Linux: its own Xvfb)
+./webgpu_tests/local_ci.sh --no-real-gpu    # skip the real-GPU tiers (on by default when Vulkan lists a GPU)
 ```
 
 `local_ci.sh` builds the editor, the dlink web template (a compile check only — nothing loads it) and the **non-dlink nothreads** one, which with the editor is the pair the scene smoketest exports with. It re-exports every scene from them before testing, so a green run reflects the working tree. It sources `$EMSDK_ENV` (default `~/emsdk/emsdk_env.sh`) itself when `emcc` is not on `PATH`.
