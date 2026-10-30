@@ -66,6 +66,9 @@
 /drivers/metal/**/SCsub                       @godotengine/rendering @godotengine/buildsystem
 /drivers/vulkan/                              @godotengine/rendering
 /drivers/webgpu/                              @Shane-Gadsby
+/drivers/webgpu/**/*.py                       @Shane-Gadsby @godotengine/buildsystem
+/drivers/webgpu/**/*.sh                       @Shane-Gadsby @godotengine/buildsystem
+/drivers/webgpu/**/SCsub                      @Shane-Gadsby @godotengine/buildsystem
 /drivers/vulkan/**/SCsub                      @godotengine/rendering @godotengine/buildsystem
 
 ## OS
@@ -207,6 +210,8 @@
 /modules/jpg/**/SCsub                         @godotengine/asset-pipeline @godotengine/buildsystem
 /modules/ktx/                                 @godotengine/asset-pipeline
 /modules/metahuman/                           @godotengine/asset-pipeline @godotengine/animation
+/modules/metahuman/**/*.py                    @godotengine/asset-pipeline @godotengine/animation @godotengine/buildsystem
+/modules/metahuman/**/SCsub                   @godotengine/asset-pipeline @godotengine/animation @godotengine/buildsystem
 /modules/metahuman/doc_classes/               @godotengine/asset-pipeline @godotengine/animation @godotengine/documentation
 /modules/metahuman/editor/                    @godotengine/asset-pipeline @godotengine/editor
 /modules/ktx/**/*.py                          @godotengine/asset-pipeline @godotengine/buildsystem
@@ -256,6 +261,8 @@
 
 ## Physics
 /modules/box3d_physics/                       @godotengine/physics
+/modules/box3d_physics/**/*.py                @godotengine/physics @godotengine/buildsystem
+/modules/box3d_physics/**/SCsub               @godotengine/physics @godotengine/buildsystem
 /modules/godot_physics_2d/                    @godotengine/physics
 /modules/godot_physics_2d/**/*.py             @godotengine/physics @godotengine/buildsystem
 /modules/godot_physics_2d/**/SCsub            @godotengine/physics @godotengine/buildsystem
@@ -523,6 +530,8 @@
 /tests/**/*.py                                @godotengine/tests @godotengine/buildsystem
 /tests/**/SConstruct                          @godotengine/tests @godotengine/buildsystem
 /tests/**/SCsub                               @godotengine/tests @godotengine/buildsystem
+/tests/**/*.sh                                @godotengine/tests @godotengine/buildsystem
+/tests/editor/                                @godotengine/tests @godotengine/editor
 
 # Thirdparty
 
@@ -533,7 +542,17 @@
 # WebGPU (this fork's own additions, not part of upstream Godot)
 
 /webgpu_tests/                                @Shane-Gadsby
+/webgpu_tests/**/*.py                         @Shane-Gadsby @godotengine/buildsystem
+/webgpu_tests/**/*.sh                         @Shane-Gadsby @godotengine/buildsystem
+/webgpu_tests/**/tests/                       @Shane-Gadsby @godotengine/tests
+/webgpu_tests/**/tests/**/*.py                @Shane-Gadsby @godotengine/tests @godotengine/buildsystem
+/webgpu_tests/**/tests/**/*.sh                @Shane-Gadsby @godotengine/tests @godotengine/buildsystem
 /webgpu_notes/                                @Shane-Gadsby
+/webgpu_notes/**/*.py                         @Shane-Gadsby @godotengine/buildsystem
+/webgpu_notes/**/*.sh                         @Shane-Gadsby @godotengine/buildsystem
+/webgpu_notes/**/tests/                       @Shane-Gadsby @godotengine/tests
+/webgpu_notes/**/tests/**/*.py                @Shane-Gadsby @godotengine/tests @godotengine/buildsystem
+/webgpu_notes/**/tests/**/*.sh                @Shane-Gadsby @godotengine/tests @godotengine/buildsystem
 /webgpu_site/                                 @Shane-Gadsby
 
 # Braced GDScript (.gdb, this fork's own addition)
