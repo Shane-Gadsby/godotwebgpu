@@ -554,6 +554,32 @@ float CameraAttributes::get_rolling_shutter_readout_time() const {
 	return rolling_shutter_readout_time;
 }
 
+void CameraAttributes::set_frame_rate(float p_frame_rate) {
+	frame_rate = MAX(p_frame_rate, 0.0f);
+	_update_frame_rate();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+float CameraAttributes::get_frame_rate() const {
+	return frame_rate;
+}
+
+void CameraAttributes::set_frame_rate_hold(bool p_hold) {
+	frame_rate_hold = p_hold;
+	_update_frame_rate();
+	emit_changed();
+}
+
+bool CameraAttributes::is_frame_rate_hold() const {
+	return frame_rate_hold;
+}
+
+void CameraAttributes::_update_frame_rate() {
+	// Holding frames is a playback effect, so the editor's own viewports never hold (as motion blur is opt-in there).
+	RS::get_singleton()->camera_attributes_set_frame_rate(camera_attributes, frame_rate, frame_rate_hold && !Engine::get_singleton()->is_editor_hint());
+}
+
 void CameraAttributes::_update_rolling_shutter() {
 	RS::get_singleton()->camera_attributes_set_rolling_shutter(camera_attributes, rolling_shutter_enabled && _camera_motion_shows(rolling_shutter_visible_in_editor), rolling_shutter_readout_time);
 }
@@ -935,6 +961,9 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 		return;
 	}
 
+	if (p_property.name == "frame_rate_hold" && frame_rate <= 0.0f) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+	}
 	if (p_property.name.begins_with("rolling_shutter_") && p_property.name != "rolling_shutter_enabled" && !rolling_shutter_enabled) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
@@ -1059,6 +1088,10 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_rolling_shutter_readout_time"), &CameraAttributes::get_rolling_shutter_readout_time);
 	ClassDB::bind_method(D_METHOD("set_motion_blur_visible_in_editor", "visible"), &CameraAttributes::set_motion_blur_visible_in_editor);
 	ClassDB::bind_method(D_METHOD("is_motion_blur_visible_in_editor"), &CameraAttributes::is_motion_blur_visible_in_editor);
+	ClassDB::bind_method(D_METHOD("set_frame_rate", "frame_rate"), &CameraAttributes::set_frame_rate);
+	ClassDB::bind_method(D_METHOD("get_frame_rate"), &CameraAttributes::get_frame_rate);
+	ClassDB::bind_method(D_METHOD("set_frame_rate_hold", "hold"), &CameraAttributes::set_frame_rate_hold);
+	ClassDB::bind_method(D_METHOD("is_frame_rate_hold"), &CameraAttributes::is_frame_rate_hold);
 	ClassDB::bind_method(D_METHOD("set_rolling_shutter_visible_in_editor", "visible"), &CameraAttributes::set_rolling_shutter_visible_in_editor);
 	ClassDB::bind_method(D_METHOD("is_rolling_shutter_visible_in_editor"), &CameraAttributes::is_rolling_shutter_visible_in_editor);
 
@@ -1247,6 +1280,11 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rolling_shutter_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_rolling_shutter_enabled", "is_rolling_shutter_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rolling_shutter_readout_time", PROPERTY_HINT_RANGE, "0,50,0.1,or_greater,suffix:ms"), "set_rolling_shutter_readout_time", "get_rolling_shutter_readout_time");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rolling_shutter_visible_in_editor"), "set_rolling_shutter_visible_in_editor", "is_rolling_shutter_visible_in_editor");
+
+	ADD_GROUP("Frame Rate", "frame_rate_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "frame_rate", PROPERTY_HINT_RANGE, "0,240,0.001,or_greater,suffix:fps"), "set_frame_rate", "get_frame_rate");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "frame_rate_hold"), "set_frame_rate_hold", "is_frame_rate_hold");
+	ADD_GROUP("", "");
 
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM);
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM_MONOCHROME);

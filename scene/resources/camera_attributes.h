@@ -115,6 +115,11 @@ protected:
 	float rolling_shutter_readout_time = 20.0; // In milliseconds.
 	bool motion_blur_visible_in_editor = false;
 	bool rolling_shutter_visible_in_editor = false;
+	// The camera's own frame rate (0: the render rate). The shutter angle and the rolling shutter readout are measured
+	// against it; with frame_rate_hold, the viewport also shows a new image only once per camera frame.
+	float frame_rate = 0.0;
+	bool frame_rate_hold = false;
+	void _update_frame_rate();
 	bool _camera_motion_shows(bool p_visible_in_editor) const;
 	void _update_motion_blur();
 	void _update_rolling_shutter();
@@ -282,6 +287,11 @@ public:
 	bool is_motion_blur_visible_in_editor() const;
 	void set_rolling_shutter_visible_in_editor(bool p_visible);
 	bool is_rolling_shutter_visible_in_editor() const;
+
+	void set_frame_rate(float p_frame_rate);
+	float get_frame_rate() const;
+	void set_frame_rate_hold(bool p_hold);
+	bool is_frame_rate_hold() const;
 
 	void set_vignetting_enabled(bool p_enabled);
 	bool is_vignetting_enabled() const;

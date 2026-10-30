@@ -2784,31 +2784,14 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 	return animated_material_found;
 }
 
-void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_camera, RID p_scenario, RID p_viewport, Size2 p_viewport_size, uint32_t p_jitter_phase_count, float p_screen_mesh_lod_threshold, RID p_shadow_atlas, float p_window_output_max_value, RenderingServerTypes::RenderInfo *r_render_info) {
-#ifndef _3D_DISABLED
-
+bool RendererSceneCull::_camera_data_for_viewport(RID p_camera, Size2 p_viewport_size, const Vector2 &p_jitter, float p_taa_frame_count, RendererSceneRender::CameraData &r_camera_data) {
+#ifdef _3D_DISABLED
+	return false;
+#else
 	Camera *camera = camera_owner.get_or_null(p_camera);
-	ERR_FAIL_NULL(camera);
-
-	Vector2 jitter;
-	float taa_frame_count = 0.0f;
-	if (p_jitter_phase_count > 0) {
-		uint32_t current_jitter_count = camera_jitter_array.size();
-		if (p_jitter_phase_count != current_jitter_count) {
-			// Resize the jitter array and fill it with the pre-computed Halton sequence.
-			camera_jitter_array.resize(p_jitter_phase_count);
-
-			for (uint32_t i = current_jitter_count; i < p_jitter_phase_count; i++) {
-				camera_jitter_array[i].x = get_halton_value(i, 2);
-				camera_jitter_array[i].y = get_halton_value(i, 3);
-			}
-		}
-
-		jitter = camera_jitter_array[RSG::rasterizer->get_frame_number() % p_jitter_phase_count] / p_viewport_size;
-		taa_frame_count = float(RSG::rasterizer->get_frame_number() % p_jitter_phase_count);
-	}
-
-	RendererSceneRender::CameraData camera_data;
+	ERR_FAIL_NULL_V(camera, false);
+	const Vector2 jitter = p_jitter;
+	const float taa_frame_count = p_taa_frame_count;
 
 	// Setup Camera(s)
 	// Normal camera
@@ -2870,11 +2853,61 @@ void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_bu
 	}
 
 	if (camera->projections.size() == 1) {
-		camera_data.set_camera(transform * camera->offsets[0], camera->projections[0], is_orthogonal, vaspect, jitter, taa_frame_count, camera->visible_layers);
+		r_camera_data.set_camera(transform * camera->offsets[0], camera->projections[0], is_orthogonal, vaspect, jitter, taa_frame_count, camera->visible_layers);
 	} else if (camera->projections.size() == 2) {
-		camera_data.set_multiview_camera(transform, camera->offsets, camera->projections, is_orthogonal, vaspect, camera->visible_layers);
+		r_camera_data.set_multiview_camera(transform, camera->offsets, camera->projections, is_orthogonal, vaspect, camera->visible_layers);
 	} else {
-		ERR_FAIL_MSG("Unsupported camera setup.");
+		ERR_FAIL_V_MSG(false, "Unsupported camera setup.");
+	}
+	return true;
+#endif
+}
+
+RID RendererSceneCull::camera_get_effective_attributes(RID p_camera, RID p_scenario) {
+	const Camera *camera = camera_owner.get_or_null(p_camera);
+	if (camera && camera->attributes.is_valid()) {
+		return camera->attributes;
+	}
+	const Scenario *scenario = scenario_owner.get_or_null(p_scenario);
+	return scenario ? scenario->camera_attributes : RID();
+}
+
+void RendererSceneCull::camera_record_held_frame(RID p_camera, RID p_viewport, Size2 p_viewport_size) {
+#ifndef _3D_DISABLED
+	RendererSceneRender::CameraData camera_data;
+	if (_camera_data_for_viewport(p_camera, p_viewport_size, Vector2(), 0.0f, camera_data)) {
+		RSG::viewport->viewport_set_prev_camera_data(p_viewport, &camera_data);
+	}
+#endif
+}
+
+void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_camera, RID p_scenario, RID p_viewport, Size2 p_viewport_size, uint32_t p_jitter_phase_count, float p_screen_mesh_lod_threshold, RID p_shadow_atlas, float p_window_output_max_value, RenderingServerTypes::RenderInfo *r_render_info) {
+#ifndef _3D_DISABLED
+
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+
+	Vector2 jitter;
+	float taa_frame_count = 0.0f;
+	if (p_jitter_phase_count > 0) {
+		uint32_t current_jitter_count = camera_jitter_array.size();
+		if (p_jitter_phase_count != current_jitter_count) {
+			// Resize the jitter array and fill it with the pre-computed Halton sequence.
+			camera_jitter_array.resize(p_jitter_phase_count);
+
+			for (uint32_t i = current_jitter_count; i < p_jitter_phase_count; i++) {
+				camera_jitter_array[i].x = get_halton_value(i, 2);
+				camera_jitter_array[i].y = get_halton_value(i, 3);
+			}
+		}
+
+		jitter = camera_jitter_array[RSG::rasterizer->get_frame_number() % p_jitter_phase_count] / p_viewport_size;
+		taa_frame_count = float(RSG::rasterizer->get_frame_number() % p_jitter_phase_count);
+	}
+
+	RendererSceneRender::CameraData camera_data;
+	if (!_camera_data_for_viewport(p_camera, p_viewport_size, jitter, taa_frame_count, camera_data)) {
+		return;
 	}
 	camera_data.monitoring = camera->monitoring;
 	camera_data.monitoring.camera = p_camera;

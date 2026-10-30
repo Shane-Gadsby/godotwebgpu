@@ -197,6 +197,15 @@
 				[/codeblock]
 			</description>
 		</method>
+		<method name="camera_attributes_set_frame_rate">
+			<return type="void" />
+			<param index="0" name="camera_attributes" type="RID" />
+			<param index="1" name="frame_rate" type="float" />
+			<param index="2" name="hold" type="bool" />
+			<description>
+				Sets the camera's own [param frame_rate] in frames per second ([code]0[/code]: the render rate), and whether a viewport rendering it [param hold]s each image for one camera frame. See [member CameraAttributes.frame_rate] and [member CameraAttributes.frame_rate_hold].
+			</description>
+		</method>
 		<method name="camera_attributes_set_grain">
 			<return type="void" />
 			<param index="0" name="camera_attributes" type="RID" />

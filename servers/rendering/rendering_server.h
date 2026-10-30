@@ -784,6 +784,7 @@ public:
 	virtual void camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality p_quality) = 0;
 	virtual void camera_attributes_set_motion_blur(RID p_camera_attributes, bool p_enable, float p_shutter_angle, float p_shutter_time, float p_strength, float p_max_length) = 0;
 	virtual void camera_attributes_set_rolling_shutter(RID p_camera_attributes, bool p_enable, float p_readout_time) = 0;
+	virtual void camera_attributes_set_frame_rate(RID p_camera_attributes, float p_frame_rate, bool p_hold) = 0;
 
 	/* Exposure automation */
 	virtual void camera_attributes_set_auto_exposure_metering(RID p_camera_attributes, RSE::CameraAttributesMeteringMode p_mode, float p_spot_size, const Vector2 &p_spot_point, float p_highlight_percentile) = 0;

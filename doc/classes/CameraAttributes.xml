@@ -97,6 +97,12 @@
 			The sensitivity also sets the film speed or sensor gain of [member grain_enabled]: higher values give coarser, stronger grain or noise.
 			[b]Note:[/b] Exposure is only affected when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled. Otherwise, this property only affects grain, and is only shown in the inspector while grain is enabled.
 		</member>
+		<member name="frame_rate" type="float" setter="set_frame_rate" getter="get_frame_rate" default="0.0">
+			The camera's own frame rate, in frames per second (for example [code]23.976[/code], [code]24[/code], [code]25[/code], [code]29.97[/code], [code]30[/code], [code]48[/code], [code]50[/code], [code]59.94[/code], [code]60[/code] or [code]120[/code]); [code]0[/code] uses the render rate. [member motion_blur_shutter_angle] is a share of this frame: 180 degrees at 24 fps exposes for 1/48 s whatever the display's refresh rate. An exposure time ([member CameraAttributesPhysical.motion_blur_use_shutter_speed]) and [member rolling_shutter_readout_time] are limited to one camera frame, which a real camera cannot exceed. See also [member frame_rate_hold].
+		</member>
+		<member name="frame_rate_hold" type="bool" setter="set_frame_rate_hold" getter="is_frame_rate_hold" default="false">
+			If [code]true[/code] and [member frame_rate] is above [code]0[/code], the viewport that renders this camera shows a new image only once per camera frame and holds it in between, as footage at that frame rate plays on a faster display (24 fps on a 60 Hz screen judders). The game keeps running at its own rate. Everything that viewport draws is held, 2D included: draw a UI in another viewport. Not applied in the editor.
+		</member>
 		<member name="grain_enabled" type="bool" setter="set_grain_enabled" getter="is_grain_enabled" default="false">
 			If [code]true[/code], the camera adds film grain or digital sensor noise, depending on [member grain_type], modeled on a 36×24 mm frame at the ISO given by [member exposure_sensitivity]. The grain is sized and scaled for the resolution it is drawn at, following Selwyn's law: a lower resolution shows weaker, coarser noise per pixel, so the image looks equally grainy at any resolution. A new grain pattern is drawn every frame.
 			Grain is applied in linear scene-referred color after exposure and white balance, before tonemapping, so the tonemapper compresses it in the highlights as a print or a camera's tone curve does. It is not drawn in reflection probes or the viewport's debug draw modes.
