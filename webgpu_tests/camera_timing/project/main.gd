@@ -18,6 +18,9 @@ var hold_last := PackedByteArray()
 var free_last := PackedByteArray()
 var hold_changes := 0
 var free_changes := 0
+var spec_vp: SubViewport
+var spec_light: SpotLight3D
+var spec_peak := {}
 
 
 func _record(p_name: String, p_ok: bool, p_info := {}) -> void:
@@ -70,6 +73,23 @@ func _initialize() -> void:
 	free_vp = _viewport(CameraAttributesPractical.new())
 	free_box = _moving_box(free_vp)
 
+	# Specular size: a near-mirror sphere under a spot light, its highlight seen with light_specular_size 0 and 0.6 m.
+	spec_vp = _viewport(CameraAttributesPractical.new())
+	spec_vp.size = Vector2i(256, 256)
+	var ball := MeshInstance3D.new()
+	ball.mesh = SphereMesh.new()
+	var mirror := StandardMaterial3D.new()
+	mirror.albedo_color = Color(0.1, 0.1, 0.1)
+	mirror.roughness = 0.04
+	ball.material_override = mirror
+	spec_vp.add_child(ball)
+	spec_light = SpotLight3D.new()
+	spec_light.position = Vector3(0.6, 0.6, 2.0)
+	spec_light.look_at_from_position(spec_light.position, Vector3.ZERO)
+	spec_light.light_intensity_lumens = 400.0
+	spec_light.spot_range = 10.0
+	spec_vp.add_child(spec_light)
+
 
 func _moving_box(p_vp: SubViewport) -> Node3D:
 	var box := MeshInstance3D.new()
@@ -109,6 +129,21 @@ func _luma(p_vp: SubViewport) -> float:
 	return sum / 256.0
 
 
+# The brightest pixel and how many pixels are within 90% of it (the highlight's area).
+func _highlight(p_vp: SubViewport) -> Dictionary:
+	var img := p_vp.get_texture().get_image()
+	img.convert(Image.FORMAT_RGB8)
+	var peak := 0.0
+	for y in img.get_height():
+		for x in img.get_width():
+			peak = maxf(peak, img.get_pixel(x, y).get_luminance())
+	var area := 0
+	for y in img.get_height():
+		for x in img.get_width():
+			area += int(img.get_pixel(x, y).get_luminance() >= peak * 0.9)
+	return { "peak": peak, "area": area }
+
+
 func _process(_delta: float) -> bool:
 	frame += 1
 	# Linear, ~2 px a frame at this size, so every frame differs (a sine stalls at its ends).
@@ -128,6 +163,11 @@ func _process(_delta: float) -> bool:
 		flicker_cam_attr.exposure_shutter_speed = 1000.0
 	if frame > 55 and frame <= 85:
 		flicker_samples[1000.0].append(_luma(flicker_vp))
+	if frame == 30:
+		spec_peak[0.0] = _highlight(spec_vp)
+		spec_light.light_specular_size = 0.6
+	if frame == 40:
+		spec_peak[0.6] = _highlight(spec_vp)
 	if frame == 90:
 		_finish()
 		return true
@@ -160,6 +200,10 @@ func _finish() -> void:
 	# 59 frame pairs at 60 fps: a 24 fps hold changes its image about 24 times, a free camera every frame.
 	_record("hold_24_fps_changes_24_times_a_second", abs(hold_changes - 24) <= 1, { "changes": hold_changes })
 	_record("no_hold_changes_every_frame", free_changes >= 58, { "changes": free_changes })
+	# light_specular_size widens the catchlight: more pixels near its peak, and the peak no longer clipped.
+	var point: Dictionary = spec_peak[0.0]
+	var sized: Dictionary = spec_peak[0.6]
+	_record("specular_size_widens_the_highlight", sized.area > point.area * 4 and sized.peak < 0.999, { "point": point, "sized": sized })
 	var passed := 0
 	for k: String in results:
 		passed += int(results[k].ok)

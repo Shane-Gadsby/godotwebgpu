@@ -115,6 +115,9 @@
 		<member name="light_specular" type="float" setter="set_param" getter="get_param" default="1.0">
 			The intensity of the specular blob in objects affected by the light. At [code]0[/code], the light becomes a pure diffuse light. When not baking emission, this can be used to avoid unrealistic reflections when placing lights above an emissive surface.
 		</member>
+		<member name="light_specular_size" type="float" setter="set_param" getter="get_param" default="0.0">
+			The size of the light, in meters, as its specular highlight sees it ([OmniLight3D] and [SpotLight3D] only). A glossy surface reflects the light as a highlight of about that size at its distance instead of a point: a key light set to a softbox's size gives a softbox-sized catchlight in a character's eyes that shrinks as the light moves away, and a near-mirror no longer shows a clipped, flickering point. Unlike [member light_size], it changes nothing else: no soft shadows (PCSS) and no wrapped diffuse lighting. [code]0[/code] is a point. Forward+ and Mobile only; the Compatibility renderer ignores it.
+		</member>
 		<member name="light_temperature" type="float" setter="set_temperature" getter="get_temperature">
 			Sets the color temperature of the light source, measured in Kelvin. This is used to calculate a correlated color temperature which tints the [member light_color].
 			The sun on a cloudy day is approximately 6500 Kelvin, on a clear day it is between 5500 to 6000 Kelvin, and on a clear day at sunrise or sunset it ranges to around 1850 Kelvin.
@@ -227,7 +230,10 @@
 		<constant name="PARAM_CONTACT_SHADOW_BLUR" value="21" enum="Param">
 			Constant for accessing [member shadow_contact_shadows_blur].
 		</constant>
-		<constant name="PARAM_MAX" value="22" enum="Param">
+		<constant name="PARAM_SPECULAR_SIZE" value="22" enum="Param">
+			Constant for accessing [member light_specular_size].
+		</constant>
+		<constant name="PARAM_MAX" value="23" enum="Param">
 			Represents the size of the [enum Param] enum.
 		</constant>
 		<constant name="BAKE_DISABLED" value="0" enum="BakeMode">
