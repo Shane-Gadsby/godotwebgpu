@@ -62,7 +62,7 @@ SPIRV-Tools' IR -- `lower_wgsl_unsupported_ops`, `apply_sampler_lod_bias`, `expa
 - **Node.js 20+** — All test runners
 - **glslangValidator** — Shader corpus fixture compilation (`brew install glslang` / `apt install glslang-tools`)
 - **Playwright** — Browser-based tests (`npm install playwright`)
-- **Emscripten 4.0.11** — Web template build (`~/emsdk`)
+- **Emscripten 6.0.12** — Web template build (`~/emsdk`)
 - **SCons + Python** — Godot build system
 
 ### 1. Shader Corpus (fast, no build needed)

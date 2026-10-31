@@ -97,7 +97,8 @@ webgpu_tests/dof_nan/run.sh
 # built with tests=yes, which dev_mode=yes implies):
 bin/godot.linuxbsd.editor.dev.x86_64 --test --test-case="*EngineUpdateLabel*"
 
-# WebRTC web/native parity (needs the editor + a web template exported first):
+# WebRTC web/native parity (needs the editor + a web template exported first; RTC_VARIANTS=threads_dlink is the only
+# tier that boots threads + GDExtension, so run it after an Emscripten bump; GitHub CI does not):
 cd webgpu_tests/webrtc_parity && ./export.sh && node run_tests.mjs
 
 # WebRTC under real bandwidth pressure (netem in an unprivileged namespace, no root):
@@ -110,6 +111,8 @@ cd webgpu_tests/forward_plus && ./export.sh && WEBGPU_REAL_GPU=1 node run_forwar
 
 # Per-frame WebGPU call/byte budgets on the scene smoketest exports (needs a fresh export first, see TASKS.md §3):
 cd webgpu_tests/perf_guard && node run_perf_guard.mjs
+# No opt-in feature's pipeline runs in a default-settings scene (real GPU, §4.109):
+WEBGPU_REAL_GPU=1 node off_passes.mjs
 # Where a CPU-bound export spends its frame (api_profile.mjs: calls/ms per GPU method; cpu_steady.mjs: wasm CPU by function):
 node api_profile.mjs --dir <export> --uncapped
 # Whether it is GPU-bound instead, and which pass costs what on the GPU (uncapped "100% busy" includes waiting on the GPU):
@@ -209,6 +212,7 @@ SPIRV-Cross's WGSL backend is vendored under `thirdparty/spirv-cross-wgsl` ([Lud
 - **Sampler LOD bias**: WebGPU samplers have none. The scene shaders declare `SamplerLodBias` (set 1, binding 40, filled by `MaterialStorage::Samplers`), and `apply_sampler_lod_bias` adds it to implicit-LOD samples.
 - **Depth textures must look like depth textures**: a GLSL `texture2D` becomes WGSL `texture_depth_2d` only if `_reclassify_single_component_depth_textures()` recognizes it — by name (`depth`) and usage. Anything it misses gets a depth texture bound to a float slot, which the driver replaces with a blank fallback, silently (`print_verbose` names the shader, set and binding). Name new depth bindings in renderer shaders with `depth`, and read them linearly through `textureGather` + weights (`textureLod_linear_depth()`), never a linear sampler.
 - **Point size** is emulated (`SUPPORTS_POINT_SIZE` false): the scene shaders draw each point as a quad. `POINT_COORD_USED` implies `POINT_SIZE_USED` (scene `_inc.glsl`), or a `POINT_COORD`-only material draws nothing.
+- **An unused feature compiles out**: on Mali, shader code costs even when a uniform branch skips it (about 5% of a pass, `webgpu_notes/TASKS.md` §4.109, §3 trap 115). Use a define (`USE_CAMERA_EFFECTS` in the tonemap) or a specialization constant (`light_extras`), and on Forward+ set a bit that depends on light state after `_pre_opaque_render()`, or it is the previously rendered viewport's value.
 - **Parity, not just "it changed"**: the Forward+ matrix's delta test passes a feature that renders wrongly. Judge renderer changes with `run_forward_plus.mjs --parity` (native Vulkan reference), and see `webgpu_notes/TASKS.md` §3 trap 28 for what makes that comparison trustworthy.
 
 ### Web audio: Sample playback re-implements AudioServer

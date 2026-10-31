@@ -291,9 +291,9 @@ Measured in a container with no GPU (headless Chromium, swiftshader): a scratch 
   template built before that change starts the game without its shaders — not a hash mismatch this time,
   the cache directory is simply absent, so it is silent apart from the slow start. The exporter warns when
   the extracted `index.js` lacks `shaderPack`; the fix is the same: rebuild the templates.
-- **`~/emsdk` must carry both patches in `misc/emsdk_patches/`** for any `dlink_enabled=yes` build
-  (`apply.sh --apply`, `--status`, `--revert`). `emsdk install` silently reverts them. Every build
-  helper and both web CI workflows apply them automatically. scons relinks when the toolchain moves
+- **`~/emsdk` needs no patch on the pinned 6.0.12** (§4.112). `0001` is retired but kept in `misc/emsdk_patches/`, and
+  `apply.sh --apply` does nothing there. After an Emscripten bump run `local_ci.sh`: WebRTC's `threads_dlink` variant is the
+  only test that boots threads + GDExtension, and GitHub CI does not run it. scons relinks when the toolchain moves
   (`get_toolchain_js_fingerprint()`), so nothing needs deleting by hand.
 - **Interleaving editor and web builds in one tree ships a template that dies in `callMain()`** with
   `TypeError: resolved is not a function` (§2.19 — diagnosed, not fixed). Workaround:
