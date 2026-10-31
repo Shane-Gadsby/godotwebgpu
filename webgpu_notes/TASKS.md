@@ -16,8 +16,8 @@
 
 ## 1. Current state
 
-**Branch `webgpu-4.8`** — `webgpu-4.7.2` merged with upstream `godotengine/godot`
-`e7cfa294a0b81bed7986be04a848cc1832a3f083` (4.8, code freeze, pinned). `webgpu-4.7.2` is the last
+**Branch `webgpu-4.8`** — `webgpu-4.7.2` merged with upstream `godotengine/godot`, last synced at
+`7be59b463a4798834d72d6d0a2942ddd01d920ee` (4.8 beta, §4.98). `webgpu-4.7.2` is the last
 4.7-line green state. Git lineage is **repaired** (§4.16): `merge-base` against upstream is correct,
 syncs are ordinary merges. `backup/pre-lineage-repair/*` and `backup/pre-claude-author-strip*` on
 `origin` **must not be deleted**.
