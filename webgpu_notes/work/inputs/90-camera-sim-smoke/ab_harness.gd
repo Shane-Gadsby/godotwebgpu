@@ -15,7 +15,7 @@ extends SceneTree
 #   toggle=<Button>    flip a toggle/check button (emits toggled)
 #   press=<Button>     emit pressed
 #   popup=/hide=<Window>, text=<LineEdit>:<text>, select=<OptionButton>:<item>
-#   hover=<Control>    move the mouse over a control's centre
+#   hover=<Control>    move the mouse over a control's center
 #   expr=<expression>  print a GDScript Expression evaluated on Main (no "=" or ",")
 #   call=<method on Main>, dump (print settings + UI labels), shot (no-op)
 # EMBED=1 embeds popups in the main window like the web build does.
