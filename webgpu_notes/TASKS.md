@@ -17,7 +17,8 @@
 ## 1. Current state
 
 **Branch `webgpu-4.8`** — `webgpu-4.7.2` merged with upstream `godotengine/godot`, last synced at
-`7be59b463a4798834d72d6d0a2942ddd01d920ee` (4.8 beta, §4.98). `webgpu-4.7.2` is the last
+`4d0d43b77d` (2026-11-14, §4.113; the 4.8 beta base before it was
+`7be59b463a4798834d72d6d0a2942ddd01d920ee`, §4.98). `webgpu-4.7.2` is the last
 4.7-line green state. Git lineage is **repaired** (§4.16): `merge-base` against upstream is correct,
 syncs are ordinary merges. `backup/pre-lineage-repair/*` and `backup/pre-claude-author-strip*` on
 `origin` **must not be deleted**.
@@ -3746,6 +3747,28 @@ fails the MinGW template (`expected unqualified-id before '='`); also `small`, `
     builds, at least 4 rounds, and read a pass that contains none of the change as the noise floor.
 ---
 
+116. **A toolchain's clang version can decide whether the engine's tests compile at all** (2026-11-16, §4.113). doctest
+    2.5.3 names its anonymous registration symbols from `__LINE__` instead of `__COUNTER__` on clang 22 and newer, and
+    every module test header lands in one translation unit through `modules_tests.gen.h`. 16 pairs of `TEST_CASE`s share
+    a line number across those headers -- 14 of them between upstream's own -- so each pair declared
+    `DOCTEST_ANON_VAR_<line>` twice and **every web template with `tests=yes` stopped compiling**, while the native GCC
+    editor built clean on the `__COUNTER__` branch and said nothing. Emscripten 6.0.12's clang is 24. Two lessons: a
+    `dev_mode=yes` editor is not a compile gate for the web templates, which is why the playbook builds both; and when
+    a thirdparty header branches on compiler version, the fork's two toolchains are years apart and will take different
+    branches. `tests/test_macros.h` pins `DOCTEST_COUNTER` now, which doctest leaves overridable for exactly this.
+
+117. **Two tiers in `local_ci.sh` fail for reasons that are not the code, and both look like regressions** (2026-11-16,
+    §4.113; cost an hour of GPU re-runs after the sync). (a) Forward+ `compositor_effect` waits for the fixture to signal
+    READY within 45 s; it has the most pipelines to compile of any arm, and on a machine also running the user's editor
+    and browsers it misses that budget. It then fails the whole tier, and on one run threw out of the harness
+    (`run_forward_plus.mjs:402`) rather than carrying on. In isolation it passes 3/3 with a byte-identical delta
+    (20.954), so the arm is deterministic and the budget is the problem. (b) The Firefox fog and font checks skip when
+    the capture `isUniform()` -- byte-exact -- because Firefox cannot composite a WebGPU canvas on Xvfb. A rare
+    partially-painted frame is *nearly* uniform, slips the guard, and is then measured as fog: `fog 100%` area, `flat
+    97.9%`, `p99 |laplacian| 80` reads exactly like severe banding. The real display gives `fog 29%`, `p99 3.07`, `flat
+    49.1%` and a clear PASS. Before believing either tier after a sync, re-run the single arm and check the fog one on a
+    real display; a flat-field capture is not a render, whatever its metrics say.
+
 ### Measurement traps (found 2026-10-15)
 
 - **A fixed frame-count warm-up is a startup measurement once frames are uncapped.** 180 frames at 900 fps is 0.2 s; the
@@ -6297,6 +6320,41 @@ So nothing is active on 6.0.12, and `~/emsdk` is unpatched. 0001 stays in `misc/
 nothing on 6.0.12. Deleting that one line brings it back (`misc/emsdk_patches/README.md`, "Retired patches"). The patch's
 own rule said delete it and `apply.sh`; the user asked to keep it, because the cause of the fix is unknown and the
 hazard is still in the generated JS, so a later Emscripten could bring the crash back. Not tested: Firefox, Safari.
+
+### 4.113 Phase 19 — upstream sync, Godot master 4d0d43b77d (November 2026) *(user request)*
+
+`webgpu-4.8` + upstream master `4d0d43b77d` (2026-11-14): 273 commits since §4.98's base `7be59b463a`, 448 files, 4
+conflicts, plain merge on `sync/2026-11-16` (merge `530187d93c`). `version.py` stays `status = "beta"`, so no template
+folder moves this time. `misc/scripts/upstream_sync_report.py` predicted all four conflicts and the one driver-interface
+change, and found nothing else: no new `.gd`-only checks in `modules/gdscript`, and the two script APIs upstream unbound
+(`_reparent_nodes_to_paths_with_name`, `_restore_nodes_transform_and_name`) are used by neither the fixtures nor
+camera-sim, which is trap 113's whole failure mode.
+- **Resolutions.** `.pre-commit-config.yaml`: both sides (upstream's `scons==4.11.1` mypy pin, the fork's
+  `webgpu_notes/work/` exclude). `de.po`: upstream's, the fork's side being only an older upstream Weblate sync.
+  `library_godot_audio.js`: ours — upstream's one commit in range (4947adf2af) shares a stream's `AudioBuffer` across
+  playbacks instead of copying per play, which §4.30's rewrite already does (`createStream()` builds one buffer,
+  `createSource()` assigns `stream.buffer`); taking upstream's would have dropped the whole rewrite. `thirdparty/README.md`:
+  both, **with a renumber** — upstream's new `0004-remove-unused-srv-binding` and `0005-missing-force16-includes` took the
+  numbers the fork's own FSR 2 patches held, so `webgpu-no-image-atomics` is now `0006` and
+  `godot-reactive-mask-from-alpha` `0007`. Upstream also deleted `ffx_fsr2_force16_{begin,end}.h`; nothing here referenced them.
+- **Two fixes the sync forced.** `RenderingDeviceDriver` gained a pure virtual, `texture_get_nearest_supported_samples()`:
+  the WebGPU driver answers it from `_clamp_sample_count()`, already its single policy (1 or 4, 2x clamping up rather than
+  off), so shared code that now asks before `texture_create()` gets the count that call would use. And upstream's doctest
+  2.5.3 (b2e7d293d4) takes `__LINE__` over `__COUNTER__` for its anonymous registration symbols on clang 22+: with every
+  module test header in one translation unit through `modules_tests.gen.h`, the 16 pairs of `TEST_CASE`s that share a line
+  number each declare `DOCTEST_ANON_VAR_<line>` twice, so **every web template with `tests=yes` failed to compile** while
+  the GCC editor stayed green. `tests/test_macros.h` pins `DOCTEST_COUNTER` to `__COUNTER__` (trap 116).
+- **Verified**, all from this branch's own builds: compile gate `dev_mode=yes` (wgsl_cli, editor, both nothreads web
+  templates); WGSL precompile 323/323; converter smoke against the stored references — interfaces 323/323 identical, text
+  scans 646/646, Chrome 323 modules 0 invalid on the 4080, so upstream's six engine `.glsl` changes moved no binding;
+  shader corpus 14/14; driver 379; preprocessing 291; unit tests 1466/1467 (`[IP] resolve_hostname` again, this machine's
+  `/etc/hosts`, as in §4.98); `local_ci.sh --dev-mode --no-safari` 33 passed, 2 failed, 2 skipped, **both failures
+  environment, each re-verified** — Forward+ `compositor_effect` timed out waiting for READY under load but passes 3/3 in
+  isolation with an identical delta (20.954) and the full matrix passed 100/100 on a quieter run, and the Firefox fog
+  check failed on an Xvfb non-render that slipped its byte-exact uniform guard, where the real display gives a clear PASS
+  (p99 |laplacian| 3.07 against a limit of 10, flat 49.1% against 70%). Forward+ `--parity` against native Vulkan passed.
+- **Not run**: playbook step 8 — a full `build-linux.sh` in the worktree and camera-sim native and web against it. The
+  sync went to `webgpu-4.8` and on to `main` on the user's instruction without it.
 
 ## 5. References — retired docs
 

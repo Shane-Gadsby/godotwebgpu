@@ -45,6 +45,15 @@
 #define DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
 #endif
 
+// doctest 2.5.3 builds its anonymous registration names from __LINE__ rather than __COUNTER__ on
+// clang 22 and newer. Every module test header is included into one translation unit
+// (modules_tests.gen.h), so two TEST_CASEs sharing a line number in two headers then declare the
+// same DOCTEST_ANON_VAR_<line> twice and the build fails -- there are 16 such pairs, most of them
+// between upstream's own headers. Emscripten's clang is 24, which is why the web build with
+// tests=yes is the one that hits it; GCC still takes the __COUNTER__ branch and sees nothing.
+// __COUNTER__ works on every compiler this engine builds with, so ask for it everywhere.
+#define DOCTEST_COUNTER __COUNTER__
+
 // See documentation for doctest at:
 // https://github.com/onqtam/doctest/blob/master/doc/markdown/readme.md#reference
 #include <thirdparty/doctest/doctest.h>
