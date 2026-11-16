@@ -179,6 +179,20 @@ FAILED=0
 SKIPPED=0
 RESULTS=()
 
+# Every tier's full output, kept. A FAIL used to print its last 10 lines and discard the rest,
+# which loses exactly the line that names what failed: the Forward+ matrix reports one line per
+# arm and its "99/100 features pass" tail scrolled the failing arm's name away, so naming it cost
+# a second 103-arm run on the GPU that the first run already knew the answer to.
+LOG_DIR="${LOCAL_CI_LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/local_ci-$(date +%Y%m%d-%H%M%S)-XXXX")}"
+mkdir -p "$LOG_DIR"
+
+# A file name per tier, from its display name: "Forward+ matrix - Chrome" -> "forward-matrix-chrome".
+log_path_for() {
+    local slug
+    slug=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')
+    printf '%s/%s.log' "$LOG_DIR" "${slug:-tier}"
+}
+
 run_test() {
     local name="$1"
     local dir="$2"
@@ -216,8 +230,13 @@ run_test() {
         RESULTS+=("SKIP  $name")
     else
         printf "${RED}FAIL${NC}\n"
-        # Show last 10 lines of output on failure
+        local log
+        log=$(log_path_for "$name")
+        printf '%s\n' "$output" > "$log"
+        # The tail is a preview; the whole thing is in $log, because the line that says what
+        # failed is often not among the last ten.
         echo "$output" | tail -10 | sed 's/^/    /'
+        echo "    full output: $log"
         FAILED=$((FAILED + 1))
         RESULTS+=("FAIL  $name")
     fi
@@ -297,7 +316,11 @@ build_step() {
         RESULTS+=("PASS  $name")
     else
         printf "${RED}FAIL${NC}\n"
+        local log
+        log=$(log_path_for "$name")
+        printf '%s\n' "$output" > "$log"
         echo "$output" | tail -20 | sed 's/^/    /'
+        echo "    full output: $log"
         FAILED=$((FAILED + 1))
         RESULTS+=("FAIL  $name")
         echo ""
