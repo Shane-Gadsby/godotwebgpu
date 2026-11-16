@@ -9,7 +9,7 @@
 // them has a fixture line that changes if it breaks.
 //
 //   node run_tests.mjs                           # every export, Chromium
-//   RTC_VARIANTS=nothreads node run_tests.mjs    # or threads, dlink, all
+//   RTC_VARIANTS=nothreads node run_tests.mjs    # or threads, dlink, threads_dlink, all
 //   RTC_BROWSERS=chromium,firefox node run_tests.mjs
 //   RTC_FILTER=burst node run_tests.mjs
 //
@@ -126,12 +126,15 @@ const UNIVERSAL_DENY = [
 	['no unknown test name', /FATAL unknown test/],
 	['no engine error', /\bERROR:/],
 	['no script error', /SCRIPT ERROR/],
+	// A worker can die while the fixture still reaches END on the threads that are left.
+	['no uncaught page error', /\[pageerror\].*/],
 ];
 
 const variants = [
 	['nothreads', join(HERE, 'exports/loopback')],
 	['threads', join(HERE, 'exports/loopback_threads')],
 	['dlink', join(HERE, 'exports/loopback_dlink')],
+	['threads_dlink', join(HERE, 'exports/loopback_threads_dlink')],
 	// BAKE=1 ./export.sh: the shipped configuration (baked shader containers), TASKS.md 2.29.
 	['baked', join(HERE, 'exports/loopback_baked')],
 ].filter(([name, dir]) => {
@@ -171,7 +174,7 @@ for (const [variant, dir] of variants) {
 	// exports/loopback, so the directory name does not reliably say what the
 	// build is. Report the side module's presence instead of trusting the label.
 	const hasSide = existsSync(join(dir, 'index.side.wasm'));
-	const kind = hasSide && variant !== 'dlink' ? `${variant}, dlink template` : variant;
+	const kind = hasSide && !variant.endsWith('dlink') ? `${variant}, dlink template` : variant;
 	console.log(`\n=== ${browser} / ${kind} (${dir})`);
 	let browserUnavailable = false;
 	for (const [test, spec] of Object.entries(EXPECT)) {

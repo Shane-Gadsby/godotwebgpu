@@ -789,6 +789,14 @@ void RendererViewport::_draw_viewport(Viewport *p_viewport) {
 
 	bool can_draw_3d = RSG::scene->is_camera(p_viewport->camera) && !p_viewport->disable_3d;
 
+#ifndef XR_DISABLED
+#if DEBUG_ENABLED
+	if (p_viewport->use_xr && !RSG::scene->is_xr_camera(p_viewport->camera)) {
+		WARN_PRINT("Viewport marked with use_xr but current camera is not an XRCamera3D");
+	}
+#endif
+#endif
+
 	if ((scenario_draw_canvas_bg || can_draw_3d) && !p_viewport->render_buffers.is_valid()) {
 		//wants to draw 3D but there is no render buffer, create
 		p_viewport->render_buffers = RSG::scene->render_buffers_create();
@@ -1255,6 +1263,27 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 
 		visible = visible && vp->size.x > 1 && vp->size.y > 1 && vp->view_count > 0;
 
+		// A camera holding its frames at its own frame rate: draw only when its next frame is due, keep the last image
+		// otherwise (the render target is left as it is), and record the camera so motion vectors stay one frame long.
+		if (visible && !vp->disable_3d && vp->camera.is_valid() && vp->scenario.is_valid()) {
+			const RID attributes = RSG::scene->camera_get_effective_attributes(vp->camera, vp->scenario);
+			const float held_fps = attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_held_frame_rate(attributes) : 0.0f;
+			if (held_fps > 0.0f) {
+				const double camera_frame = 1.0 / held_fps;
+				vp->held_frame_time += RSG::rasterizer->get_frame_delta_time();
+				if (vp->held_frame_drawn && vp->held_frame_time < camera_frame) {
+					RSG::scene->camera_record_held_frame(vp->camera, vp->self, vp->size);
+					visible = false;
+				} else {
+					vp->held_frame_time = vp->held_frame_drawn ? Math::fmod(vp->held_frame_time, camera_frame) : 0.0;
+					vp->held_frame_drawn = true;
+				}
+			} else {
+				vp->held_frame_drawn = false;
+				vp->held_frame_time = 0.0;
+			}
+		}
+
 		// Diagnostic: log each viewport's visibility on first 3 frames.
 		{
 		}
@@ -1307,7 +1336,21 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 					_viewport_set_force_motion_vectors(vp, false);
 				}
 
-				RSG::texture_storage->render_target_set_render_region(vp->render_target, xr_interface->get_render_region());
+				Rect2i region = xr_interface->get_render_region();
+
+				if (vp->size != vp->internal_size) {
+					region.size.width = region.size.width / double(vp->size.width) * double(vp->internal_size.width);
+					region.size.height = region.size.height / double(vp->size.height) * double(vp->internal_size.height);
+					region.position.x = region.position.x / double(vp->size.width) * double(vp->internal_size.width);
+					region.position.y = region.position.y / double(vp->size.height) * double(vp->internal_size.height);
+				}
+
+				// Sometimes the openxr swapchain has been recreated but the viewport has not been
+				// reconfigured yet, though they should be by the next frame.
+				ERR_CONTINUE_MSG(Size2i(xr_interface->get_render_target_size()) != vp->size,
+						"XR viewport has not been resized to the XR render target size yet, skipping this frame.");
+
+				RSG::texture_storage->render_target_set_render_region(vp->render_target, region);
 
 				// render...
 				RSG::scene->set_debug_draw_mode(vp->debug_draw);

@@ -112,6 +112,26 @@ hvec3 f0_Clear_Coat_To_Surface(hvec3 f0) {
 	return clamp(f0 * (f0 * (half(0.941892) - half(0.263008) * f0) + half(0.346479)) - half(0.0285998), half(0.0), half(1.0));
 }
 
+// Added to the GGX alpha of the next light_compute() call: an omni or spot light with a specular size (meters) seen from
+// a distance widens its highlight to about that angular size, roughness widening as in Karis 2013 (alpha + size / 2d).
+// GGX's own normalization lowers the peak as the lobe widens, so a near-mirror no longer shows a clipped point.
+half light_specular_alpha_widen = half(0.0);
+
+// A light flickering on AC mains, seen by the row of a rolling shutter that exposes from p_time for p_exposure seconds:
+// 1 + depth * cos(2 pi * pulse * t + phase) averaged over the exposure, as RendererLightStorage::light_flicker_factor().
+float light_flicker_row(float p_pulse_frequency, float p_depth, float p_phase, float p_time, float p_exposure) {
+	float omega = 6.28318530718 * p_pulse_frequency;
+	float wave = p_exposure * omega < 1e-4
+			? cos(omega * p_time + p_phase)
+			: (sin(omega * (p_time + p_exposure) + p_phase) - sin(omega * p_time + p_phase)) / (omega * p_exposure);
+	return max(0.0, 1.0 + p_depth * wave);
+}
+
+// The row's time: the frame's, shifted by where the row is read out (as the rolling shutter effect: (y / H - 0.5)).
+float light_flicker_row_time(vec2 p_screen_uv) {
+	return scene_data_block.data.flicker_timing.x + scene_data_block.data.flicker_timing.z * (p_screen_uv.y - 0.5);
+}
+
 void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is_directional, half attenuation, hvec3 f0, half roughness, half metallic, half specular_amount, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
@@ -281,7 +301,7 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 
 #elif defined(SPECULAR_SCHLICK_GGX)
 			// shlick+ggx as default
-			half alpha_ggx = roughness * roughness;
+			half alpha_ggx = min(roughness * roughness + light_specular_alpha_widen, half(1.0));
 #if defined(LIGHT_ANISOTROPY_USED)
 			half aspect = sqrt(half(1.0) - anisotropy * half(0.9));
 			half ax = alpha_ggx / aspect;
@@ -743,6 +763,14 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	}
 
 	vec3 light_rel_vec_norm = light_rel_vec / light_length;
+	// Assigned on both paths, so the value is never carried from one light to the next (Mali spends registers on that).
+	light_specular_alpha_widen = half(0.0);
+	if (sc_light_extras()) {
+		light_specular_alpha_widen = half(omni_lights.data[idx].specular_size / (2.0 * max(light_length, 0.001)));
+		if (omni_lights.data[idx].flicker_pulse_frequency > 0.0) {
+			color *= light_flicker_row(omni_lights.data[idx].flicker_pulse_frequency, omni_lights.data[idx].flicker_depth, omni_lights.data[idx].flicker_phase, light_flicker_row_time(screen_uv), scene_data_block.data.flicker_timing.y);
+		}
+	}
 	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, omni_attenuation * shadow, f0, roughness, metallic, half(omni_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
@@ -945,6 +973,14 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		}
 	}
 
+	// Assigned on both paths, so the value is never carried from one light to the next (Mali spends registers on that).
+	light_specular_alpha_widen = half(0.0);
+	if (sc_light_extras()) {
+		light_specular_alpha_widen = half(spot_lights.data[idx].specular_size / (2.0 * max(light_length, 0.001)));
+		if (spot_lights.data[idx].flicker_pulse_frequency > 0.0) {
+			color *= light_flicker_row(spot_lights.data[idx].flicker_pulse_frequency, spot_lights.data[idx].flicker_depth, spot_lights.data[idx].flicker_phase, light_flicker_row_time(screen_uv), scene_data_block.data.flicker_timing.y);
+		}
+	}
 	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, spot_attenuation * shadow, f0, roughness, metallic, half(spot_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
@@ -1012,11 +1048,11 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	hvec3 pos_local_to_light = hvec3(dot(light_to_vert, area_a_dir), dot(light_to_vert, area_b_dir), dot(light_to_vert, -area_direction));
 
 	hvec3 closest_point_local_to_light = hvec3(clamp(pos_local_to_light.x, -a_half_len, a_half_len), clamp(pos_local_to_light.y, -b_half_len, b_half_len), 0);
-	half dist = length(closest_point_local_to_light - pos_local_to_light);
+	half dist = saturateHalf(length(closest_point_local_to_light - pos_local_to_light));
 
 	half light_length = max(half(0.0), dist);
-	half light_attenuation_raw = get_omni_attenuation(float(light_length), area_lights.data[idx].inv_radius, area_lights.data[idx].attenuation);
-	half light_attenuation_ltc = light_attenuation_raw * half(light_length * light_length); // solid angle already decreases by inverse square, so attenuation power is 2.0 by default -> subtract 2.0
+	half light_attenuation_raw = saturateHalf(get_omni_attenuation(light_length, area_lights.data[idx].inv_radius, area_lights.data[idx].attenuation));
+	half light_attenuation_ltc = saturateHalf(light_attenuation_raw * light_length * light_length); // solid angle already decreases by inverse square, so attenuation power is 2.0 by default -> subtract 2.0
 	half shadow = half(1.0);
 
 #ifndef SHADOWS_DISABLED

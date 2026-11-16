@@ -106,7 +106,21 @@ layout(set = 3, binding = 1) uniform sampler3D camera_lut;
 #define FLAG_CONVERT_TO_SRGB (1 << 6)
 #define FLAG_USE_WHITE_BALANCE (1 << 7)
 // Bits 8-23: the packed CameraAttributes LUT parameters (camera_lut_inc.glsl).
+// Camera effects (CameraAttributes: lens, local exposure, glare, white balance, grain, LUTs) compile out of the variants
+// without USE_CAMERA_EFFECTS, which tone_mapper.cpp picks when the camera uses none of them: every test below is then a
+// constant false and the GPU's compiler drops the code. A runtime-off branch still cost a phone's Mali GPU twice the
+// tonemap time (TASKS §2.66, work task 94).
+#ifdef USE_CAMERA_EFFECTS
 #define CAMERA_LUT_PARAMS ((params.flags & 0xFFFF00u) >> 8u)
+#define CAMERA_EFFECTS_HEADER camera_effects.header
+#define CAMERA_GRAIN params.grain
+#define CAMERA_WHITE_BALANCE bool(params.flags & FLAG_USE_WHITE_BALANCE)
+#else
+#define CAMERA_LUT_PARAMS 0u
+#define CAMERA_EFFECTS_HEADER uvec4(0u)
+#define CAMERA_GRAIN 0u
+#define CAMERA_WHITE_BALANCE false
+#endif
 // The 3D color correction LUT is the Environment's color grading LUT, which holds lattice points.
 #define FLAG_COLOR_CORRECTION_LATTICE (1u << 24u)
 // An opaque render target whose texture cannot show alpha 1 through a view swizzle (WebGPU): write it here.
@@ -946,7 +960,7 @@ void main() {
 #endif
 	// CameraAttributes lens optics (camera_lens_inc.glsl): the image as the lens forms it on the sensor, before
 	// anything the camera does to it. Glow and FXAA read the source where the lens takes this pixel from.
-	uint lens_bits = camera_effects.header.x;
+	uint lens_bits = CAMERA_EFFECTS_HEADER.x;
 	vec2 lens_uv = uv_interp;
 	if ((lens_bits & CAMERA_LENS_RESAMPLE) != 0u) {
 		color = camera_lens_sample(uv_interp, lens_uv);
@@ -980,7 +994,7 @@ void main() {
 
 	// Local exposure (camera_local_exposure_inc.glsl): each pixel exposed again by its surroundings, right after the
 	// global exposure and FXAA, before glow and glare add light that should keep its own brightness.
-	if ((camera_effects.header.w & CAMERA_LOCAL_EXPOSURE_BILATERAL) != 0u) {
+	if ((CAMERA_EFFECTS_HEADER.w & CAMERA_LOCAL_EXPOSURE_BILATERAL) != 0u) {
 		color.rgb = camera_local_exposure_apply(color.rgb, lens_uv);
 	}
 
@@ -999,7 +1013,7 @@ void main() {
 
 	// Glare (camera_glare_inc.glsl): flare, veiling glare, diffusion, starbursts and halation, read where the lens takes
 	// this pixel from, before vignetting, which darkens the light they add as it does the rest.
-	if (camera_effects.header.y != 0u) {
+	if (CAMERA_EFFECTS_HEADER.y != 0u) {
 		color.rgb = camera_glare_apply(color.rgb, lens_uv, exposure);
 	}
 
@@ -1011,9 +1025,9 @@ void main() {
 	// White balance, in linear scene-referred color: after FXAA, which resamples the source, and after the
 	// pre-tonemap glow, which is scene light too. Auto white balance neutralizes the estimated illuminant, and the
 	// manual setting applies on top of it as a bias; both are von Kries gains in the same cone space, so they multiply.
-	bool use_white_balance = bool(params.flags & FLAG_USE_WHITE_BALANCE);
+	bool use_white_balance = CAMERA_WHITE_BALANCE;
 	vec3 white_balance = params.white_balance;
-	if ((camera_effects.header.z & CAMERA_EXPOSURE_AUTO_WHITE_BALANCE) != 0u) {
+	if ((CAMERA_EFFECTS_HEADER.z & CAMERA_EXPOSURE_AUTO_WHITE_BALANCE) != 0u) {
 		white_balance = (use_white_balance ? white_balance : vec3(1.0f)) * camera_auto_white_balance_gains();
 		use_white_balance = true;
 	}
@@ -1023,7 +1037,7 @@ void main() {
 
 	// Grain, in the same scene-referred light: it happens on the film or sensor, before the print or the
 	// camera's tone curve.
-	if (params.grain != 0u) {
+	if (CAMERA_GRAIN != 0u) {
 #ifdef USE_MULTIVIEW
 		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, params.grain, auto_exposure_gain, uint(ViewIndex));
 #else

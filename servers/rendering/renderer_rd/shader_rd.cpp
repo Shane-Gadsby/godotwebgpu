@@ -31,6 +31,7 @@
 #include "shader_rd.h"
 
 #include "core/config/engine.h"
+#include "core/io/compression.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/marshalls.h"
@@ -154,6 +155,14 @@ void ShaderRD::_add_stage(const char *p_code, StageType p_stage_type) {
 		stage_templates[p_stage_type].chunks.push_back(text_chunk);
 		text = String();
 	}
+}
+
+CharString ShaderRD::_decompress_code(const uint8_t *p_compressed, int p_compressed_size, int p_size) {
+	CharString code;
+	code.resize_uninitialized(p_size);
+	const int64_t ret = Compression::decompress((uint8_t *)code.ptrw(), p_size, p_compressed, p_compressed_size, Compression::MODE_DEFLATE);
+	ERR_FAIL_COND_V_MSG(ret != p_size, CharString(), "Embedded shader code is corrupt.");
+	return code;
 }
 
 void ShaderRD::setup(const char *p_vertex_code, const char *p_fragment_code, const char *p_compute_code, const char *p_name) {
@@ -1610,8 +1619,7 @@ Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &
 	// happens to be running the editor. Guarded by TOOLS_ENABLED since
 	// GODOT_DUMP_SPIRV is only ever used against editor builds; export templates
 	// never need this extra recompile.
-	const bool need_dump_override = !OS::get_singleton()->get_environment("GODOT_DUMP_SPIRV").is_empty() &&
-			RD::get_singleton()->get_device_driver()->get_shader_container_format().get_shader_spirv_version() != RD::SHADER_SPIRV_VERSION_1_3;
+	const bool dump_spirv = !OS::get_singleton()->get_environment("GODOT_DUMP_SPIRV").is_empty();
 #endif
 
 	for (int64_t i = 0; i < p_stage_sources.size() && !compilation_failed; i++) {
@@ -1624,6 +1632,8 @@ Vector<RD::ShaderStageSPIRVData> ShaderRD::compile_stages(const Vector<String> &
 		stage.shader_stage = RD::ShaderStage(i);
 		stage.dump_override_spirv.clear();
 #if defined(MODULE_GLSLANG_ENABLED) && defined(TOOLS_ENABLED)
+		// The SPIR-V version is per stage (Vulkan builds ray tracing stages at 1.4).
+		const bool need_dump_override = dump_spirv && RD::get_singleton()->get_device_driver()->get_shader_container_format().get_shader_spirv_version(RD::ShaderStage(i)) != RD::SHADER_SPIRV_VERSION_1_3;
 		if (need_dump_override && !stage.spirv.is_empty()) {
 			String dump_error;
 			stage.dump_override_spirv = compile_glslang_shader(RD::ShaderStage(i), ShaderIncludeDB::parse_include_files(p_stage_sources[i]), RD::SHADER_LANGUAGE_VULKAN_VERSION_1_1, RD::SHADER_SPIRV_VERSION_1_3, &dump_error);

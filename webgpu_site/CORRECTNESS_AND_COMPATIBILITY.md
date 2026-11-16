@@ -382,13 +382,11 @@ SPIR-V → WGSL is SPIRV-Cross's WGSL backend (`thirdparty/spirv-cross-wgsl`, Lu
 - `threads=yes` works with and without `dlink_enabled=yes`. Combining threads
   with GDExtension support (`threads=yes dlink_enabled=yes`) was unsupported
   until 2026-10-07 — two bugs in Emscripten's own dylink/`EXPORT_ALL` glue, not
-  this fork's code — and now **requires a patched toolchain**:
-  `misc/emsdk_patches/apply.sh --apply`, re-applied after every `emsdk install`
-  (`build-linux.sh` does it for you). Without the patches that configuration
-  does not boot at all, and logs ~11 errors per load that silently drop later
-  `Module` exports on worker threads. With them it boots clean — verified
-  headless over COOP/COEP against a real GDExtension + thread-support project,
-  0 console errors, running its own game scripts. Since 2026-10-16 threaded
+  this fork's code. Toolchain patches fixed both up to 6.0.9. On the pinned 6.0.12
+  **no patch is needed**: one bug was fixed upstream, and the other stopped firing
+  for a reason not yet known, so its patch is retired but kept. Verified on an
+  unpatched 6.0.12 with a real GDExtension running `EM_ASM` on workers: 10 of 10
+  boots, debug and release, 0 page errors (`webgpu_notes/TASKS.md` §4.112). Since 2026-10-16 threaded
   builds (with and without dlink) are exercised on real hardware with the
   separate render thread (the default for thread-enabled exports,
   `variant/separate_render_thread`):

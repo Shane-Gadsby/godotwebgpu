@@ -520,6 +520,7 @@ public:
 	FUNC5(light_set_distance_fade, RID, bool, float, float, float)
 	FUNC2(light_set_reverse_cull_face_mode, RID, bool)
 	FUNC2(light_set_shadow_caster_mask, RID, uint32_t)
+	FUNC4(light_set_flicker, RID, float, float, float)
 	FUNC2(light_set_bake_mode, RID, RSE::LightBakeMode)
 	FUNC2(light_set_max_sdfgi_cascade, RID, uint32_t)
 	FUNC2(light_set_allow_contact_shadows, RID, bool)
@@ -1000,6 +1001,7 @@ public:
 	FUNC1(camera_attributes_set_motion_blur_quality, RSE::CameraAttributesMotionBlurQuality)
 	FUNC6(camera_attributes_set_motion_blur, RID, bool, float, float, float, float)
 	FUNC3(camera_attributes_set_rolling_shutter, RID, bool, float)
+	FUNC3(camera_attributes_set_frame_rate, RID, float, bool)
 
 	/* Exposure automation */
 	FUNC5(camera_attributes_set_auto_exposure_metering, RID, RSE::CameraAttributesMeteringMode, float, const Vector2 &, float)

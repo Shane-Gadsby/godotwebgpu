@@ -371,7 +371,7 @@ private:
 	bool empty_selection_clipboard_enabled = true;
 
 	// Overridable actions.
-	String cut_copy_line = "";
+	static inline String cut_copy_line = "";
 
 	// Context menu.
 	PopupMenu *menu = nullptr;
@@ -505,7 +505,6 @@ private:
 	void _emit_caret_changed();
 
 	void _show_virtual_keyboard();
-	void _reset_caret_blink_timer();
 	void _toggle_draw_caret();
 
 	int _get_column_x_offset_for_line(int p_char, int p_line, int p_column) const;
@@ -762,6 +761,7 @@ private:
 	bool _clear_carets_and_selection();
 
 protected:
+	void _reset_caret_blink_timer();
 	void _notification(int p_what);
 	static void _bind_methods();
 
@@ -879,7 +879,6 @@ public:
 	/* Text */
 	// Text properties.
 	RID get_text_canvas_item() const;
-	const Ref<TextParagraph> get_line_data(int p_line) const { return text.get_line_data(p_line); }
 
 	bool has_ime_text() const;
 	void cancel_ime();

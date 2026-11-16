@@ -468,6 +468,7 @@ public:
 	/// Create a GPU texture. Formats mapped via pixel_formats_webgpu.h.
 	/// 3-component formats (RGB8, etc.) are promoted to RGBA equivalents.
 	virtual TextureID texture_create(const TextureFormat &p_format, const TextureView &p_view) override final;
+	virtual TextureSamples texture_get_nearest_supported_samples(const TextureFormat &p_format) override final;
 	/// Stub — not applicable for WebGPU web exports (no native texture interop).
 	virtual TextureID texture_create_from_extension(uint64_t p_native_texture, TextureType p_type, DataFormat p_format, uint32_t p_array_layers, bool p_depth_stencil, uint32_t p_mipmaps) override final;
 	/// Create a shared texture view from an existing texture.

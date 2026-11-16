@@ -45,7 +45,11 @@ PATCHES = [
     {
         "id": "0001-dylink-asm-consts-pthread-race",
         "marker": "GODOT WEBGPU PATCH (dylink+pthread ASM_CONSTS race)",
-        "derived_against": "6.0.9",
+        "derived_against": "6.0.12",
+        # Retired, kept in case it is needed again. Unpatched 6.0.9 never boots a threads+dlink export; unpatched 6.0.12
+        # boots one, with a real GDExtension, every time, for a reason nobody has found (TASKS.md §4.112). Delete this
+        # line to bring the patch back: every build helper and CI then applies it again.
+        "fixed_upstream_in": "6.0.12",
         "required_for": "platform=web threads=yes dlink_enabled=yes",
         "summary": "side module's EM_ASM registration races the main module's ASM_CONSTS initializer",
         "hunks": [
@@ -77,40 +81,6 @@ PATCHES = [
             },
         ],
     },
-    {
-        "id": "0002-export-all-eager-heap-views",
-        "marker": "GODOT WEBGPU PATCH (eager heap-view export)",
-        "derived_against": "6.0.9",
-        "required_for": "platform=web dlink_enabled=yes (visible with threads=yes)",
-        "summary": "-sEXPORT_ALL re-exports HEAP* eagerly; that throws on a pthread worker",
-        "hunks": [
-            {
-                "file": "src/modules.mjs",
-                "old": "    if ((EXPORT_ALL || EXPORTED_FUNCTIONS.has(ident) || extraExports.has(ident)) && !nativeAliases[ident]) {",
-                "new": (
-                    "    // GODOT WEBGPU PATCH (eager heap-view export): skip the memory views here.\n"
-                    "    // updateMemoryViews() already assigns Module['HEAPxx'] for every view it creates\n"
-                    "    // (see maybeExportHeap in src/runtime_common.js), and exportRuntimeSymbols()'s own\n"
-                    "    // shouldExport() deliberately skips HEAP* for that reason -- 'HEAP objects are\n"
-                    "    // exported separately in updateMemoryViews'. This loop never got the same\n"
-                    "    // exclusion, so under -sEXPORT_ALL=1 the views are exported a SECOND time,\n"
-                    "    // eagerly, in the postamble. The acorn growableHeap pass rewrites each of those\n"
-                    "    // into `(growMemViews(), HEAPxx)`, and growMemViews() dereferences wasmMemory --\n"
-                    "    // which on a freshly spawned pthread worker only arrives later, in the `load`\n"
-                    "    // message. So the first one throws there, and every Module export emitted after\n"
-                    "    // it is silently skipped (PThread, addRunDependency, ...).\n"
-                    "    //\n"
-                    "    // Skipping them leaves updateMemoryViews() as the single owner of\n"
-                    "    // Module['HEAPxx'], which is what the non-EXPORT_ALL path already does. Do NOT\n"
-                    "    // 'fix' this by exporting accessors instead: updateMemoryViews() assigns these\n"
-                    "    // properties directly, so a getter-only property would make that assignment\n"
-                    "    // throw under strict mode and silently no-op otherwise.\n"
-                    "    if (/^HEAP(?:U?(?:8|16|32|64)|F32|F64|_DATA_VIEW)$/.test(ident)) continue;\n"
-                    "    if ((EXPORT_ALL || EXPORTED_FUNCTIONS.has(ident) || extraExports.has(ident)) && !nativeAliases[ident]) {"
-                ),
-            },
-        ],
-    },
 ]
 
 # sha256 of each hunk's `old` line, pinned separately so an inconsistent edit to
@@ -118,7 +88,6 @@ PATCHES = [
 PINS = {
     "tools/emscripten.py": "cc195787d55070c52de97303d12f1fe608cf682a5d009d5a6585cb02eb40920d",
     "src/lib/libdylink.js": "b3c3add0fa4ca2a7440cec534c1ed9cbb6946c4826f00be99832d746e671f965",
-    "src/modules.mjs": "bbd9b3b882d7abbb66e13c813961d1eb1e129d2da9a199290b03fac76e3f1131",
 }
 
 
@@ -289,12 +258,25 @@ def revert_patch(root, patch):
         path.write_text(body.replace(hunk["new"], hunk["old"], 1))
 
 
+def version_tuple(version):
+    return tuple(int(x) for x in version.split("-")[0].split(".")[:3] if x.isdigit())
+
+
+def needed(patch, version):
+    """False for a patch whose fix upstream Emscripten has from `fixed_upstream_in` on."""
+    fixed = patch.get("fixed_upstream_in")
+    return not fixed or version_tuple(version) < version_tuple(fixed)
+
+
 def cmd_status(root, version, args):
     print(f"toolchain:       {root}")
     print(f"version:         {version}")
     for patch in PATCHES:
         state = patch_state(root, patch)
         label = patch["id"]
+        if not needed(patch, version):
+            print(f"{label}: NOT NEEDED from Emscripten {patch['fixed_upstream_in']}")
+            continue
         if state == "applied":
             print(f"{label}: APPLIED")
         elif state == "partial":
@@ -319,13 +301,17 @@ def cmd_status(root, version, args):
 
 
 def cmd_check(root, version, args):
-    return 0 if all(patch_state(root, p) == "applied" for p in PATCHES) else 1
+    return 0 if all(patch_state(root, p) == "applied" for p in PATCHES if needed(p, version)) else 1
 
 
 def cmd_apply(root, version, args):
-    todo = [p for p in PATCHES if patch_state(root, p) != "applied"]
+    wanted = [p for p in PATCHES if needed(p, version)]
+    todo = [p for p in wanted if patch_state(root, p) != "applied"]
+    if not wanted:
+        print(f"no patch needed on Emscripten {version} at {root} -- nothing to do")
+        return 0
     if not todo:
-        print(f"already applied ({len(PATCHES)} patches, Emscripten {version} at {root}) -- nothing to do")
+        print(f"already applied ({len(wanted)} patches, Emscripten {version} at {root}) -- nothing to do")
         return 0
     for patch in todo:
         if not verify(root, patch):
@@ -333,7 +319,7 @@ def cmd_apply(root, version, args):
     for patch in todo:
         apply_patch(root, patch)
         print(f"applied {patch['id']}")
-    print(f"Emscripten {version} at {root} is patched ({len(PATCHES)} patches).")
+    print(f"Emscripten {version} at {root} is patched ({len(wanted)} patches).")
     return 0
 
 

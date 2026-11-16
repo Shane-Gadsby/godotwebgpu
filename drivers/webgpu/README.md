@@ -482,18 +482,11 @@ item is a WebGPU spec limit or has a stated reason.
   boot. `threads=yes dlink_enabled=no` was fixed in Task 12 bug #1 (the
   `API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION` dispatch fix).
   `threads=yes dlink_enabled=yes` — GDExtension and threads together — was
-  broken until 2026-10-07 by two bugs in Emscripten's own glue, and **now
-  requires a patched toolchain**: run `misc/emsdk_patches/apply.sh --apply`
-  (`build-linux.sh` does it for you). The two are an initialization-order race
-  in `libdylink.js` that stopped the export booting at all (`0001`), and
-  `-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly in the postamble,
-  which threw on every pthread worker and silently dropped the `Module` exports
-  emitted after it (`0002`). Without them a `threads=yes` dlink build does not
-  boot, and the build warns. `emsdk install` overwrites the toolchain tree, so
-  they must be re-applied after every toolchain change — but scons does now
-  relink on its own when the toolchain moves, so there is nothing to delete by
-  hand. See `misc/emsdk_patches/README.md` and Task 12 bug #2 / Task 14
-  subtask 1.5.
+  broken until 2026-10-07 by two bugs in Emscripten's own glue, which needed
+  toolchain patches up to 6.0.9. On the pinned 6.0.12 **no patch is needed**:
+  `0002` was fixed upstream, and `0001`, an initialization-order race in
+  `libdylink.js`, stopped firing for a reason not yet known, so it is retired
+  but kept. See "Retired patches" in `misc/emsdk_patches/README.md`.
 
   Note that `threads=yes` is a *build* configuration, not a rendering change:
   WebGPU object handles live in a per-thread JS table (emdawnwebgpu's
@@ -517,7 +510,7 @@ item is a WebGPU spec limit or has a stated reason.
 ## Build Instructions
 
 ```bash
-# Prerequisites: Emscripten 6.0.9 (this fork's pinned version) with emdawnwebgpu port
+# Prerequisites: Emscripten 6.0.12 (this fork's pinned version) with emdawnwebgpu port
 source /path/to/emsdk/emsdk_env.sh
 
 # Build web template (debug, no threads, WebGPU only)

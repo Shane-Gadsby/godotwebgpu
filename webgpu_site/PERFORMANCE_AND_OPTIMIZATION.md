@@ -512,6 +512,31 @@ Draws and nodes are the cleanest API comparison. Lit mostly measures Forward+ ag
 (native Compatibility is 0.26x native Forward+ there too). Fill and particles are open questions, listed with Firefox's
 run-to-run spread in `webgpu_notes/TASKS.md` §2.30.
 
+## 2026-10-30: What Unused Features Cost
+
+Every feature added since 2026-10-20 (the camera batch, micro shadows, light flicker, specular size) was measured at
+its defaults against the build before it. The RTX 4080 shows nothing measurable, and calls per frame match the baseline.
+Mali-G615 (Razr 60) showed two costs, both now gone:
+
+| Razr 60, ms/frame | Before the features | With them | Fixed | Code deleted |
+|---|---|---|---|---|
+| Tonemap passes, benchmark_postfx | 1.22 | 2.25 | 1.30 | |
+| Tonemap passes, demo_3d_particles | 0.77 | 0.98 | 0.75 | |
+| Particles colour pass | 7.98 | 8.19 | 7.90 | 7.67 |
+| Postfx main pass | 3.17 | 3.38 | 3.11 | 3.10 |
+
+The lesson is about Mali: a uniform branch around the unused code gave Mobile its cost back but not Forward+, where the
+code being in the shader was enough to cost about 5% of the pass. Assigning a private global only inside that branch made
+it worse, 8.2 to 9.1 ms. Only compiling the code out worked: a define in the tonemap, a specialization constant in the
+scene shaders. The same phone export moved 7.3-8.9 ms in one run, so a small difference needs alternating builds, at
+least four rounds, and a pass that holds none of the change as the noise floor.
+
+benchmark_postfx's six reflection probes cost +0.5 ms that is not ours: upstream's 73400efabc made Mobile take its
+positional soft shadow samples at all, where it had been reading the counts from the wrong bits.
+
+Tint against SPIRV-Cross on the same scenes: -2% to +21% on the 4080, at most 0.07 ms, and -8% to +6% on the phone,
+mixed. That is not a reason to go back. Details: `webgpu_notes/TASKS.md` §4.109.
+
 ## Remaining Optimization Opportunities
 
 1. **Command buffering on mobile**: Re-evaluate when mobile WebGPU is a primary target. Expected 3-5x trampoline savings on Chromebook/mobile. *Measured 2026-10-17:* on a Mali-G615 phone the main thread sits at 29% while the GPU is at 90%, so trampoline savings would not change the frame rate there; a weaker CPU with a stronger GPU (or a lighter scene) would be the case for it.

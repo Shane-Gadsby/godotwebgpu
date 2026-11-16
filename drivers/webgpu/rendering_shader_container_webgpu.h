@@ -237,7 +237,7 @@ public:
 		return SHADER_LANGUAGE_VULKAN_VERSION_1_1;
 	}
 
-	virtual ShaderSpirvVersion get_shader_spirv_version() const override {
+	virtual ShaderSpirvVersion get_shader_spirv_version(ShaderStage p_stage) const override {
 		// SPIR-V 1.3 — required so glslang emits SSBOs as StorageClass::StorageBuffer
 		// (not the old-style StorageClass::Uniform + BufferBlock used in SPIR-V 1.0).
 		// The converter turns StorageClass::StorageBuffer into var<storage, read/read_write>.

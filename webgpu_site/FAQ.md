@@ -27,7 +27,7 @@ scons platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=
 The `dlink_enabled=yes` flag enables Emscripten dynamic linking, which produces a main module (`godot.wasm`) and a side module (`godot.side.wasm`). This is required for the WebGPU export template.
 
 Requirements:
-- Emscripten 4.0.10+ (for the emdawnwebgpu port; this fork pins 6.0.9)
+- Emscripten 4.0.10+ (for the emdawnwebgpu port; this fork pins 6.0.12)
 - No Rust toolchain needed (SPIRV-Cross's C++ WGSL backend is compiled directly into the engine)
 - Standard Godot build dependencies (SCons, Python, C++ compiler)
 

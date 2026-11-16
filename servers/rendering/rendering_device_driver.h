@@ -334,6 +334,7 @@ public:
 	};
 
 	virtual TextureID texture_create(const TextureFormat &p_format, const TextureView &p_view) = 0;
+	virtual TextureSamples texture_get_nearest_supported_samples(const TextureFormat &p_format) = 0;
 	virtual TextureID texture_create_from_extension(uint64_t p_native_texture, TextureType p_type, DataFormat p_format, uint32_t p_array_layers, bool p_depth_stencil, uint32_t p_mipmaps) = 0;
 	// texture_create_shared_*() can only use original, non-view textures as original. RenderingDevice is responsible for ensuring that.
 	virtual TextureID texture_create_shared(TextureID p_original_texture, const TextureView &p_view) = 0;
@@ -1172,6 +1173,12 @@ public:
 		// R8 / RG8 rather than L8 / LA8, and an opaque render target's last
 		// passes write alpha 1 themselves (render_target_needs_opaque_alpha()).
 		API_TRAIT_TEXTURE_VIEW_SWIZZLE,
+		// If non-zero, reading a GPU buffer back is asynchronous: a synchronous
+		// buffer_get_data() returns nothing until the readback arrives (WebGPU,
+		// buffer_get_readback_status()). Shared code that would read back data it
+		// uploaded itself keeps a CPU copy instead (MeshStorage's MultiMesh buffer,
+		// webgpu_notes/TASKS.md §2.55).
+		API_TRAIT_BUFFER_READBACK_ASYNC,
 	};
 
 	enum ShaderChangeInvalidation {

@@ -165,8 +165,8 @@ void LightStorage::_light_initialize(RID p_light, RSE::LightType p_type) {
 	light.param[RSE::LIGHT_PARAM_SHADOW_PANCAKE_SIZE] = 20.0;
 	light.param[RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS] = 0.05;
 	light.param[RSE::LIGHT_PARAM_INTENSITY] = p_type == RSE::LIGHT_DIRECTIONAL ? 100000.0 : 1000.0;
-	light.param[RSE::LIGHT_PARAM_CONTACT_SHADOW_OPACITY] = 1.0;
 	light.param[RSE::LIGHT_PARAM_CONTACT_SHADOW_BLUR] = 1.0;
+	light.param[RSE::LIGHT_PARAM_SPECULAR_SIZE] = 0.0;
 
 	light_owner.initialize_rid(p_light, light);
 }
@@ -324,6 +324,14 @@ void LightStorage::light_set_reverse_cull_face_mode(RID p_light, bool p_enabled)
 
 	light->version++;
 	light->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_LIGHT);
+}
+
+void LightStorage::light_set_flicker(RID p_light, float p_mains_frequency, float p_depth, float p_phase) {
+	Light *light = light_owner.get_or_null(p_light);
+	ERR_FAIL_NULL(light);
+	light->flicker_frequency = MAX(p_mains_frequency, 0.0f);
+	light->flicker_depth = CLAMP(p_depth, 0.0f, 1.0f);
+	light->flicker_phase = p_phase;
 }
 
 void LightStorage::light_set_shadow_caster_mask(RID p_light, uint32_t p_caster_mask) {
@@ -751,12 +759,18 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 
 	Transform3D inverse_transform = p_camera_transform.affine_inverse();
+	// Flickering lights are averaged over this frame's exposure, from the engine clock.
+	const double flicker_time = RSG::rasterizer->get_total_time();
+	const double flicker_exposure = RSG::camera_attributes->camera_attributes_get_exposure_time(p_render_data->camera_attributes, RSG::rasterizer->get_frame_delta_time());
+	// Under a rolling shutter each row exposes at its own time: omni and spot lights flicker per row in the shader.
+	const bool flicker_per_row = RSG::camera_attributes->camera_attributes_get_rolling_shutter_readout(p_render_data->camera_attributes) > 0.0;
 
 	r_directional_light_count = 0;
 	r_positional_light_count = 0;
 
 	omni_light_count = 0;
 	spot_light_count = 0;
+	positional_light_extras_used = false;
 	area_light_count = 0;
 	uint32_t directional_contact_shadows_count = 0;
 
@@ -789,7 +803,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 
 				float sign = light->negative ? -1 : 1;
 
-				light_data.energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY];
+				light_data.energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * light_flicker_factor(light->flicker_frequency, light->flicker_depth, light->flicker_phase, flicker_time, flicker_exposure);
 
 				if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
 					light_data.energy *= light->param[RSE::LIGHT_PARAM_INTENSITY];
@@ -817,7 +831,9 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 				light_data.shadow_opacity = (p_using_shadows && light->shadow)
 						? light->param[RSE::LIGHT_PARAM_SHADOW_OPACITY]
 						: 0.0;
-				light_data.sscs_index = light->allow_contact_shadows ? directional_contact_shadows_count++ : 0xffffffff;
+				light_data.sscs_index = (light->shadow && light->allow_contact_shadows)
+						? directional_contact_shadows_count++
+						: 0xffffffff;
 
 				float angular_diameter = light->param[RSE::LIGHT_PARAM_SIZE];
 				if (angular_diameter > 0.0) {
@@ -864,7 +880,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 
 						Projection shadow_mtx = rectm * bias * matrix * modelview;
 						light_data.shadow_split_offsets[j] = split;
-						float bias_scale = light_instance->shadow_transform[j].bias_scale * light_data.soft_shadow_scale;
+						const float bias_scale = light_instance->shadow_transform[j].bias_scale * MAX(light_data.soft_shadow_scale, 1.0f);
 						light_data.shadow_bias[j] = light->param[RSE::LIGHT_PARAM_SHADOW_BIAS] / 100.0 * bias_scale;
 						light_data.shadow_normal_bias[j] = light->param[RSE::LIGHT_PARAM_SHADOW_NORMAL_BIAS] * light_instance->shadow_transform[j].shadow_texel_size;
 						light_data.shadow_transmittance_bias[j] = light->param[RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS] / 100.0 * bias_scale;
@@ -1064,7 +1080,11 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 			}
 		}
 
-		float energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * fade;
+		const bool row_flicker = flicker_per_row && light->flicker_frequency > 0.0f && light->flicker_depth > 0.0f && (light->type == RSE::LIGHT_OMNI || light->type == RSE::LIGHT_SPOT);
+		float energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * fade * (row_flicker ? 1.0f : light_flicker_factor(light->flicker_frequency, light->flicker_depth, light->flicker_phase, flicker_time, flicker_exposure));
+		light_data.flicker_pulse_frequency = row_flicker ? 2.0f * light->flicker_frequency : 0.0f;
+		light_data.flicker_depth = light->flicker_depth;
+		light_data.flicker_phase = Math::deg_to_rad(light->flicker_phase);
 
 		if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
 			energy *= light->param[RSE::LIGHT_PARAM_INTENSITY];
@@ -1091,6 +1111,10 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.color[1] = linear_col.g * energy;
 		light_data.color[2] = linear_col.b * energy;
 		light_data.specular_amount = light->param[RSE::LIGHT_PARAM_SPECULAR] * 2.0;
+		light_data.specular_size = light->param[RSE::LIGHT_PARAM_SPECULAR_SIZE];
+		if ((type == RSE::LIGHT_OMNI || type == RSE::LIGHT_SPOT) && (row_flicker || light_data.specular_size > 0.0f)) {
+			positional_light_extras_used = true;
+		}
 		light_data.volumetric_fog_energy = light->param[RSE::LIGHT_PARAM_VOLUMETRIC_FOG_ENERGY];
 		light_data.bake_mode = light->bake_mode;
 
@@ -1266,7 +1290,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 					light_data.soft_shadow_size = 0.0;
 					light_data.soft_shadow_scale *= RendererSceneRenderRD::get_singleton()->shadows_quality_radius_get(); // Only use quality radius for PCF
 				}
-				light_data.shadow_bias *= light_data.soft_shadow_scale;
+				light_data.shadow_bias *= MAX(light_data.soft_shadow_scale, 1.0f);
 			}
 		} else {
 			light_data.shadow_opacity = 0.0;
@@ -1593,6 +1617,9 @@ void LightStorage::reflection_atlas_free(RID p_ref_atlas) {
 void LightStorage::_reflection_atlas_clear(ReflectionAtlas *p_reflection_atlas) {
 	RD::get_singleton()->free_rid(p_reflection_atlas->reflection);
 	p_reflection_atlas->reflection = RID();
+
+	RD::get_singleton()->free_rid(p_reflection_atlas->color_buffer);
+	p_reflection_atlas->color_buffer = RID();
 
 	RD::get_singleton()->free_rid(p_reflection_atlas->depth_fb);
 	p_reflection_atlas->depth_fb = RID();

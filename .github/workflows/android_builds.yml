@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-android:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     name: ${{ matrix.name }}
     # Templates now build both ABIs x both configs (4 scons invocations)
     # sequentially in one job before running gradle once -- see the

@@ -92,9 +92,13 @@ check('every feature has a known category',
 // the exact failure this whole tier exists to prevent.
 // Parity-only arms are exempt: the delta test never runs on them, and their
 // correct result is "no change".
-// So are render-info arms, whose correct frame is unchanged: they are judged on
-// the counts they report, and must also bound the frame change from above.
-const slack = FEATURES.filter((f) => !f.parityOnly && !(f.minDelta > 0) && !(f.infoDrop && f.maxDelta !== undefined));
+// So are arms whose correct frame is unchanged and that bound the change from
+// above instead: render-info arms (judged on the counts they report) and the
+// NaN-containment arms (a NaN pixel must not spread). Such an arm needs a real,
+// small bound: a maxDelta of 0 would fail on run-to-run noise, and a large one
+// would pass the spread it exists to catch.
+const bounded = (f) => f.maxDelta !== undefined && f.maxDelta > 0 && f.maxDelta < 1;
+const slack = FEATURES.filter((f) => !f.parityOnly && !(f.minDelta > 0) && !bounded(f));
 check('no feature has a zero threshold', slack.length === 0, slack.map((f) => f.id).join(', '));
 // A parity tolerance at or above a feature's own effect would let the effect
 // vanish entirely and still pass.

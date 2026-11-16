@@ -3447,6 +3447,13 @@ WGPUTextureFormat RenderingDeviceDriverWebGPU::_data_format_to_wgpu(DataFormat p
 // gets bound to a pipeline that was built for R8Unorm and every submit fails with a
 // GPUValidationError. Canvas SDF (R8_UNORM + STORAGE_BIT + COLOR_ATTACHMENT_BIT) is
 // the motivating case.
+RDD::TextureSamples RenderingDeviceDriverWebGPU::texture_get_nearest_supported_samples(const TextureFormat &p_format) {
+	// _clamp_sample_count() is the single policy for what this driver accepts; report it back
+	// in the enum RenderingDevice asks in, so shared code picks the same count texture_create()
+	// would. WebGPU has only 1 and 4, and 2x clamps up rather than off (see the helper).
+	return _clamp_sample_count(p_format.samples) == 1u ? TEXTURE_SAMPLES_1 : TEXTURE_SAMPLES_4;
+}
+
 uint32_t RenderingDeviceDriverWebGPU::_clamp_sample_count(TextureSamples p_samples) {
 	// TextureSamples enum: 0=1x, 1=2x, 2=4x, 3=8x, 4=16x, 5=32x, 6=64x → 1 << sample_count.
 	// WebGPU (Dawn and the spec) only ever accepts sampleCount 1 or 4 -- any other
@@ -11472,6 +11479,9 @@ uint64_t RenderingDeviceDriverWebGPU::api_trait_get(ApiTrait p_trait) {
 		// buffer_map() returns a CPU shadow copy; RenderingDevice::_end_frame() must
 		// unmap every upload staging block every frame to flush it via wgpuQueueWriteBuffer.
 		case API_TRAIT_BUFFER_MAP_RETURNS_SHADOW_COPY:
+			return 1;
+		// buffer_get_data() returns nothing until the mapAsync readback has arrived (TASKS §4.96).
+		case API_TRAIT_BUFFER_READBACK_ASYNC:
 			return 1;
 		// See the trait's own doc comment in rendering_device_driver.h: WebGPU object
 		// handles live in a per-thread JS lookup table, so pipeline creation must run

@@ -24,11 +24,9 @@
 # WebGPU's per-thread JS object model can't handle; fixed via
 # API_TRAIT_REQUIRES_SYNCHRONOUS_PIPELINE_COMPILATION. threads=yes
 # dlink_enabled=yes (GDExtension + threads together) used to be broken by an
-# Emscripten-internal dylink+pthread initialization race; it now works, but only
-# on a toolchain carrying this fork's two Emscripten patches, which this script
-# applies for you (misc/emsdk_patches/, webgpu_notes/TASKS.md §4.5).
-# Without them that configuration does not boot (0001) and floods the console
-# while silently dropping Module exports on worker threads (0002).
+# Emscripten-internal dylink+pthread initialization race, which needed a toolchain
+# patch up to 6.0.9; from the pinned 6.0.12 no patch is needed
+# (misc/emsdk_patches/, webgpu_notes/TASKS.md §4.112).
 # If a threaded web export misbehaves under the WebGPU driver, narrow it down
 # against a threads=no build first.
 #
@@ -95,7 +93,7 @@
 #
 # Env overrides:
 #   EMSDK_DIR=path       Emscripten SDK location (default: ~/emsdk)
-#   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 6.0.9)
+#   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 6.0.12)
 #   CCACHE_MAXSIZE=size  ccache budget for the 11 variants (default: 50G)
 #   LINKER=name          Native linker (default: auto -> mold, lld, or system)
 #   USE_CCACHE=no        Same as --no-ccache (default: yes)
@@ -136,7 +134,7 @@ USE_CCACHE="${USE_CCACHE:-yes}"
 LINKER="${LINKER:-auto}"
 JOBS="$(nproc 2>/dev/null || echo 4)"
 EMSDK_DIR="${EMSDK_DIR:-$HOME/emsdk}"
-EMSDK_VERSION="${EMSDK_VERSION:-6.0.9}"
+EMSDK_VERSION="${EMSDK_VERSION:-6.0.12}"
 SCONS_VERSION="4.10.1"
 GDB_RIDER_DIR="${GDB_RIDER_DIR:-$REPO_ROOT/../godot-gdb-rider}"
 GDB_VSCODE_DIR="${GDB_VSCODE_DIR:-$REPO_ROOT/../godot-gdb-vscode}"
@@ -906,15 +904,15 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 	source "$EMSDK_DIR/emsdk_env.sh" > /dev/null
 	use_ccache_path # emsdk_env.sh just put its own em++ ahead of ccache's.
 
-	# The threads=yes dlink_enabled=yes variants below do not boot without this
-	# fork's Emscripten patches, and `emsdk install` above overwrites the toolchain
-	# tree -- so they have to be (re-)applied here, after the install, on every run.
+	# Applies whatever patch this Emscripten version still needs (none on 6.0.12),
+	# and `emsdk install` above overwrites the toolchain tree -- so it has to run
+	# here, after the install, on every run.
 	# Idempotent; refuses rather than fuzzily applying if upstream has moved any of
 	# the text it pins. A failure only costs the two threads+dlink templates, so
 	# warn and keep going rather than abandoning the whole matrix.
-	step "Applying Emscripten toolchain patches (needed for threads+GDExtension)..."
+	step "Applying the Emscripten toolchain patches this version needs..."
 	if ./misc/emsdk_patches/apply.sh --apply; then
-		ok "Emscripten toolchain patched."
+		ok "Emscripten toolchain ready."
 	else
 		warn "Could not patch the Emscripten toolchain -- the threads=yes dlink_enabled=yes"
 		warn "templates will build but will not boot. See misc/emsdk_patches/README.md."

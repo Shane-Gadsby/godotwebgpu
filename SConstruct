@@ -2,7 +2,7 @@
 from misc.utility.scons_hints import *
 
 EnsureSConsVersion(4, 4)
-EnsurePythonVersion(3, 9)
+EnsurePythonVersion(3, 10)
 
 # System
 import glob
@@ -888,6 +888,7 @@ else:
             # Remap absolute paths to relative paths for debug symbols.
             project_path = Dir("#").abspath
             env.AppendUnique(CCFLAGS=[f"-ffile-prefix-map={project_path}=."])
+            env.AppendUnique(LINKFLAGS=[f"-ffile-prefix-map={project_path}=."])
     else:
         if methods.is_apple_clang(env):
             # Apple Clang, its linker doesn't like -s.
@@ -1045,7 +1046,9 @@ else:  # GCC, Clang
 
     if env["werror"]:
         env.AppendUnique(CCFLAGS=["-Werror"])
-        if env["platform"] != "macos":
+        if env.msvc:
+            env.AppendUnique(LINKFLAGS=["-WX"])
+        elif env["platform"] != "macos":
             env.AppendUnique(LINKFLAGS=["-Wl,--fatal-warnings"])
         elif env["arch"] != "x86_64":
             # Disabled for x86-64 macOS build due to MoltenVK min. target version mismatch.

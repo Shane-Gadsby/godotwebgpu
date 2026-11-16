@@ -66,6 +66,9 @@
 			The strength of a neutral density filter in front of the lens, in stops: each stop halves the light. Lets you use a wide aperture or a slow shutter in bright light.
 			[b]Note:[/b] Only has an effect when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
 		</member>
+		<member name="exposure_shutter_mode" type="int" setter="set_shutter_mode" getter="get_shutter_mode" enum="CameraAttributesPhysical.ShutterMode" default="0">
+			Which setting gives the exposure time. [constant SHUTTER_MODE_SPEED]: [member exposure_shutter_speed]. [constant SHUTTER_MODE_ANGLE]: [member CameraAttributes.exposure_shutter_angle] of each camera frame ([member CameraAttributes.frame_rate], 24 fps when it is [code]0[/code]); [member exposure_shutter_speed] then shows the speed this amounts to, read-only, and sets the brightness and the motion blur from it.
+		</member>
 		<member name="exposure_shutter_speed" type="float" setter="set_shutter_speed" getter="get_shutter_speed" default="100.0">
 			Time for shutter to open and close, evaluated as [code]1 / shutter_speed[/code] seconds. A higher value will allow less light (leading to a darker image), while a lower value will allow more light (leading to a brighter image).
 			Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled. It also sets the length of [member CameraAttributes.motion_blur_enabled] (see [member motion_blur_use_shutter_speed]), with or without physical light units, and is shown in the inspector whenever it does.
@@ -96,7 +99,7 @@
 			[b]Note:[/b] Only has an effect when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
 		</member>
 		<member name="motion_blur_use_shutter_speed" type="bool" setter="set_motion_blur_use_shutter_speed" getter="is_motion_blur_using_shutter_speed" default="true">
-			If [code]true[/code], [member CameraAttributes.motion_blur_enabled] uses the exposure time of [member exposure_shutter_speed] as a real camera does: a [code]1/50[/code] s shutter blurs 1.2 frames' worth of motion at 60 FPS and 0.6 at 120 FPS, and [code]1/2000[/code] s almost none. This works whether or not [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled; without it, the shutter speed only sets the blur. If [code]false[/code], [member CameraAttributes.motion_blur_shutter_angle] sets the exposure time as a fraction of each frame instead.
+			If [code]true[/code], [member CameraAttributes.motion_blur_enabled] uses the exposure time of [member exposure_shutter_speed] as a real camera does: a [code]1/50[/code] s shutter blurs 1.2 frames' worth of motion at 60 FPS and 0.6 at 120 FPS, and [code]1/2000[/code] s almost none. This works whether or not [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled; without it, the shutter speed only sets the blur. If [code]false[/code], [member CameraAttributes.exposure_shutter_angle] sets the exposure time as a fraction of each frame instead.
 		</member>
 		<member name="sensor_format" type="int" setter="set_sensor_format" getter="get_sensor_format" enum="CameraAttributesPhysical.SensorFormat" default="0">
 			The size of the sensor or film frame, which sets the field of view of [member frustum_focal_length], the circle of confusion of depth of field, the size of film grain ([member CameraAttributes.grain_enabled]) and the lens effects that depend on the frame. Picking a format sets [member sensor_size].
@@ -139,6 +142,12 @@
 		</constant>
 		<constant name="SENSOR_FORMAT_MAX" value="7" enum="SensorFormat">
 			Represents the size of the [enum SensorFormat] enum.
+		</constant>
+		<constant name="SHUTTER_MODE_SPEED" value="0" enum="ShutterMode">
+			The shutter speed sets the exposure time.
+		</constant>
+		<constant name="SHUTTER_MODE_ANGLE" value="1" enum="ShutterMode">
+			The shutter angle and the camera frame rate set the exposure time: [code]angle / 360 / frame_rate[/code] seconds.
 		</constant>
 	</constants>
 </class>

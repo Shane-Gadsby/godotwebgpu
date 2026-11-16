@@ -74,6 +74,9 @@ private:
 		uint32_t max_sdfgi_cascade = 2;
 		uint32_t cull_mask = 0xFFFFFFFF;
 		uint32_t shadow_caster_mask = 0xFFFFFFFF;
+		float flicker_frequency = 0.0; // AC mains Hz; 0: steady.
+		float flicker_depth = 0.0;
+		float flicker_phase = 0.0; // Degrees.
 		bool distance_fade = false;
 		real_t distance_fade_begin = 40.0;
 		real_t distance_fade_shadow = 50.0;
@@ -160,6 +163,12 @@ private:
 		float specular_amount;
 		float shadow_opacity;
 
+		float specular_size; // Meters; widens the specular highlight only (Light3D.light_specular_size).
+		// Under a rolling shutter, a flickering omni or spot light is evaluated per row in the shader: its pulse rate
+		// (Hz, twice the mains), depth and phase (radians). 0 Hz otherwise (the CPU applied the frame's average).
+		float flicker_pulse_frequency;
+		float flicker_depth;
+		float flicker_phase;
 		float pad[2];
 		float atlas_rect[4]; // in omni, used for atlas uv, in spot, used for projector uv
 		float shadow_matrix[16];
@@ -186,6 +195,9 @@ private:
 	uint32_t max_lights;
 	uint32_t omni_light_count = 0;
 	uint32_t spot_light_count = 0;
+	// Some omni or spot light in the buffers has a specular size or flickers per row: the scene shaders compile both out
+	// otherwise (the light_extras specialization constant).
+	bool positional_light_extras_used = false;
 	uint32_t area_light_count = 0;
 	LightData *omni_lights = nullptr;
 	LightData *spot_lights = nullptr;
@@ -518,6 +530,7 @@ public:
 	virtual void light_set_distance_fade(RID p_light, bool p_enabled, float p_begin, float p_shadow, float p_length) override;
 	virtual void light_set_reverse_cull_face_mode(RID p_light, bool p_enabled) override;
 	virtual void light_set_shadow_caster_mask(RID p_light, uint32_t p_caster_mask) override;
+	virtual void light_set_flicker(RID p_light, float p_mains_frequency, float p_depth, float p_phase) override;
 	virtual uint32_t light_get_shadow_caster_mask(RID p_light) const override;
 	virtual void light_set_bake_mode(RID p_light, RSE::LightBakeMode p_bake_mode) override;
 	virtual void light_set_max_sdfgi_cascade(RID p_light, uint32_t p_cascade) override;
@@ -866,6 +879,7 @@ public:
 		}
 		return false;
 	}
+	bool get_positional_light_extras_used() const { return positional_light_extras_used; }
 	void update_light_buffers(RenderDataRD *p_render_data, const PagedArray<RID> &p_lights, const Transform3D &p_camera_transform, RID p_shadow_atlas, bool p_using_shadows, uint32_t &r_directional_light_count, uint32_t &r_positional_light_count, bool &r_directional_light_soft_shadows);
 
 	/* REFLECTION PROBE */

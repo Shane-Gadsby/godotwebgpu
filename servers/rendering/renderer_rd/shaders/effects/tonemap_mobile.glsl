@@ -73,6 +73,19 @@ layout(set = 0, binding = 6) uniform SAMPLER_FORMAT source_glare;
 #define CAMERA_EFFECTS_BINDING 5
 #include "camera_effects_inc.glsl"
 
+// Camera effects (CameraAttributes: lens, glare, grain, LUTs) compile out of the variants without USE_CAMERA_EFFECTS,
+// which tone_mapper.cpp picks when the camera uses none of them: each test below is then a constant false. A runtime-off
+// branch still cost a phone's Mali GPU twice the tonemap time (TASKS §2.66, work task 94).
+#ifdef USE_CAMERA_EFFECTS
+#define CAMERA_EFFECTS_HEADER camera_effects.header
+#define CAMERA_GRAIN params.grain
+#define CAMERA_LUT_PARAMS params.camera_lut
+#else
+#define CAMERA_EFFECTS_HEADER uvec4(0u)
+#define CAMERA_GRAIN 0u
+#define CAMERA_LUT_PARAMS 0u
+#endif
+
 // Environment features with more parameters than the push constant holds (the Custom tonemapper's curve).
 #define ENVIRONMENT_EFFECTS_SET 0
 #define ENVIRONMENT_EFFECTS_BINDING 7
@@ -815,7 +828,7 @@ void main() {
 #else
 	vec4 color = textureLod(source_color, uv_interp, 0.0f);
 #endif
-	uint lens_bits = camera_effects.header.x;
+	uint lens_bits = CAMERA_EFFECTS_HEADER.x;
 	// Glow reads its texture at the output pixel, or where the lens takes the pixel from.
 	vec2 glow_uv = gl_FragCoord.xy * params.dest_pixel_size;
 #ifndef SUBPASS
@@ -864,7 +877,7 @@ void main() {
 #ifndef SUBPASS
 	// Glare (camera_glare_inc.glsl): flare, veiling glare, diffusion, starbursts and halation, read where the lens takes
 	// this pixel from, before vignetting, which darkens the light they add as it does the rest.
-	if (camera_effects.header.y != 0u) {
+	if (CAMERA_EFFECTS_HEADER.y != 0u) {
 		color.rgb = camera_glare_apply(color.rgb, lens_uv, params.exposure);
 	}
 #endif
@@ -882,7 +895,7 @@ void main() {
 
 	// Grain, in the same scene-referred light: it happens on the film or sensor, before the print or the
 	// camera's tone curve. The mobile tonemapper has no auto exposure.
-	if (params.grain != 0u) {
+	if (CAMERA_GRAIN != 0u) {
 #ifdef USE_MULTIVIEW
 		color.rgb = apply_camera_grain(color.rgb, gl_FragCoord.xy, params.grain, 1.0, uint(ViewIndex));
 #else
@@ -892,7 +905,7 @@ void main() {
 
 	// Tonemap to lower dynamic range.
 
-	color.rgb = apply_camera_tonemapping(color.rgb, params.camera_lut);
+	color.rgb = apply_camera_tonemapping(color.rgb, CAMERA_LUT_PARAMS);
 
 #ifndef SUBPASS
 	// Post-tonemap glow.
@@ -908,13 +921,13 @@ void main() {
 		if (use_white_balance) {
 			glow = apply_white_balance(glow, vec3(params.white_balance[0], params.white_balance[1], params.white_balance[2]));
 		}
-		glow = apply_camera_tonemapping(glow, params.camera_lut);
+		glow = apply_camera_tonemapping(glow, CAMERA_LUT_PARAMS);
 		color.rgb = apply_glow(color.rgb, glow, params.white);
 	}
 #endif
 
 	// The camera's display LUT: the camera's look, before the Environment's adjustments grade it.
-	color.rgb = apply_camera_display_lut(color.rgb, params.camera_lut);
+	color.rgb = apply_camera_display_lut(color.rgb, CAMERA_LUT_PARAMS);
 
 	// Additional effects.
 

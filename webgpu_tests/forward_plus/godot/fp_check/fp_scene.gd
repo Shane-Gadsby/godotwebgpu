@@ -1185,7 +1185,6 @@ func _reset() -> void:
 	dir_light.light_negative = false
 	dir_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	dir_light.directional_shadow_max_distance = 100.0
-	dir_light.shadow_contact_shadows_opacity = 0.0
 	dir_light.shadow_contact_shadows_blur = 0.0
 	dir_light.light_specular = 0.5
 	omni_light.visible = false
@@ -1437,7 +1436,6 @@ func _apply(id: String, on: bool) -> bool:
 			dir_light.shadow_blur = 6.0 if on else 0.0
 		"contact_shadows":
 			dir_light.shadow_contact_shadows_allow = on
-			dir_light.shadow_contact_shadows_opacity = 1.0
 			dir_light.shadow_contact_shadows_blur = 0.0
 		"light_negative":
 			omni_light.visible = true

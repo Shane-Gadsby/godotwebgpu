@@ -332,6 +332,7 @@ public:
 	virtual void light_set_distance_fade(RID p_light, bool p_enabled, float p_begin, float p_shadow, float p_length) = 0;
 	virtual void light_set_reverse_cull_face_mode(RID p_light, bool p_enabled) = 0;
 	virtual void light_set_shadow_caster_mask(RID p_light, uint32_t p_caster_mask) = 0;
+	virtual void light_set_flicker(RID p_light, float p_mains_frequency, float p_depth, float p_phase) = 0;
 	virtual void light_set_allow_contact_shadows(RID p_light, bool p_enable) = 0;
 
 	virtual void light_set_bake_mode(RID p_light, RSE::LightBakeMode p_bake_mode) = 0;
@@ -784,6 +785,7 @@ public:
 	virtual void camera_attributes_set_motion_blur_quality(RSE::CameraAttributesMotionBlurQuality p_quality) = 0;
 	virtual void camera_attributes_set_motion_blur(RID p_camera_attributes, bool p_enable, float p_shutter_angle, float p_shutter_time, float p_strength, float p_max_length) = 0;
 	virtual void camera_attributes_set_rolling_shutter(RID p_camera_attributes, bool p_enable, float p_readout_time) = 0;
+	virtual void camera_attributes_set_frame_rate(RID p_camera_attributes, float p_frame_rate, bool p_hold) = 0;
 
 	/* Exposure automation */
 	virtual void camera_attributes_set_auto_exposure_metering(RID p_camera_attributes, RSE::CameraAttributesMeteringMode p_mode, float p_spot_size, const Vector2 &p_spot_point, float p_highlight_percentile) = 0;

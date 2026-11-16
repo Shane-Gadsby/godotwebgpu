@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/math/math_funcs.h"
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/storage/render_scene_buffers.h"
 
@@ -62,6 +63,22 @@ public:
 	virtual void light_set_distance_fade(RID p_light, bool p_enabled, float p_begin, float p_shadow, float p_length) = 0;
 	virtual void light_set_reverse_cull_face_mode(RID p_light, bool p_enabled) = 0;
 	virtual void light_set_shadow_caster_mask(RID p_light, uint32_t p_caster_mask) = 0;
+	// AC mains flicker (Light3D.light_flicker_*); a mains frequency of 0 is a steady light.
+	virtual void light_set_flicker(RID p_light, float p_mains_frequency, float p_depth, float p_phase) = 0;
+	// The brightness factor of a light flickering on AC mains, for an exposure of p_exposure seconds from p_time: the
+	// lamp pulses at twice the mains frequency, 1 + depth * cos(2 pi * 2f * t + phase), and a camera records that averaged
+	// over its exposure. Its mean is 1, so the light's energy is kept; exposing whole pulses gives a steady image.
+	static float light_flicker_factor(float p_mains_frequency, float p_depth, float p_phase, double p_time, double p_exposure) {
+		if (p_mains_frequency <= 0.0f || p_depth <= 0.0f) {
+			return 1.0f;
+		}
+		const double omega = Math::TAU * 2.0 * p_mains_frequency;
+		const double phase = Math::deg_to_rad((double)p_phase);
+		const double wave = p_exposure * omega < 1e-4
+				? Math::cos(omega * p_time + phase)
+				: (Math::sin(omega * (p_time + p_exposure) + phase) - Math::sin(omega * p_time + phase)) / (omega * p_exposure);
+		return MAX(0.0f, float(1.0 + p_depth * wave));
+	}
 	virtual uint32_t light_get_shadow_caster_mask(RID p_light) const = 0;
 	virtual void light_set_bake_mode(RID p_light, RSE::LightBakeMode p_bake_mode) = 0;
 	virtual void light_set_max_sdfgi_cascade(RID p_light, uint32_t p_cascade) = 0;

@@ -10,21 +10,30 @@
 #   ./webgpu_tests/local_ci.sh --quick --rebuild  # Rebuild + quick tests only
 #   ./webgpu_tests/local_ci.sh --no-export  # Rebuild but keep the existing exports
 #   ./webgpu_tests/local_ci.sh --export     # Re-export without rebuilding
-#   ./webgpu_tests/local_ci.sh --no-dlink   # Skip the dlink template compile check
+#   ./webgpu_tests/local_ci.sh --no-dlink   # Skip the dlink templates
 #   ./webgpu_tests/local_ci.sh --bake       # Also export + test the BAKED Forward+ fixture (needs xvfb-run; minutes)
 #   ./webgpu_tests/local_ci.sh --dev-mode   # Build with dev_mode=yes, as CI does
 #                                           # (warnings=extra werror=yes)
+#   ./webgpu_tests/local_ci.sh --on-desktop # Open the test browsers on your own display, to watch them
+#   ./webgpu_tests/local_ci.sh --no-real-gpu # Skip the real-GPU tiers even when a GPU is present
+#
+# On Linux the whole run happens inside its own Xvfb display (xvfb-run), so the headed test browsers and
+# native reference renders never take focus or cover the desktop. Headed Chrome keeps the NVIDIA adapter there and
+# its canvas composites; Firefox gets a real adapter and runs, but cannot composite a WebGPU canvas on Xvfb, so its
+# pixel checks (fog, font, screenshot comparison) SKIP -- --on-desktop runs them. --on-desktop, CI, or no xvfb-run
+# keeps the current DISPLAY.
 #
 # What the rebuild builds, and why it matters:
-#   The editor, the dlink web template, and the **non-dlink, nothreads** one --
+#   The editor, the two dlink web templates, and the **non-dlink, nothreads** one --
 #   that last being the exact pair, with the editor, that the scene smoketest
 #   exports with. This used to build *only* the dlink template, which is a
 #   different file (…nothreads.dlink.zip) that no later stage ever loaded, so a
 #   green run said nothing about the engine in the working tree. The run now
 #   re-exports every scene from what it just built, so it does.
 #
-#   The dlink build is kept as a compile check -- nothing loads it, but dropping
-#   it would let a dlink-only build break through unnoticed. --no-dlink skips it.
+#   The nothreads dlink build is kept as a compile check, and the threaded one is
+#   what WebRTC's threads_dlink variant loads, the only tier that boots a side
+#   module on pthread workers. --no-dlink skips both.
 #
 #   The two builds have to happen in this order, and the web one has to come last:
 #   interleaving them in one tree goes stale in register_module_types.gen and ships
@@ -58,6 +67,8 @@ DO_BAKE=false
 QUICK=false
 DO_DLINK=true
 DEV_MODE=false
+ON_DESKTOP=false
+REAL_GPU=auto
 REBUILD_EXPLICIT=""  # "", "yes", or "no"
 EXPORT_EXPLICIT=""   # "", "yes", or "no"
 for arg in "$@"; do
@@ -70,7 +81,28 @@ for arg in "$@"; do
     [[ "$arg" == "--no-dlink" ]] && DO_DLINK=false
     [[ "$arg" == "--bake" ]] && DO_BAKE=true
     [[ "$arg" == "--dev-mode" ]] && DEV_MODE=true
+    [[ "$arg" == "--on-desktop" ]] && ON_DESKTOP=true
+    [[ "$arg" == "--no-real-gpu" ]] && REAL_GPU=no
 done
+
+# Run everything on a display of its own (see the header), unless asked not to.
+if [[ "$ON_DESKTOP" == false && -z "${CI:-}" && -z "${LOCAL_CI_IN_XVFB:-}" && "$(uname)" == "Linux" ]]; then
+    if command -v xvfb-run >/dev/null 2>&1; then
+        export LOCAL_CI_IN_XVFB=1
+        exec xvfb-run -a -s "-screen 0 1920x1080x24" "$SCRIPT_DIR/$(basename "$0")" "$@"
+    fi
+    echo "  xvfb-run not found: the test browsers will open on this display (apt install xvfb to keep them off it)."
+fi
+
+# The Forward+ matrix, its parity run and Chrome's fog test need Chrome on the real Vulkan adapter (WEBGPU_REAL_GPU=1;
+# swiftshader renders several Forward+ effects not at all), and SKIP without it. Pass it whenever Vulkan lists a real
+# GPU, so a local run tests them instead of skipping them silently; CI keeps its own setting.
+if [[ "$REAL_GPU" == auto && -z "${CI:-}" && -z "${WEBGPU_REAL_GPU:-}" ]] && command -v vulkaninfo >/dev/null 2>&1 &&
+        vulkaninfo --summary 2>/dev/null | grep -Eq "PHYSICAL_DEVICE_TYPE_(DISCRETE|INTEGRATED)_GPU"; then
+    export WEBGPU_REAL_GPU=1
+elif [[ "$REAL_GPU" == no ]]; then
+    unset WEBGPU_REAL_GPU
+fi
 
 # dev_mode=yes is what CI builds with (webgpu_tests.yml's SCONS_FLAGS), and in
 # Godot it implies warnings=extra werror=yes. Nothing local used it, which is how
@@ -147,6 +179,20 @@ FAILED=0
 SKIPPED=0
 RESULTS=()
 
+# Every tier's full output, kept. A FAIL used to print its last 10 lines and discard the rest,
+# which loses exactly the line that names what failed: the Forward+ matrix reports one line per
+# arm and its "99/100 features pass" tail scrolled the failing arm's name away, so naming it cost
+# a second 103-arm run on the GPU that the first run already knew the answer to.
+LOG_DIR="${LOCAL_CI_LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/local_ci-$(date +%Y%m%d-%H%M%S)-XXXX")}"
+mkdir -p "$LOG_DIR"
+
+# A file name per tier, from its display name: "Forward+ matrix - Chrome" -> "forward-matrix-chrome".
+log_path_for() {
+    local slug
+    slug=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')
+    printf '%s/%s.log' "$LOG_DIR" "${slug:-tier}"
+}
+
 run_test() {
     local name="$1"
     local dir="$2"
@@ -184,8 +230,13 @@ run_test() {
         RESULTS+=("SKIP  $name")
     else
         printf "${RED}FAIL${NC}\n"
-        # Show last 10 lines of output on failure
+        local log
+        log=$(log_path_for "$name")
+        printf '%s\n' "$output" > "$log"
+        # The tail is a preview; the whole thing is in $log, because the line that says what
+        # failed is often not among the last ten.
         echo "$output" | tail -10 | sed 's/^/    /'
+        echo "    full output: $log"
         FAILED=$((FAILED + 1))
         RESULTS+=("FAIL  $name")
     fi
@@ -216,7 +267,7 @@ else
 fi
 if [[ "$DO_REBUILD" == true ]]; then
     if [[ "$DO_DLINK" == true ]]; then
-        echo "  Rebuild: yes (-j$JOBS) — editor + dlink and non-dlink web templates"
+        echo "  Rebuild: yes (-j$JOBS) — editor + dlink (both) and non-dlink web templates"
     else
         echo "  Rebuild: yes (-j$JOBS) — editor + non-dlink web template (--no-dlink)"
     fi
@@ -233,6 +284,16 @@ else
 fi
 if [[ "$NO_SAFARI" == true ]]; then
     echo "  Safari: skipped (--no-safari)"
+fi
+if [[ -n "${WEBGPU_REAL_GPU:-}" ]]; then
+    echo "  Real GPU: yes — Forward+ matrix, parity and Chrome fog run on it (--no-real-gpu to skip them)"
+else
+    echo "  Real GPU: no — the Forward+ matrix, parity and Chrome fog tiers will SKIP"
+fi
+if [[ -n "${LOCAL_CI_IN_XVFB:-}" ]]; then
+    echo "  Display: its own Xvfb ($DISPLAY) — Firefox's pixel checks SKIP here; --on-desktop runs them"
+else
+    echo "  Display: ${DISPLAY:-none}"
 fi
 echo ""
 
@@ -255,7 +316,11 @@ build_step() {
         RESULTS+=("PASS  $name")
     else
         printf "${RED}FAIL${NC}\n"
+        local log
+        log=$(log_path_for "$name")
+        printf '%s\n' "$output" > "$log"
         echo "$output" | tail -20 | sed 's/^/    /'
+        echo "    full output: $log"
         FAILED=$((FAILED + 1))
         RESULTS+=("FAIL  $name")
         echo ""
@@ -307,19 +372,25 @@ if [[ "$DO_REBUILD" == true ]]; then
         fi
     fi
 
-    # The dlink (GDExtension-support) template. Nothing downstream loads it -- the
-    # smoketest exports with the non-dlink one -- so this is a compile check, not
-    # a tested artifact. It is built first so the non-dlink template stays the
-    # last thing written before the export, and skipped by --no-dlink when the
-    # extra ~1 minute is not wanted.
+    # The dlink (GDExtension-support) templates. The nothreads one is a compile
+    # check; the threaded one is loaded by WebRTC's threads_dlink variant, the only
+    # tier that boots threads + GDExtension. Both are built first so the non-dlink
+    # template stays the last thing written before the export, and skipped by
+    # --no-dlink when the extra few minutes are not wanted.
     if [[ "$DO_DLINK" == true ]]; then
         clear_stale_module_objects "wasm32.nothreads.dlink"
         build_step "scons web template (dlink, nothreads)$DEV_MODE_NOTE" \
             scons_in_repo platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=no $DEV_MODE_FLAG -j"$JOBS"
+        clear_stale_module_objects "wasm32.dlink"
+        build_step "scons web template (dlink, threads)$DEV_MODE_NOTE" \
+            scons_in_repo platform=web target=template_release dlink_enabled=yes webgpu=yes opengl3=no threads=yes $DEV_MODE_FLAG -j"$JOBS"
     else
         printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-dlink)\n" "scons web template (dlink, nothreads)"
         SKIPPED=$((SKIPPED + 1))
         RESULTS+=("SKIP  scons web template (dlink, nothreads)")
+        printf "${BOLD}▶ %-40s${NC}${YELLOW}SKIP${NC} (--no-dlink)\n" "scons web template (dlink, threads)"
+        SKIPPED=$((SKIPPED + 1))
+        RESULTS+=("SKIP  scons web template (dlink, threads)")
     fi
 
     # The non-dlink nothreads template: the one the scene smoketest exports with,
@@ -484,6 +555,12 @@ run_test "Scene smoketest — Firefox (22 scenes)" \
 run_test "Perf guard — WebGPU calls per frame" \
     "$SCRIPT_DIR/perf_guard" \
     node run_perf_guard.mjs
+
+# Features this fork adds cost nothing when off: no pass of theirs runs in a default-settings scene (TASKS §2.66).
+# Needs the real GPU's timestamp queries; SKIPs without WEBGPU_REAL_GPU.
+run_test "Perf guard — no opt-in feature passes when off" \
+    "$SCRIPT_DIR/perf_guard" \
+    node off_passes.mjs
 
 run_test "Font rendering colors — Chrome" \
     "$SCRIPT_DIR/scene_smoketest" \

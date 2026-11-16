@@ -55,26 +55,39 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define SUBPASS\n");
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define SUBPASS\n#define USE_1D_LUT\n");
 
+		// With the camera effects compiled in, chosen only when a camera uses one (TASKS §2.66).
+		for (int i = 0; i < TONEMAP_MOBILE_MODE_CAMERA_EFFECTS; i++) {
+			tonemap_modes.push_back(tonemap_modes[i] + "#define USE_CAMERA_EFFECTS\n");
+		}
+
 		tonemap_mobile.shader.initialize(tonemap_modes);
 
 		if (!RendererCompositorRD::get_singleton()->is_xr_enabled()) {
 			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_NORMAL_MULTIVIEW, false);
+			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_NORMAL_MULTIVIEW + TONEMAP_MOBILE_MODE_CAMERA_EFFECTS, false);
 			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_1D_LUT_MULTIVIEW, false);
+			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_1D_LUT_MULTIVIEW + TONEMAP_MOBILE_MODE_CAMERA_EFFECTS, false);
 			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_MULTIVIEW, false);
+			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_MULTIVIEW + TONEMAP_MOBILE_MODE_CAMERA_EFFECTS, false);
 			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT_MULTIVIEW, false);
+			tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT_MULTIVIEW + TONEMAP_MOBILE_MODE_CAMERA_EFFECTS, false);
 		}
 
 #ifdef WEB_ENABLED
 		// WebGPU does not support input attachments / subpass reads.
 		tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS, false);
+		tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS + TONEMAP_MOBILE_MODE_CAMERA_EFFECTS, false);
 		tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT, false);
+		tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT + TONEMAP_MOBILE_MODE_CAMERA_EFFECTS, false);
 		tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_MULTIVIEW, false);
+		tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_MULTIVIEW + TONEMAP_MOBILE_MODE_CAMERA_EFFECTS, false);
 		tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT_MULTIVIEW, false);
+		tonemap_mobile.shader.set_variant_enabled(TONEMAP_MOBILE_MODE_SUBPASS_1D_LUT_MULTIVIEW + TONEMAP_MOBILE_MODE_CAMERA_EFFECTS, false);
 #endif
 
 		tonemap_mobile.shader_version = tonemap_mobile.shader.version_create();
 
-		for (int i = 0; i < TONEMAP_MODE_MAX; i++) {
+		for (int i = 0; i < TONEMAP_MOBILE_MODE_MAX; i++) {
 			if (tonemap_mobile.shader.is_variant_enabled(i)) {
 				tonemap_mobile.pipelines[i].setup(tonemap_mobile.shader.version_get_shader(tonemap_mobile.shader_version, i), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), RD::PipelineDepthStencilState(), RD::PipelineColorBlendState::create_disabled(), 0);
 			} else {
@@ -96,13 +109,22 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_1D_LUT\n");
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_GLOW_FILTER_BICUBIC\n#define USE_1D_LUT\n");
 
+		// With the camera effects compiled in, chosen only when a camera uses one (TASKS §2.66).
+		for (int i = 0; i < TONEMAP_MODE_CAMERA_EFFECTS; i++) {
+			tonemap_modes.push_back(tonemap_modes[i] + "#define USE_CAMERA_EFFECTS\n");
+		}
+
 		tonemap.shader.initialize(tonemap_modes);
 
 		if (!RendererCompositorRD::get_singleton()->is_xr_enabled()) {
 			tonemap.shader.set_variant_enabled(TONEMAP_MODE_NORMAL_MULTIVIEW, false);
+			tonemap.shader.set_variant_enabled(TONEMAP_MODE_NORMAL_MULTIVIEW + TONEMAP_MODE_CAMERA_EFFECTS, false);
 			tonemap.shader.set_variant_enabled(TONEMAP_MODE_BICUBIC_GLOW_FILTER_MULTIVIEW, false);
+			tonemap.shader.set_variant_enabled(TONEMAP_MODE_BICUBIC_GLOW_FILTER_MULTIVIEW + TONEMAP_MODE_CAMERA_EFFECTS, false);
 			tonemap.shader.set_variant_enabled(TONEMAP_MODE_1D_LUT_MULTIVIEW, false);
+			tonemap.shader.set_variant_enabled(TONEMAP_MODE_1D_LUT_MULTIVIEW + TONEMAP_MODE_CAMERA_EFFECTS, false);
 			tonemap.shader.set_variant_enabled(TONEMAP_MODE_BICUBIC_GLOW_FILTER_1D_LUT_MULTIVIEW, false);
+			tonemap.shader.set_variant_enabled(TONEMAP_MODE_BICUBIC_GLOW_FILTER_1D_LUT_MULTIVIEW + TONEMAP_MODE_CAMERA_EFFECTS, false);
 		}
 
 		tonemap.shader_version = tonemap.shader.version_create();
@@ -139,6 +161,13 @@ void CameraEffectsBufferRD::free_data() {
 
 CameraEffectsBufferRD::~CameraEffectsBufferRD() {
 	free_data();
+}
+
+bool ToneMapper::_uses_camera_effects(const TonemapSettings &p_settings) const {
+	// The lens, glare, local exposure and auto white balance come with a CameraEffects buffer of their own; manual white
+	// balance, grain and the camera LUT are push constants.
+	return (p_settings.camera_effects_buffer.is_valid() && p_settings.camera_effects_buffer != default_camera_effects_buffer) ||
+			p_settings.use_white_balance || p_settings.grain != 0 || (p_settings.camera_lut & 1u) != 0;
 }
 
 RID ToneMapper::get_camera_effects_buffer(const Ref<RenderSceneBuffersRD> &p_render_buffers, RID p_camera_attributes, const CameraEffectsContext &p_context) {
@@ -292,6 +321,9 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 		// Use USE_MULTIVIEW versions
 		mode += 4;
 	}
+	if (_uses_camera_effects(p_settings)) {
+		mode += TONEMAP_MODE_CAMERA_EFFECTS;
+	}
 
 	RID default_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 	RID default_mipmap_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
@@ -413,6 +445,9 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 		// Use USE_MULTIVIEW versions
 		mode += 4;
 	}
+	if (_uses_camera_effects(p_settings)) {
+		mode += TONEMAP_MOBILE_MODE_CAMERA_EFFECTS;
+	}
 
 	RID default_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 	RID default_mipmap_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
@@ -516,6 +551,9 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	if (p_settings.view_count > 1) {
 		// Use USE_MULTIVIEW versions
 		mode += 4;
+	}
+	if (_uses_camera_effects(p_settings)) {
+		mode += TONEMAP_MOBILE_MODE_CAMERA_EFFECTS;
 	}
 
 	RID default_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);

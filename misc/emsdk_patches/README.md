@@ -14,30 +14,34 @@ here and are re-applied on demand.
 
 ## When you need this
 
-For **`platform=web dlink_enabled=yes`** builds. Both patches are in code paths
-only a dlink build takes (`-sSIDE_MODULE`, `-sEXPORT_ALL`), and both symptoms need
-a pthread worker to fire, so:
+**On the pinned Emscripten 6.0.12, you don't: no patch is active.** The tooling is still run by every build helper
+and both web CI workflows, so `--apply` is a no-op there. Applying a patch again only takes the steps under
+"Retired patches".
 
-| configuration | without the patches |
-|---|---|
-| `dlink_enabled=yes threads=yes` | **does not boot** (0001), plus ~11 errors/load and silently dropped `Module` exports on worker threads (0002) |
-| `dlink_enabled=yes threads=no` | unaffected — neither symptom can fire, but the patches are still correct |
-| `dlink_enabled=no` (any `threads`) | unaffected, nothing to apply |
+Up to 6.0.9, `dlink_enabled=yes threads=yes` **does not boot** without `0001`. `emsdk install` overwrites the toolchain
+tree, so a patch has to be re-applied after every toolchain change, which those helpers do. A `dlink_enabled=yes` build
+tells you if a needed patch is missing.
 
-`apply.sh` is all-or-nothing, so just apply it for any dlink build.
-
-**`emsdk install` overwrites the toolchain tree, so this must be re-applied after
-every toolchain change**, not just after an emsdk version bump. Every build helper
-and both web CI workflows do it themselves — see "CI and the build helpers" below. A `dlink_enabled=yes` build
-tells you if the patches are missing — loudly when `threads=yes`, as a note
-otherwise.
-
-## Current patches
+## Retired patches
 
 | | |
 |---|---|
-| `0001-dylink-asm-consts-pthread-race.patch` | Fixes the `ASM_CONSTS` initialization race that stops a threads + GDExtension build from booting at all. Two halves — `tools/emscripten.py` and `src/lib/libdylink.js` — and **neither is valid without the other**; the patch header explains why the obvious one-line version is worse than the crash. |
-| `0002-export-all-eager-heap-views.patch` | Stops `-sEXPORT_ALL=1` re-exporting the `HEAP*` views eagerly in the postamble, where `growMemViews()` throws on a pthread worker whose `wasmMemory` hasn't arrived yet. Non-fatal but it aborts the export block, so later `Module` exports (`PThread`, `addRunDependency`, …) are silently never assigned on workers. `updateMemoryViews()` already owns those properties. **Do not "fix" this with accessors** — the patch header explains why that breaks `Module.HEAP*` outright. |
+| `0001-dylink-asm-consts-pthread-race.patch` | **Kept, not applied from 6.0.12** (`fixed_upstream_in` in its table entry). Fixes the `ASM_CONSTS` initialization race that stopped a threads + GDExtension build booting at all. Two halves — `tools/emscripten.py` and `src/lib/libdylink.js` — and **neither is valid without the other**; the patch header explains why the obvious one-line version is worse than the crash. |
+| `0002-export-all-eager-heap-views` | **Deleted**, in git history before 2026-10-31. 6.0.12 skips `HEAP*` in `exportLibrarySymbols()` itself. |
+
+**Nobody knows why 6.0.12 stopped needing `0001`.** Unpatched 6.0.9 fails every boot; unpatched 6.0.12 passes every boot,
+debug and release, with a real GDExtension running `EM_ASM` on workers, but the generated JS still has `addEmAsm` ahead of
+the `ASM_CONSTS` initializer (TASKS §4.112). So it could come back with a later Emscripten. The alarm is
+`webgpu_tests/webrtc_parity`'s `threads_dlink` variant in `local_ci.sh`: GitHub CI does not run it, so run `local_ci.sh`
+after an Emscripten bump. The symptom is a worker throwing
+`Cannot set properties of undefined (setting '<addr>')` and a page that never finishes loading.
+
+**To bring it back:** delete the `fixed_upstream_in` line from its entry in `emsdk_patch.py`, then `./apply.sh --apply`
+(a pin mismatch means a new Emscripten moved the text: re-derive the hunks). Build helpers and CI apply it from then on, and
+scons relinks on its own. Check both halves with the greps under "Gotcha that wasted a day".
+
+A patch whose fix arrives upstream takes `fixed_upstream_in` the same way, and `--status`/`--check`/`--apply` skip it from
+that version on.
 
 ## How this is built
 
@@ -164,7 +168,6 @@ minified, and for 0001 **both** halves must be present:
 J=bin/godot.web.template_debug.wasm32.dlink.js
 grep -c 'ASM_CONSTS??={}'            $J   # 0001, libdylink.js half   -> 1
 grep -o 'ASM_CONSTS=Object.assign[^{]*' $J   # 0001, emscripten.py half -> matches
-grep -c 'Module\["HEAP8"\]=(growMemViews(),HEAP8)' $J   # 0002 applied    -> 0
 ```
 
 A build carrying only 0001's `Object.assign` half still crashes; only the `??=`

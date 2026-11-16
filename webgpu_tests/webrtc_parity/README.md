@@ -90,6 +90,7 @@ present (F6, upstream) — `export.sh` does that scan separately and ignores it.
 | `exports/loopback` | `WebGPU` | nothreads, no GDExtension support — the default |
 | `exports/loopback_threads` | `WebGPU-Threads` | `thread_support=true`; needs COOP/COEP, which the runner sends |
 | `exports/loopback_dlink` | `WebGPU-Dlink` | `extensions_support=true` on the nothreads dlink template; needs the `misc/emsdk_patches/` toolchain patches |
+| `exports/loopback_threads_dlink` | `WebGPU-Threads-Dlink` | both, on `godot.web.template_release.wasm32.dlink.zip`: a side module loading on a pthread worker, which neither of the two above has; unpatched Emscripten 6.0.9 never boots it (TASKS §4.111) |
 
 `RTC_BROWSER`/`RTC_BROWSERS` is `chromium` (default), `firefox`, or `safari`.
 Safari is macOS-only and driven by AppleScript rather than Playwright, exactly

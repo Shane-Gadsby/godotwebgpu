@@ -22,7 +22,7 @@
 #
 # Env overrides:
 #   EMSDK_DIR=path       Emscripten SDK location (default: ~/emsdk)
-#   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 4.0.11)
+#   EMSDK_VERSION=x.y.z  Emscripten version to install/activate (default: 6.0.12)
 
 set -euo pipefail
 
@@ -44,7 +44,7 @@ SKIP_INSTALL=0
 SKIP_WEB=0
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 EMSDK_DIR="${EMSDK_DIR:-$HOME/emsdk}"
-EMSDK_VERSION="${EMSDK_VERSION:-4.0.11}"
+EMSDK_VERSION="${EMSDK_VERSION:-6.0.12}"
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -326,16 +326,16 @@ if [[ "$SKIP_WEB" -eq 0 ]]; then
 	# shellcheck source=/dev/null
 	source "$EMSDK_DIR/emsdk_env.sh" > /dev/null
 
-	# Half the web templates below are dlink_enabled=yes, which needs this fork's
-	# two Emscripten toolchain patches, and `emsdk install`/an emsdk update
-	# overwrites the toolchain tree -- so apply them here, after the environment is
+	# Half the web templates below are dlink_enabled=yes. This applies whatever
+	# Emscripten patch this version still needs (none on 6.0.12), and `emsdk install`/an
+	# emsdk update overwrites the toolchain tree -- so run it here, after the environment is
 	# set up, on every run. Idempotent; refuses rather than fuzzily applying if
 	# upstream has moved any of the text it pins. Only a threads=yes dlink build
 	# actually breaks without them, and these builds are threads=no, so warn and
 	# keep going rather than failing the whole run. See misc/emsdk_patches/README.md.
 	step "Applying Emscripten toolchain patches..."
 	if ./misc/emsdk_patches/apply.sh --apply; then
-		ok "Emscripten toolchain patched."
+		ok "Emscripten toolchain ready."
 	else
 		warn "Could not patch the Emscripten toolchain. These threads=no templates are fine"
 		warn "without it, but a threads=yes dlink build would not boot. See"

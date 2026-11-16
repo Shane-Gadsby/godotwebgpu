@@ -163,11 +163,11 @@ bool sc_scene_roughness_limiter_enabled() {
 }
 
 uint sc_soft_shadow_samples() {
-	return (sc_packed_0() >> 24) & 63U;
+	return (sc_packed_0() >> 20) & 63U;
 }
 
 uint sc_penumbra_shadow_samples() {
-	return (sc_packed_0() >> 30) & 63U;
+	return (sc_packed_0() >> 26) & 63U;
 }
 
 uint sc_directional_soft_shadow_samples() {
@@ -240,6 +240,12 @@ half sc_luminance_multiplier() {
 
 bool sc_material_feedback() {
 	return ((sc_packed_2() >> 1) & 1U) != 0;
+}
+
+// Some omni or spot light has a specular size or flickers per row (LightStorage::get_positional_light_extras_used()).
+// A constant, so a scene without either compiles that per-light code out: as a uniform branch it still cost Mali ~5%.
+bool sc_light_extras() {
+	return ((sc_packed_2() >> 2) & 1U) != 0;
 }
 
 layout(constant_id = 3) const bool sc_emulate_point_size = false;

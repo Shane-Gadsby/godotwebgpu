@@ -16,8 +16,9 @@
 
 ## 1. Current state
 
-**Branch `webgpu-4.8`** — `webgpu-4.7.2` merged with upstream `godotengine/godot`
-`e7cfa294a0b81bed7986be04a848cc1832a3f083` (4.8, code freeze, pinned). `webgpu-4.7.2` is the last
+**Branch `webgpu-4.8`** — `webgpu-4.7.2` merged with upstream `godotengine/godot`, last synced at
+`4d0d43b77d` (2026-11-14, §4.113; the 4.8 beta base before it was
+`7be59b463a4798834d72d6d0a2942ddd01d920ee`, §4.98). `webgpu-4.7.2` is the last
 4.7-line green state. Git lineage is **repaired** (§4.16): `merge-base` against upstream is correct,
 syncs are ordinary merges. `backup/pre-lineage-repair/*` and `backup/pre-claude-author-strip*` on
 `origin` **must not be deleted**.
@@ -291,9 +292,9 @@ Measured in a container with no GPU (headless Chromium, swiftshader): a scratch 
   template built before that change starts the game without its shaders — not a hash mismatch this time,
   the cache directory is simply absent, so it is silent apart from the slow start. The exporter warns when
   the extracted `index.js` lacks `shaderPack`; the fix is the same: rebuild the templates.
-- **`~/emsdk` must carry both patches in `misc/emsdk_patches/`** for any `dlink_enabled=yes` build
-  (`apply.sh --apply`, `--status`, `--revert`). `emsdk install` silently reverts them. Every build
-  helper and both web CI workflows apply them automatically. scons relinks when the toolchain moves
+- **`~/emsdk` needs no patch on the pinned 6.0.12** (§4.112). `0001` is retired but kept in `misc/emsdk_patches/`, and
+  `apply.sh --apply` does nothing there. After an Emscripten bump run `local_ci.sh`: WebRTC's `threads_dlink` variant is the
+  only test that boots threads + GDExtension, and GitHub CI does not run it. scons relinks when the toolchain moves
   (`get_toolchain_js_fingerprint()`), so nothing needs deleting by hand.
 - **Interleaving editor and web builds in one tree ships a template that dies in `callMain()`** with
   `TypeError: resolved is not a function` (§2.19 — diagnosed, not fixed). Workaround:
@@ -2680,7 +2681,7 @@ the shader-corpus / precompile steps; grep `.github/` for `tint`), (2) a cold ca
 (expected; only a second cold run is a problem), and (3) the `dev_mode=yes` web build of the SPIRV-Cross wrapper (the
 one part built with `-fwasm-exceptions`). Effort: one CI run's watching, ~15 min.
 
-### 2.55 Web: MultiMesh set with `multimesh_set_buffer()`, then edited per instance, loses the other instances `OPEN` *(found by work task 81)*
+### 2.55 Web: MultiMesh set with `multimesh_set_buffer()`, then edited per instance, loses the other instances `DONE 2026-10-30` → §4.100 *(found by work task 81)*
 
 Pre-existing (before task 81 too). `MeshStorage::_multimesh_make_local()` builds the CPU cache by reading the GPU buffer
 back; on the web that synchronous read has nothing yet (zeros before §4.96, empty now, and the cache starts as zeros
@@ -2689,7 +2690,7 @@ uploads zeros for every instance but the edited one with the next dirty region. 
 copy in `_multimesh_set_buffer()` (make the cache local from `p_buffer` directly) so no readback is ever needed; test
 with a scene that sets a buffer and then moves one instance, natively and in Chrome. Effort: ~2 h with the test.
 
-### 2.56 Native MP3 playback ends and loops ~50 ms before `AudioStreamMP3.get_length()` `OPEN` *(found by work task 82)*
+### 2.56 Native MP3 playback ends and loops ~50 ms before `AudioStreamMP3.get_length()` `DONE 2026-10-30` → §4.101 *(found by work task 82)*
 
 Natively (PulseAudio driver) `tone.mp3` finishes at 0.497 s against a reported length of 0.548 s, and its loop reads
 40-60 ms ahead of a loop of `get_length()`; the web's Sample rendering loops at `get_length()` and matches the model. One
@@ -2697,6 +2698,251 @@ of the two is wrong for parity, likely the MP3 decoder's padding/delay handling 
 `mp3_finish` passes natively only because its tolerance (50 ms + a frame) absorbs it; `mp3_loop_position*` fails
 natively with a real audio driver (old and new `main.gd`). Look at the MP3 stream module against an MP3 with known
 encoder padding. Effort: ~2-3 h.
+
+### 2.57 Lights: a mains/flicker frequency option (50 Hz, 60 Hz, 120 Hz) `PHASE 1 DONE 2026-10-30` → §4.102; phase 2 → §2.65 *(user request, 2026-10-30; work task 85)*
+
+The user asked for a light frequency option on the lights, e.g. 50 Hz, 60 Hz, 120 Hz. Real lights on AC mains pulse in
+brightness, and a camera shows it whenever its exposure does not average whole cycles: steady at 1/50 or 1/100 s under
+50 Hz mains, beating at 1/200 s or with a frame rate off the mains (§2.58), and horizontal bands rolling through the
+frame under a rolling shutter (`CameraAttributes.rolling_shutter_*`, §4.51). A camera-sim feature, alongside the camera
+batch's shutter, motion blur and rolling shutter.
+
+**Decided (user, hand-off `light-flicker-label`, 2026-10-30): label by mains frequency**; the lamp pulses at twice it
+(100/120 Hz), plus Custom.
+
+Lead's sketch:
+- **Light3D property** (Light group; Light2D too if cheap): `light_flicker_frequency`, an enum Off (DC, today's
+  behavior, the default) / 50 Hz / 60 Hz / 120 Hz / Custom with a Hz value, and a modulation depth (incandescent pulses
+  a little, magnetic-ballast fluorescent and cheap LED drivers a lot; maybe presets by lamp type).
+- **Open: what the number means.** Mains at 50 Hz makes most lamps pulse at 100 Hz (twice per cycle); a "120 Hz" option
+  reads like the pulse rate under 60 Hz mains. Either label by mains frequency and derive the pulse rate, or label by
+  pulse rate. Ask the user (hand-off), default: label by mains frequency, pulse at twice it, plus Custom.
+- **Phase 1, all renderers, cheap:** each frame, scale the light's energy by the waveform averaged over the camera's
+  exposure window (`CameraAttributesPhysical` shutter speed, or the shutter angle against the camera frame rate of
+  §2.58), from a time base that is the camera's frame timestamps, not the wall clock. CPU only; Forward+, Mobile,
+  Compatibility and WebGPU alike.
+- **Phase 2, Forward+:** with a rolling shutter, each row exposes at a different time, so the light's factor depends on
+  the pixel's row: pass the flicker parameters in the light data and evaluate the waveform at the row's readout time in
+  the scene shader (this is what makes the banding).
+- Test: a light under 50 Hz at 1/100 s is constant frame to frame; at 1/200 s it oscillates at the expected beat; bands
+  under a rolling shutter have the predicted count (readout time × pulse rate) and drift; Off is bit-identical to today
+  in all three renderers; WebGPU parity with native (`run_forward_plus.mjs --parity`, a new arm). Look hand-off with
+  videos (it plays out over time). Effort: phase 1 ~half a day, phase 2 ~1 day.
+
+### 2.58 Camera frame rate (24, 25, 30, 60 fps ...) `DONE 2026-10-30` → §4.103 *(user request, 2026-10-30; work task 86)*
+
+The user asked for a camera fps option, e.g. 24 fps, 25 fps, 60 fps. Today the camera batch's shutter angle is measured
+against the render frame time (§4.51: blur = motion per frame × exposure time / frame time), so 180° means 1/330 s at
+165 Hz and 1/120 s at 60 Hz; a film camera's 180° at 24 fps is 1/48 s whatever the display does.
+
+**Decided (user, hand-off `camera-fps-hold`, 2026-10-30): optional hold**: exposure always follows the camera rate;
+frame holding is a separate tick box, default off.
+
+Lead's sketch:
+- **CameraAttributes property** `frame_rate`: 0 = follow the render rate (today's behavior, the default), presets
+  23.976 / 24 / 25 / 29.97 / 30 / 48 / 50 / 59.94 / 60 / 120, or any value.
+- **Exposure from it:** shutter angle → exposure time = angle / 360 / frame_rate, so motion blur matches the camera
+  whatever the display rate; `CameraAttributesPhysical` with `motion_blur_use_shutter_speed` keeps taking the shutter
+  speed, but warn (configuration warning) when 1/shutter_speed exceeds the frame period. Rolling shutter readout is
+  likewise capped at one frame period.
+- **Open: does the image also update at that rate?** A camera at 24 fps on a 60 Hz display holds frames (24p cadence,
+  judder) while the game runs at full rate. Ask the user (hand-off); default: an option, `frame_rate_hold_frames`
+  (default off). With holding on, the viewport renders only on camera-frame boundaries and the motion blur must measure
+  motion over the camera frame interval, not the last render frame (motion vectors are per render frame today).
+- **Other work that needs it:** light flicker (§2.57) needs the camera's frame timestamps and exposure window; film
+  grain could step at the camera rate too.
+- Test: blur length = speed × angle/360/frame_rate within 1% at 60, 144 and uncapped render rates (§4.51's measurement
+  method), held frames change exactly on camera-frame boundaries, 0 is bit-identical to today in all three renderers,
+  WebGPU parity. Look hand-off with videos at 24 fps held and not held. Effort: exposure ~half a day, frame holding ~1 day.
+
+### 2.59 Shutter angle on CameraAttributesPhysical and CameraAttributesPractical `DONE 2026-10-30` → §4.104 *(user request, 2026-10-30; work task 87)*
+
+The user asked for a shutter angle on the physical and practical camera attributes. Today the angle only exists as
+`motion_blur_shutter_angle` in the base class's Motion Blur group (§4.51), measured against the render frame time, and
+`CameraAttributesPhysical` hides it whenever `motion_blur_use_shutter_speed` is on (the default), so a physical camera
+cannot be set by angle at all.
+
+**Decided (user, hand-off `physical-shutter-angle-mode`, 2026-10-30): a mode switch** on Physical, Speed or Angle;
+the chosen one drives exposure, brightness and blur, the other shows read-only.
+
+Lead's sketch:
+- **An exposure setting, not a motion blur one:** `exposure_shutter_angle` (1-360°, default 180) in the Exposure group of
+  both classes; motion blur, rolling shutter and light flicker (§2.57) all read the exposure time from it. Keep
+  `motion_blur_shutter_angle` loading (compat `_set`/`_get` onto the new property) so existing scenes keep their value.
+- **Angle → time needs a frame rate:** exposure time = angle / 360 / frame rate, the camera frame rate of §2.58 (or the
+  render rate while that is 0, today's behavior). Build after §2.58, or with it.
+- **Physical: angle and shutter speed state the same thing**, linked by the frame rate (1/speed = angle / 360 / fps).
+  Open: a mode (`exposure_shutter_mode`: Speed / Angle) where the chosen one drives and the other is shown read-only, or
+  the angle only for motion blur while the speed keeps setting brightness. Ask the user (hand-off); default: the mode.
+  Under physical light units the exposure time also sets brightness, so Angle mode must feed the same EV computation.
+- **Practical:** the angle sets the exposure time for motion blur, rolling shutter and flicker; no brightness change
+  (practical exposure stays a multiplier).
+- Test: an old scene with `motion_blur_shutter_angle` loads unchanged; 180° at 24 fps blurs as 1/48 s (§4.51's
+  measurement, within 1%); Physical in Angle mode gives the same EV as the equivalent speed; defaults bit-identical to
+  today in all three renderers; WebGPU parity. Effort: ~half a day after §2.58.
+
+### 2.60 A light's size shapes its specular highlight (soft, softbox-sized catchlights) `DONE 2026-10-30` → §4.105 *(camera-sim request, 2026-10-30; work task 88, tag camera-sim)*
+
+camera-sim (Ava's eyes): the catchlights are hard 1-2 px pure-white sparkles that hop between pixels as she moves.
+Measured by camera-sim natively on Vulkan (1080p, 200 mm close-up, 12 consecutive frames): as is, 2-13 clipped pixels a
+frame at 26 distinct positions; key spot light `light_specular` 0 → 0; WET roughness 1.0 → 0; room DirectionalLight
+specular off → no change; animation paused → a steady 6. So: the key spot light's specular on `eye_shell`/`eye_edge`.
+Causes:
+1. `modules/metahuman`'s WET shader (`editor/metahuman_shaders.h`, `eye_shell` and `eye_edge`) has roughness 0.04, a
+   near-mirror cornea and lower-lid tear line (physically right).
+2. Omni/spot lights are punctual for specular: `light_size` only becomes `A` in `light_compute()`
+   (`scene_forward_lights_inc.glsl`), which wraps `NdotL` and offsets the `dot()`s; it never widens the GGX lobe, so a key
+   light standing in for a softbox at 1.5 m reflects in a GGX(α 0.0016) cornea as a sub-pixel point that clips.
+3. camera-sim renders with FXAA only (no TAA/FSR 2), so the sub-pixel highlight aliases and pops frame to frame.
+
+Wanted: a light's specular highlight with the light's physical size, so a key light set to a softbox (~0.6 m at 1.5 m)
+gives a soft, softbox-sized catchlight on the cornea and every glossy surface, changing with size and distance (camera-sim
+teaches portrait lighting; that is the point). **Constraint:** usable without what `light_size` does today, since in
+camera-sim any `light_size` > 0 turns on PCSS, which smears the hair's shadow-proxy mesh into dark cheek blotches, and
+its `NdotL` wrap blew out the eye whites at 0.3 m. Default off / pixel-identical; Forward+ and WebGPU at least, Mobile if
+cheap.
+
+**Decided (user, hand-off `light-specular-size`, 2026-10-30): `light_specular_size`**, a new omni/spot property that
+only widens the specular highlight (no PCSS, no `NdotL` wrap), independent of `light_size`. camera-sim will not use the
+spot + area-light hybrid below; it waits for this and will set its key/fill/rim spots' specular size to the softbox
+size. The AreaLight3D notes below are kept as the evaluation that led here; §2.61 is off camera-sim's path but still a
+real bug.
+
+Lead's notes:
+- **First, try `AreaLight3D`** (upstream since 4.7, LTC, all three renderers, ran on WebGPU since the 4.7.2 sync, §4.3):
+  a rectangular light with `area_size`, whose specular already has the light's real size and shape: a softbox *is* a
+  rectangle. Check it on Ava's eyes with camera-sim's harness, and what its shadows do to the hair proxy (they soften by
+  the area size too). Not in the Forward+ matrix: add an `area_light` arm with `--parity` whatever the outcome.
+- **If area lights do not fit** (shadow behavior, cost, no spot cone), an opt-in on omni/spot that widens only the
+  specular: Karis 2013's representative point with energy normalization (sphere/disc), or roughness widening
+  α' = clamp(α + size / (2 · distance)). Either a separate `light_specular_size` property or a flag making `light_size`
+  shape the specular only. Put the choice to the user (hand-off `light-specular-size`).
+- **WET roughness interaction:** once lights have size, 0.04 is right. Until then a rougher shell (0.15) gives a soft
+  round catchlight but lights `eye_edge` as a white streak along the lower lid (visible in `compare.png`'s wet15 and
+  wet25 rows). Don't fix the eyes by raising roughness; re-check `eye_edge` once the specular has size.
+- Evidence (copied from camera-sim's scratchpad): `webgpu_notes/work/inputs/88-light-specular-size/` — `compare.png`
+  (zoomed eyes: as is / wet 0.15 / wet 0.25), `compare_taa.png` (as is / TAA only / TAA + wet 0.15), `eyes.gd` (a
+  SceneTree script: `DISPLAY=:0 <editor> --path /mnt/109313D2109313D2/godot-game-dev/camera-sim --rendering-driver vulkan
+  --fixed-fps 60 --script eyes.gd`, env `OUT=<dir> VARIANT=default|nospec|wet15|taa|taa+wet15`; saves 12 consecutive
+  320x160 eye crops of the 1920x1080 SubViewport). Never modify camera-sim; scratch copies only.
+- **AreaLight3D evaluated by camera-sim (2026-10-30, native Vulkan, 4080, editor of 07:53):** key SpotLight3D (energy
+  1.5, 55°, `light_size` 0, bias 0.01 / normal bias 0.5, `shadow_blur` 3) replaced by an AreaLight3D at the same
+  transform, 0.6 x 0.6 m, `normalize_energy` on, energy 1.3 (cheek luminance 0.591 vs 0.590).
+  - *Specular: as hoped.* A softbox-shaped catchlight (a clipped square, ~270 px at 200 mm / 2.5 m), steady: 269-283
+    clipped px a frame, against the spot's 2-13 hopping over 26 positions. The eye shell's lower edge also gets a bright,
+    aliased streak, from `eyeshell` itself (it stays with `eyeEdge` unlit).
+  - *Shadow: broken*, so it cannot replace the key: §2.61 (task 89).
+  - *Cost* (`viewport_get_measured_render_time_gpu`, median of 120 frames): spot 3.00 ms, area with shadow 6.35 ms,
+    area without shadow 2.79 ms: the area shadow alone is ~3.5 ms.
+  - *Hybrid works:* spot unchanged, plus a shadowless AreaLight3D at the key's transform with `light_cull_mask` only
+    layer 20; `eyeshell_lod0` (and `eyeEdge`) on layer 20, the camera sees it, the spot's mask drops it. Wide shot
+    pixel-identical to spot-only (mean |d| 0.00), face crop differs only in the eyes (1.58), catchlight the softbox
+    square, +0.3-0.46 ms. Unexplained: with only `eyeshell` on layer 20 (`eyeEdge` lit by neither key) the catchlight
+    faded in over 12 frames (0 → 263 px) instead of being steady; with `eyeEdge` on layer 20 too, steady from frame 1.
+  - Not tested: WebGPU, Mobile. Files: `inputs/88-light-specular-size/area/` (`eyes_hybrid.png`, `eyes_compare.png`,
+    `face_compare.png`, `full_compare.png`, `shadow_where*.png`; `area.gd`, env `OUT`, `VARIANT=spot|area`, `AREA=w,h`,
+    `ENERGY`, `NOSHADOW=1`, `DEFAULTBIAS=1`, `HYBRID=edge|noedge`).
+  - Lead's reading: the hybrid is a usable camera-sim workaround today (its call, not an engine change). For the engine
+    task, the open questions are now the fade-in, the lower-edge streak, and whether a specular-only size on omni/spot is
+    still wanted given the hybrid. The catchlight is hard-edged because the cornea is a near-mirror, which is right for a
+    softbox.
+- Test: clipped-pixel count and positions over 12 frames with camera-sim's harness (target: a stable catchlight, no
+  hopping); highlight size scales with light size / distance as the model predicts; off is bit-identical in all three
+  renderers; WebGPU parity. Look hand-off: screenshots of each variant and a video of the eyes moving. Effort: area-light
+  evaluation ~2 h; the omni/spot opt-in ~1 day (Forward+ and Mobile shaders, light data, docs).
+
+### 2.61 AreaLight3D shadows: no silhouette, a dotted acne-like darkening over everything lit `ANSWERED 2026-10-30` → §4.106: upstream behavior, not the fork *(found by camera-sim's task 88 evaluation, 2026-10-30; work task 89, tag camera-sim)*
+
+In camera-sim's studio scene (native Vulkan, Forward+, editor of 07:53 Oct 30), an AreaLight3D (0.6 x 0.6 m, normalize
+energy on, range 10) with shadows on casts **no silhouette shadow of the subject on the backdrop** (a SpotLight3D at the
+same transform casts a clear one); instead the shadow darkens everything the light reaches (backdrop, her front, shirt)
+with a dotted, acne-like texture. Same with bias 0.01 / normal bias 0.5 and with AreaLight3D's defaults 0.1 / 1.0.
+`light_size` 0, so no PCSS (`soft_shadow_size` comes from `PARAM_SIZE`, not `area_size`: `light_storage.cpp:1241`). It
+also costs ~3.5 ms of GPU on a 4080 at 1080p (6.35 ms with shadow vs 2.79 without).
+
+Evidence: `webgpu_notes/work/inputs/88-light-specular-size/area/shadow_where.png` (left: the frame; right: where the
+shadow darkens it, x6), `shadow_where_defbias.png`, `full_compare.png`; repro `area.gd` (see §2.60).
+
+Lead's assessment (2026-10-30, before anyone here ran a test): the evidence points to an engine-side area-shadow problem
+but does not prove it. Bias-independent (two settings), no silhouette at all, and a cost (3.5 ms) larger than the whole
+spot-lit frame (3.00 ms) do not look like tuning. Not yet ruled out: it was seen in one complex scene only (MetaHuman,
+the hair's shadow-proxy mesh, range 10, shadow atlas settings); never compared with stock upstream 4.8; area lights
+never run on WebGPU or Mobile here. **First step, ~10 min, no build:** the minimal scene (a box in front of a wall, one
+AreaLight3D with shadows) on the current `bin/` editor, native Vulkan, Forward+. A correct box shadow → it is camera-sim's
+scene (then bisect the scene: hair proxy, range, atlas, cull masks); the same dotted darkening → an engine bug, then the
+same scene on a stock upstream 4.8 build to place it, then Mobile and WebGPU. Screenshot each variant (look hand-off).
+
+Also unexplained, from §2.60 (task 88), worth a look while in the area-light code: the eye-only hybrid's catchlight
+faded in over 12 frames (0 → 263 px) when `eyeEdge` was lit by neither key, steady from frame 1 when it was; a ramp
+over frames suggests something accumulating (auto exposure, a temporal buffer, a lazily allocated shadow/atlas slot),
+not the LTC math. The bright aliased streak on `eyeshell`'s lower edge is more likely a 0.04-roughness mirror catching
+a large light at grazing angles under FXAA only (material + aliasing) than a light bug.
+
+Do: first decide **upstream or fork**: reproduce with a minimal scene (a box in front of a wall, one AreaLight3D) on this
+fork's editor and on a stock upstream build of the same base (4.8). If upstream: check godotengine/godot issues for area
+light shadows, file one if absent (the user decides on reporting), and fix here if it is cheap. If the fork: bisect
+through the camera batch and renderer changes. Then check WebGPU (add an `area_light` arm to the Forward+ matrix with
+`--parity`, shared with §2.60) and Mobile. Effort: ~2-4 h to place it; the fix unknown.
+
+### 2.62 Sync with upstream Godot (4.8 beta) `DONE 2026-10-30` → §4.98 *(user request via camera-sim; work task 90, tag camera-sim)*
+
+Merged upstream master `7be59b463a` (4.8 beta) on `sync/4.8-beta`, verified, merged into `webgpu-4.8`. The camera-sim
+smoke check used for it (both downloads, native and web) is in `webgpu_notes/work/inputs/90-camera-sim-smoke/`: reuse
+it on the next sync.
+
+### 2.63 Emscripten 6.0.12 for dlink+threads `DONE 2026-10-30` → §4.107 *(from §4.98)*
+
+Upstream (0fd56b4b3e) now requires Emscripten 6.0.12+ for `dlink_enabled=yes threads=yes`; this fork pins 6.0.9 with its
+two toolchain patches (`misc/emsdk_patches/`, §4.5), and `platform/web/detect.py` accepts a patched 6.0.9 in place of
+6.0.12. Find out what 6.0.12 fixes (whether it includes 0001's ASM_CONSTS race or 0002's eager heap views), then either
+move the pin, the CI `EM_VERSION` and the patch pins to 6.0.12 (dropping a patch it makes unnecessary), or record why
+6.0.9 stays. Test: the threads+dlink web template boots with a GDExtension, no `ASM_CONSTS`/heap-view errors.
+Effort: ~2-4 h.
+
+### 2.64 Forward+ matrix self-test: four NaN arms with a zero threshold `DONE 2026-10-30` → §4.99 *(pre-existing; found by §4.98)*
+
+`self_test_forward_plus.mjs` fails "no feature has a zero threshold -- dof_nan, glow_nan, ssr_nan, auto_exposure_nan"
+on `webgpu-4.8` before the sync too (the arms came with the NaN-containment work). Either give them the threshold
+their delta test needs or mark them parity-only in `features.mjs` the way the self-test expects. Effort: ~30 min.
+
+### 2.65 Light flicker phase 2: rolling-shutter bands, per pixel in Forward+ `DONE 2026-10-30` → §4.108 *(from §4.102, work task 85)*
+
+Phase 1 scales each flickering light's energy by its waveform averaged over the frame's exposure (all renderers). With
+a rolling shutter each row exposes at a different time, so the bands need the factor per pixel: the light's mains
+frequency, depth and phase in the GPU light data, and the frame time, exposure and readout in the scene data, evaluated
+at the row's readout time in light_process_omni/spot. LightData has one spare float left after §4.105 (specular_size
+took the other), so this grows the struct: check the converter smoke references and the WGSL text scans after it.
+Test: band count = readout time x pulse rate, drifting; off bit-identical. Effort: ~1 day.
+
+### 2.66 Unused features must not slow WebGPU rendering `DONE 2026-10-30` → §4.109 *(user request, 2026-10-30; work task 94)*
+
+The user asked that every feature added over the last few weeks cost nothing meaningful when it is not used. The
+features: the camera batch (grain, LUT, lens optics and the CameraEffects UBO, motion blur and rolling shutter, metering,
+auto white balance, noise reduction, sharpening, monitoring overlays and histograms, bokeh shapes, tilt-shift,
+starburst, halation, lens flare, veiling glare, longitudinal CA, local exposure, light shafts; §4.47-4.59), micro
+shadows, camera frame rate/hold and shutter angle (§4.103-4.104), light flicker (§4.102, §2.65 phase 2: per-light and
+SceneData growth, a branch per omni/spot), light_specular_size (§4.105), the MultiMesh buffer copy (§4.100), MetaHuman,
+Box3D (default physics, CPU), braced GDScript. Off means their defaults, as a project that never touches them.
+
+Method (compare like with like, Forward+ on the RTX 4080 and the Razr 60, Chrome; Firefox once):
+1. **Baseline**: `6be4634c33` (2026-10-20, before MetaHuman and the camera batch). The 4.8 beta sync
+   (§4.98) lies in between, so also build a third point: the sync merge's upstream parent alone is not runnable with the
+   fork's driver, so instead compare HEAD against HEAD with each feature group's always-on cost removed (ablation
+   builds), and use the baseline only for the overall number.
+2. **Per frame on the CPU**: `perf_guard` (WebGPU calls and bytes per frame) and `perf_guard/api_profile.mjs` /
+   `cpu_steady.mjs` on the scene smoketest exports and the benchmark scenes (`webgpu_tests/benchmark`): anything
+   new per frame with the features off (uniform uploads, CameraEffects UBO writes, metering or histogram readbacks,
+   per-viewport frame-hold lookups, light flicker factors).
+3. **Per frame on the GPU**: `perf_guard/gpu_time.mjs --uncapped --passes`: passes that run although their feature
+   is off, and the scene pass itself (shader branches, larger LightData/SceneData, specialization constants that do
+   not fold). Shader size: WGSL of the scene shader variants then and now (`wgsl_precompiled.gen.h`), and pipeline
+   count at load (startup_phases).
+4. **The ramp benchmark** (`run_ramp.sh`, README table) for the overall number: within noise of the baseline, or the
+   difference explained by the sync.
+5. Anything above noise gets fixed so the off path skips it (a specialization constant or define instead of a runtime
+   branch, a UBO write only on change, a pass not dispatched), each with before/after numbers.
+Deliverable: a table per feature group (CPU ms, GPU ms, calls, bytes, shader size; off vs baseline), fixes, and a
+perf_guard budget that would catch a new always-on cost. Effort: ~1-2 days.
 
 ## 3. Traps and lessons — read before debugging
 
@@ -3446,7 +3692,82 @@ fails the MinGW template (`expected unqualified-id before '='`); also `small`, `
 `scene/` changes, build `platform=windows use_mingw=yes target=template_release d3d12=no` and the minimal template
 (`linux_builds.yml`'s flags), and dump the extension API to check no builtin class gained an enum.
 
+
+113. **A script error in the Forward+ fixture fails every later parity arm, not just its own** (2026-10-30, the 4.8-beta
+   sync, work task 90). The native reference renders every arm in one editor process; `fp_scene.gd`'s reset assigned
+   `shadow_contact_shadows_opacity`, a property upstream removed (f2b24fac07), so each reset aborted at that line and the
+   lines after it (hiding the omni and spot lights, ...) never ran. Each arm then rendered with the previous arms' lights
+   still on: 0.3 off native on the first arms, 13-43 by the material arms, then a GPU out-of-memory that looked like a
+   driver regression. The web side reloads per arm and was right all along. Cost: a full parity run plus a file-level
+   bisect of the renderer. `run_forward_plus.mjs --parity` now fails at once when the native run logs a `SCRIPT ERROR`.
+   After an upstream sync, grep fixtures and test projects for removed properties first (`SCRIPT ERROR` in any log).
+
+114. **Upstream sync: the playbook** (2026-10-30, written after the 4.8 beta sync, §4.98; ~6 h, two of them lost to
+   things below). In order:
+   1. `git fetch upstream`, then `misc/scripts/upstream_sync_report.py --project <each project that depends on the
+      fork, e.g. camera-sim>`: predicted conflicts, files changed on both sides, driver interface changes, **script API
+      upstream removed that a fixture or project still uses** (trap 113), new `.gd`-only checks (they must become
+      `is_gdscript_path()`, `// GDB`), version status and Emscripten minimum changes, upstream fixes to files this fork
+      rewrote. Fix the removed-API uses in the same merge.
+   2. Before touching anything, record baselines with the current `bin/` editor: camera-sim's native harness on a
+      scratch copy (`webgpu_notes/work/inputs/90-camera-sim-smoke/`), and keep that editor binary for A/B (a frozen
+      copy outside `bin/`). Native-vs-native A/B is what finds a fixture or engine change fastest.
+   3. Merge in a **new worktree** (`git worktree add -b sync/<name> ../godotwebgpu-<n> webgpu-4.8`), never in the main
+      checkout: other sessions run the `bin/` editor there. Copy the test `node_modules` into the new worktree
+      (`webgpu_tests/*/node_modules`), or the first `local_ci.sh` aborts on module-not-found before any browser tier.
+   4. Resolve with a reason per conflict in the merge commit. A conflict where upstream changed code this fork rewrote
+      (web audio, the web shell) is usually upstream finishing a fix the fork already has or re-implemented: diff
+      upstream's final version against the one cherry-picked earlier (`git diff <picked> <final> -- <file>`) to see
+      what is genuinely new. A closure-compiler or `werror` change upstream makes the fork's JS/C++ additions a CI risk.
+   5. **Compile gate, once**: wgsl_cli, editor and the dlink + nothreads web templates, all `dev_mode=yes` with
+      `scons -k` (every error in one pass; GCC's `-Wshadow` catches what the web's clang does not).
+   6. **Batches, not reruns**: engine unit tests (`--test`) + braced `--quick`; then `local_ci.sh --dev-mode
+      --no-safari --bake` (Xvfb and the real GPU by default now); fix everything a batch found, rerun only what failed
+      (`run_forward_plus.mjs --feature a,b`). When parity fails everywhere at once, suspect the fixture or the
+      environment before the renderer: check the native log for `SCRIPT ERROR` and compare native-vs-native first.
+   7. A threshold that fails after a sync is not automatically a web bug: measure the native on/off delta with both
+      editors (`--fp-matrix --fp-only`). Upstream fixing an artifact the old baseline contained (0697a5b6c5's acne) is a
+      recalibration, said in the commit.
+   8. Full `build-linux.sh` in the worktree with `EDITORS_DIR`/`TPZ_COPY_DIR` pointed at missing folders (so the user's
+      editor stays), then camera-sim native and web against it with private `XDG_DATA_HOME`/`XDG_CONFIG_HOME`/
+      `XDG_CACHE_HOME` (export templates symlinked to `builds/<version>/templates`): a new `status` (dev -> beta) means a
+      new `export_templates/` folder. Threads variants of audio e2e and WebRTC need that build's threads templates.
+   9. Merge into `webgpu-4.8`, write §4.x, and only then rebuild the main checkout and install (the user's call: it
+      replaces their editor and camera-sim's), editor and templates from one commit.
+115. **On Mali a feature's shader code costs even when a branch skips it, and Forward+ fills its light buffers late**
+    (2026-10-30, §4.109). Three things that each looked done. (a) A uniform branch around light_specular_size and
+    per-row flicker gave Mobile its cost back and Forward+ nothing: only compiling the code out did (a specialization
+    constant: Dawn substitutes it before the driver sees the shader). (b) Assigning a private global only inside that
+    branch made Forward+ worse than no branch, 8.2 -> 9.1 ms, since it then carries from one light to the next; assign it
+    on both paths. (c) `base_specialization` in `RenderForwardClustered::_render_scene()` is built before
+    `_pre_opaque_render()` runs `update_light_buffers()`. A bit set there from light state is the **previously rendered
+    viewport's**, not a frame late: only camera_timing, with its many SubViewports, showed it, as lost flicker bands and
+    highlights on Forward+ alone. Set such a bit after `_pre_opaque_render()`, beside `cluster_has_area_light`. Mobile
+    fills its buffers first. And one phone round proves little: the same export moved 7.3-8.9 ms in a run; alternate
+    builds, at least 4 rounds, and read a pass that contains none of the change as the noise floor.
 ---
+
+116. **A toolchain's clang version can decide whether the engine's tests compile at all** (2026-11-16, §4.113). doctest
+    2.5.3 names its anonymous registration symbols from `__LINE__` instead of `__COUNTER__` on clang 22 and newer, and
+    every module test header lands in one translation unit through `modules_tests.gen.h`. 16 pairs of `TEST_CASE`s share
+    a line number across those headers -- 14 of them between upstream's own -- so each pair declared
+    `DOCTEST_ANON_VAR_<line>` twice and **every web template with `tests=yes` stopped compiling**, while the native GCC
+    editor built clean on the `__COUNTER__` branch and said nothing. Emscripten 6.0.12's clang is 24. Two lessons: a
+    `dev_mode=yes` editor is not a compile gate for the web templates, which is why the playbook builds both; and when
+    a thirdparty header branches on compiler version, the fork's two toolchains are years apart and will take different
+    branches. `tests/test_macros.h` pins `DOCTEST_COUNTER` now, which doctest leaves overridable for exactly this.
+
+117. **Two tiers in `local_ci.sh` fail for reasons that are not the code, and both look like regressions** (2026-11-16,
+    §4.113; cost an hour of GPU re-runs after the sync). (a) Forward+ `compositor_effect` waits for the fixture to signal
+    READY within 45 s; it has the most pipelines to compile of any arm, and on a machine also running the user's editor
+    and browsers it misses that budget. It then fails the whole tier, and on one run threw out of the harness
+    (`run_forward_plus.mjs:402`) rather than carrying on. In isolation it passes 3/3 with a byte-identical delta
+    (20.954), so the arm is deterministic and the budget is the problem. (b) The Firefox fog and font checks skip when
+    the capture `isUniform()` -- byte-exact -- because Firefox cannot composite a WebGPU canvas on Xvfb. A rare
+    partially-painted frame is *nearly* uniform, slips the guard, and is then measured as fog: `fog 100%` area, `flat
+    97.9%`, `p99 |laplacian| 80` reads exactly like severe banding. The real display gives `fog 29%`, `p99 3.07`, `flat
+    49.1%` and a clear PASS. Before believing either tier after a sync, re-run the single arm and check the fog one on a
+    real display; a flat-field capture is not a render, whatever its metrics say.
 
 ### Measurement traps (found 2026-10-15)
 
@@ -5802,6 +6123,238 @@ lead on the merged tree: CI-like Chrome (two cores) 2/2 PASS with timers up to 0
 Chrome PASS. Found: §2.56 (native MP3 ~50 ms short). `generator_no_skips` fails in a *threaded* export starved to two
 cores (before this too; CI exports only nothreads). Whether CI's frames got slower since `508f4ed3b2` was not measured
 (local lateness stayed below CI's); the next CI log carries `_late` values. §3 trap 111.
+
+### 4.98 Phase 18 — Godot 4.8 beta upstream sync (October 2026) *(work task 90, user request via camera-sim)*
+
+`webgpu-4.8` + upstream master `7be59b463a4798834d72d6d0a2942ddd01d920ee` (2026-10-29, `version.py` `status = "beta"`,
+so builds now say **4.8.beta**: templates install to `export_templates/4.8.beta/`, `build-linux.sh` writes
+`builds/4.8.beta/`): 603 commits, 1,134 files, 15 conflicts, plain merge on `sync/4.8-beta` (merge `63e989166c`).
+- **Resolutions.** Web audio (`library_godot_audio.js`, `audio_driver_web.cpp`, the position worklet): ours; upstream's
+  fb7c356152 is the final version of the PR cherry-picked as 16a69c7728 before §4.30's rewrite, whose later fixes the
+  rewrite already covers. `detect.py`: ours; upstream's 6.0.12 minimum for dlink+threads also accepts this fork's patched
+  6.0.9 (§2.63). `SCsub`: upstream's duplicate MODULARIZE dropped. `engine.js`: upstream's `@export` annotations
+  (`prefetch` gets one); `config.js`: ours, because upstream's `Object.keys(cfg)` loop needs `@export` on every key and
+  ours have none (closure would rename them and drop e.g. `preinitializedWebGPUDevice`). Forward+: upstream's
+  post-transparent resolve skip (d6b16e695b) also resolves depth for the shutter motion blur and light shafts, velocity
+  for the motion blur. `gi.cpp`: per-view slices with our uint fallback. Metering with `get_internal_texture(0)`.
+  `get_shader_spirv_version(ShaderStage)` in the WebGPU container and `shader_rd.cpp`'s dump check.
+- **Found by the tests.** Upstream's two new `.gd`-only checks in `resolve_class_inheritance` (66718544bf) broke `.gd`
+  extending `.gdb` -> `is_gdscript_path()` (273ba99397). The Forward+ fixture assigned the removed
+  `shadow_contact_shadows_opacity` (f2b24fac07): every native parity arm failed (trap 113, 498f3ff189).
+  `shadow_blur`'s threshold recalibrated after upstream's acne fix (0697a5b6c5, 654116a275). Two test harnesses launched
+  headless or bundled Chromium, broken by Chrome 156.0.8078.79 (a312bbdaad).
+- **Verified** (all from this branch's own builds): compile gate with `dev_mode=yes` (`scons -k`, every error in one
+  pass); WGSL precompile 311/311; unit tests (all but `[IP] resolve_hostname`, which fails on this machine because
+  `/etc/hosts` maps `::1` to `ip6-localhost`); braced GDScript `--quick`; `local_ci.sh` stages 0-2 (converter smoke against
+  the stored references, driver/preprocessing/spec-constant tests, web audio parity); scene smoketest Chrome and Firefox
+  (22 + baked); perf guard; font and fog; **Forward+ parity on the RTX 4080, 103/103, baked 100/100** (each pre-sync
+  baked delta unchanged); WebRTC 706/706 nothreads and threads; audio end to end both exports; resource lifecycle;
+  screenshot comparison (Chrome); `build-linux.sh` all 11 variants (27.5 min); camera-sim natively against a pre-sync
+  baseline (worst frame 0.033 mean) and on the web (Forward+, start 4.2 s, both downloads, photo 1280x720 without
+  overlays, 0 errors). Real-GPU tiers ran on Xvfb (`local_ci.sh` now does by default, and passes `WEBGPU_REAL_GPU=1`).
+
+### 4.99 Forward+ self-test accepts the NaN-containment arms (October 2026) *(work task 92, §2.64)*
+
+`self_test_forward_plus.mjs` called the four `*_nan` arms "zero threshold": they have `minDelta: 0` because their
+correct frame is unchanged, and are judged from above (`maxDelta: 0.05`, enforced by `run_forward_plus.mjs`), as the
+render-info arms already were. The exemption now covers any arm with a real upper bound (`0 < maxDelta < 1`), so a
+zero or huge bound still fails. Self-test PASS.
+
+### 4.100 Web: a MultiMesh set with multimesh_set_buffer() keeps its other instances when one is edited (October 2026) *(work task 83, §2.55)*
+
+New `RDD::API_TRAIT_BUFFER_READBACK_ASYNC` (WebGPU 1, base default 0). On such a driver MeshStorage keeps the last
+`multimesh_set_buffer()` data (copy on write: no copy unless the caller changes its array) and makes the CPU cache
+local from it, and recomputes a mesh change's AABB from it, instead of a GPU read that returns nothing yet. Native is
+unchanged. `async_readback`'s new `multimesh_set_buffer_then_edit`: 75/75 natively and in Chrome, 0 console errors.
+
+### 4.101 MP3: get_length() and seek() leave out the encoder delay and padding (October 2026) *(work task 84, §2.56)*
+
+`drmp3_get_mp3_and_pcm_frame_count()` counts the LAME/Xing delay and padding that reading skips (gapless): tone.mp3
+reported 0.549 s for 0.500 s of audio (ffmpeg's gapless decode agrees), so it ended and looped 49 ms early. Length is
+now frames minus delay minus padding, and seek() adds the delay (dr_mp3 numbers frames from the decoded start). The
+web audio fixture's Ogg/MP3 length check went from 60 ms to 2 ms; audio e2e passes natively and on the web.
+
+### 4.102 Light3D flicker on AC mains, phase 1 (October 2026) *(work task 85, §2.57; user answer `light-flicker-label`)*
+
+`Light3D.flicker_frequency` (Off / 50 Hz / 60 Hz / Custom mains, the lamp pulsing at twice it), `flicker_depth`,
+`flicker_phase`, `flicker_custom_frequency`; `RenderingServer.light_set_flicker()`. Brightness 1 + depth cos(2 pi 2f t
++ phase) averaged in closed form over the frame's exposure (`RendererLightStorage::light_flicker_factor`;
+`camera_attributes_get_exposure_time`: the physical shutter, else the angle's share of the camera or render frame),
+from the engine clock; applied in RD (Forward+, Mobile) and GLES3. `webgpu_tests/camera_timing`: steady at 1/100 s
+(spread 0.0), beating at 1/1000 s (0.47). Phase 2 (rolling-shutter bands) is §2.65. User look `look-light-flicker`: looks right.
+
+### 4.103 CameraAttributes.frame_rate and frame_rate_hold (October 2026) *(work task 86, §2.58; user answer `camera-fps-hold`)*
+
+With a camera frame rate, the shutter angle is a share of the camera's frame (180 degrees at 24 fps is 1/48 s on any
+display), and an exposure time and the rolling-shutter readout are capped at one camera frame. `frame_rate_hold`
+(default off, not in the editor) makes RendererViewport draw the camera's viewport only when a camera frame is due and
+keep the image between; a skipped frame records the camera (`RenderingMethod::camera_record_held_frame`, camera setup
+moved into `RendererSceneCull::_camera_data_for_viewport()`), so motion vectors stay one frame long and blur stays
+velocity x exposure. camera_timing: a 24 fps hold changes its image 24 times in 60 frames, a free camera 59 (9/9 camera_timing checks on Forward+, Mobile, Compatibility).
+User look `look-frame-rate-hold`: looks right.
+
+### 4.104 The shutter angle is an exposure setting; Physical Speed/Angle mode (October 2026) *(work task 87, §2.59; user answer `physical-shutter-angle-mode`)*
+
+`CameraAttributes.exposure_shutter_angle` (`motion_blur_shutter_angle` deprecated: still loads, hidden, not saved).
+`CameraAttributesPhysical.exposure_shutter_mode`: Speed as before; Angle exposes for angle / 360 / frame_rate (24 fps
+when 0), which sets the brightness under physical light units and the blur, and shows the speed it amounts to
+read-only. camera_timing: 180 degrees at 24 fps is 1/48 s, at 50 fps 1/100 s; old scenes load.
+
+### 4.105 Light3D.light_specular_size (October 2026) *(work task 88, §2.60; user answer `light-specular-size`; camera-sim)*
+
+Omni and spot lights: the GGX alpha of their specular gets + size / (2 x distance) (roughness widening), through a
+shader-private `light_specular_alpha_widen` set around light_compute() in light_process_omni/spot; LightData's spare
+`pad[0]` is now `specular_size`. A softbox-sized key light gives a softbox-sized, unclipped catchlight on a
+near-mirror, shrinking with distance; no PCSS, no NdotL wrap, diffuse unchanged; 0 is bit-identical (parity 103/103).
+Forward+ and Mobile, not Compatibility. camera_timing: a 0.04-roughness sphere's highlight goes from a clipped 4 px point
+to a 47 px catchlight peaking at 0.79 with a 0.6 m size (Mobile alike). User look `look-light-specular-size`: looks right.
+
+### 4.106 AreaLight3D shadows are upstream's behavior (October 2026) *(work task 89, §2.61)*
+
+Minimal scene (a box before a wall, one shadowed light, native Vulkan): the area light's shadow is present but a very
+soft, dotted blob with no umbra, where a spot casts a crisp one. The fork's only change to `light_process_area()` is
+reading the shadow atlas through `textureLod_linear_depth()`; swapping upstream's two reads back gives the same frame
+(mean 0.0002, sampling noise). So it is upstream Godot's own area shadow (PCSS-style sampling noise meant for TAA), not
+the fork; no open upstream issue describes it (#119183, #120162, #120412, #120742 are closed). Off camera-sim's path
+since §4.105. Not reported upstream (user answer `area-light-shadow-upstream`, 2026-10-30: don't report).
+### 4.107 Emscripten 6.0.12, the pin (October 2026) *(work task 91, §2.63)*
+
+Upstream Godot (0fd56b4b3e, PR #124321: "regression fixed upstream in 6.0.12") needs 6.0.12 for dlink+threads. What
+6.0.12 changed: `exportLibrarySymbols()` skips `HEAP*` (`&& !ident.startsWith('HEAP')`), which is this fork's patch
+0002 (its pinned line is gone there). 0001 (the dylink+pthread ASM_CONSTS race) is not in 6.0.12: its upstream text
+is unchanged and it applies cleanly. The patch table gains `fixed_upstream_in` (0002: 6.0.12), honored by
+--status/--check/--apply, so 6.0.12 is complete with 0001 and 6.0.9 still needs both. The pin moved to 6.0.12 in
+build-linux.sh, build-windows.ps1, build-macos.sh (which still said 4.0.11) and both web CI workflows.
+Verified: a `dlink_enabled=yes threads=yes` template built with a scratch 6.0.12 plus 0001 (both halves in the linked
+JS), the WebRTC fixture exported threaded with GDExtension support: all 9 fixtures pass in Chrome (86 assertions), no
+`growMemViews` errors. `~/emsdk` moves to 6.0.12 on the next build without `--skip-install`.
+
+### 4.108 Light flicker under a rolling shutter: per-row bands (October 2026) *(work task 93, §2.65)*
+
+With a rolling shutter on (`camera_attributes_get_rolling_shutter_readout()` > 0), omni and spot lights that flicker
+are evaluated per pixel at their row's readout time (`light_flicker_row()` in scene_forward_lights_inc.glsl, the CPU's
+closed form; row time = frame time + readout x (y/H - 0.5), as the rolling shutter effect), and the CPU leaves the frame
+average out of their energy; area and directional lights keep the CPU average. LightData grows one 16-byte row (pulse
+frequency, depth, phase) and SceneData gains `flicker_timing` (time mod 100 s, a whole number of pulses for mains given
+to 0.01 Hz, exposure, readout). Forward+ and Mobile; Compatibility keeps the frame average. camera_timing 11/11 on all
+three renderers (bands: per-row range 0.83 over a 20 ms readout of a 100 Hz pulse; 0.0096 without a rolling shutter);
+parity 103/103, converter smoke and its references unchanged, Chrome smoketest 23/23. User look
+`look-flicker-rolling-bands`: looks right.
+
+### 4.109 Unused features cost nothing measurable (October 2026) *(work task 94, §2.66)*
+
+Compared, with every feature at its defaults: `6be4634c33` (2026-10-20, before MetaHuman and the camera batch),
+`0354ea15e7` (SPIRV-Cross, before the features: "before" below), HEAD, and ablation builds of HEAD ("code removed":
+the feature's shader code deleted). Two costs were real, both on Mali only, both now gone:
+
+| Razr 60 (Mali-G615), ms/frame | before | HEAD | fixed | code removed |
+|---|---|---|---|---|
+| Tonemap passes, benchmark_postfx | 1.22 | 2.25 | 1.30 | |
+| Tonemap passes, demo_3d_particles | 0.77 | 0.98 | 0.75 | |
+| Particles colour pass (mean of 4) | 7.98 | 8.19 | 7.90 | 7.67 |
+| Postfx main pass (mean of 3) | 3.17 | 3.38 | 3.11 | 3.10 |
+
+- **Tonemap** (`USE_CAMERA_EFFECTS`): every mode has a twin with the camera effects; `ToneMapper::_uses_camera_effects()`
+  picks it when a camera effects buffer, white balance, grain or a camera LUT is in use. 12 new WGSL modules in the
+  stored references (323), the 311 existing ones unchanged.
+- **Scene shaders** (`light_extras`, Forward+ `packed_1` bit 8, Mobile `packed_2` bit 2): light_specular_size and
+  per-row flicker fold away unless `LightStorage::get_positional_light_extras_used()`. A scene that starts using either
+  compiles new pipelines (ubershader meanwhile), as `cluster_has_area_light` does. Trap 115 has why it is not a branch.
+- **Micro shadows**: an ablation changed nothing measurable, so the uniform branch stays.
+- **Not ours**: benchmark_postfx's six reflection probes cost +0.5 ms (6.82 -> 7.35) with all of the above removed. That
+  is upstream's 73400efabc: Mobile read the positional soft shadow sample counts from the wrong bits and took 0 penumbra
+  samples, so this is correct work, not a regression.
+- **RTX 4080**: nothing measurable (particles 0.42 -> 0.43 ms, lights 0.61 -> 0.60, frame_time 1.28 -> 1.28). perf_guard
+  against the baseline: calls identical, writes +0.2-2 KB per frame. No opt-in feature's pass runs in a default-settings
+  scene, and `perf_guard/off_passes.mjs` (local_ci) now fails if one does.
+- **Converter**: no reason to go back to Tint (user question). `pre-SPIR-V-Cross` vs SPIRV-Cross on the 4080: -2% to +21%,
+  at most 0.07 ms; on the Razr 60: -8% to +6%, mixed.
+
+Not done from §2.66's method: the ramp benchmark, Firefox, and per-feature shader sizes. MetaHuman, Box3D and braced
+GDScript got no ablation of their own: only the scene-level comparison covers them. Regressions on the final commit: camera_timing 11/11 on Forward+ and
+Mobile, converter smoke, Chrome smoketest 23/23, off_passes, perf_guard, parity 103/103.
+
+### 4.110 Emscripten patch 0002 retired (October 2026) *(work task 95, from §4.107)*
+
+Emscripten 6.0.12 has 0002's fix (`exportLibrarySymbols()` skips `HEAP*`), so with `~/emsdk` moved to the pin the patch
+and its table entry are gone, and `platform/web/detect.py` now refuses dlink+threads below 6.0.12 outright, as upstream
+does, instead of accepting an older patched toolchain. 0001 stayed because the code it changes is the same in 6.0.12,
+which §4.111 then showed is not evidence that it is needed.
+`fixed_upstream_in` stays in `emsdk_patch.py` for the next patch that reaches upstream before it can be dropped.
+Verified on `~/emsdk` 6.0.12 with 0001 alone: `build-linux.sh` clean (24 min, ccache), both halves of 0001 in the linked
+JS, Chrome smoketest 23/23, WebRTC 353 assertions across nothreads, threads and dlink, and threads + GDExtension 86
+assertions. No tier loaded that last combination at the time; §4.111 adds one.
+
+### 4.111 WebRTC `threads_dlink` variant, and 0001 is not needed on 6.0.12 here (October 2026) *(work task 96)*
+
+webrtc_parity's `threads` export uses the non-dlink template and its `dlink` the nothreads one, and local_ci only
+compiled the threaded dlink template, so nothing booted a side module on pthread workers. New: preset
+`WebGPU-Threads-Dlink`, `exports/loopback_threads_dlink`, `RTC_VARIANTS=threads_dlink`, a local_ci build of
+`godot.web.template_release.wasm32.dlink.zip` (behind `--no-dlink`). Not in GitHub CI, which builds only the nothreads
+dlink template. `run_tests.mjs` also fails on any `[pageerror]` now: before, an uncaught worker error passed if the
+fixture still reached END. All variants with that check: 484 assertions, 0 failed.
+
+Proving the variant can fail turned up the finding. Real threads + dlink export, loopback fixture, no toolchain patches:
+
+| Toolchain | Boots | Page errors |
+|---|---|---|
+| 6.0.9 | 0 of 5 | `Cannot set properties of undefined`, 24 per boot; `reading 'buffer'`, 16 |
+| 6.0.12 | 5 of 5, and all 9 fixtures (95 assertions) | none |
+
+So the tier does catch the crash, and on 6.0.12 this export does not need 0001. The cause is **not known**: the linked JS
+has the same order in both versions (`addEmAsm`'s `ASM_CONSTS[start]=` ~860 KB ahead of the initializer), so the hazard
+is still in the text and something else changed what runs first on a worker. This fixture on a release template, with no GDExtension actually loaded (its extension is excluded by
+`exclude_tags`), was not enough to retire the patch; §4.112 finished the check. The earlier "0001 is still needed" (§4.107, §4.110) rested on its pinned text being unchanged, which says
+nothing about whether the bug still fires: test the behavior.
+
+### 4.112 Emscripten patch 0001 retired, and kept (October 2026) *(work task 97, user decision; from §4.111)*
+
+The check §4.111 left open, on an unpatched 6.0.12: a threads + dlink export of a threaded 3D project (`--render-thread
+separate`, four GDScript `Thread`s) with a real GDExtension, a C side module whose own `EM_ASM` bodies go through
+`addEmAsm()` on every worker that loads it. It ran `EM_ASM` on the main thread, on a pthread at startup and on one spawned
+3 s later. **10 of 10 boots passed, 5 debug and 5 release**: Chrome on the 4080, every `EM_ASM` result correct, no page
+error, box on screen. The fixture was a scratch project; the alarm that stays is webrtc_parity's `threads_dlink`.
+
+So nothing is active on 6.0.12, and `~/emsdk` is unpatched. 0001 stays in `misc/emsdk_patches/` with
+`fixed_upstream_in: "6.0.12"`, the same switch 0002 used: `apply.sh` and the build helpers' calls to it stay, and do
+nothing on 6.0.12. Deleting that one line brings it back (`misc/emsdk_patches/README.md`, "Retired patches"). The patch's
+own rule said delete it and `apply.sh`; the user asked to keep it, because the cause of the fix is unknown and the
+hazard is still in the generated JS, so a later Emscripten could bring the crash back. Not tested: Firefox, Safari.
+
+### 4.113 Phase 19 — upstream sync, Godot master 4d0d43b77d (November 2026) *(user request)*
+
+`webgpu-4.8` + upstream master `4d0d43b77d` (2026-11-14): 273 commits since §4.98's base `7be59b463a`, 448 files, 4
+conflicts, plain merge on `sync/2026-11-16` (merge `530187d93c`). `version.py` stays `status = "beta"`, so no template
+folder moves this time. `misc/scripts/upstream_sync_report.py` predicted all four conflicts and the one driver-interface
+change, and found nothing else: no new `.gd`-only checks in `modules/gdscript`, and the two script APIs upstream unbound
+(`_reparent_nodes_to_paths_with_name`, `_restore_nodes_transform_and_name`) are used by neither the fixtures nor
+camera-sim, which is trap 113's whole failure mode.
+- **Resolutions.** `.pre-commit-config.yaml`: both sides (upstream's `scons==4.11.1` mypy pin, the fork's
+  `webgpu_notes/work/` exclude). `de.po`: upstream's, the fork's side being only an older upstream Weblate sync.
+  `library_godot_audio.js`: ours — upstream's one commit in range (4947adf2af) shares a stream's `AudioBuffer` across
+  playbacks instead of copying per play, which §4.30's rewrite already does (`createStream()` builds one buffer,
+  `createSource()` assigns `stream.buffer`); taking upstream's would have dropped the whole rewrite. `thirdparty/README.md`:
+  both, **with a renumber** — upstream's new `0004-remove-unused-srv-binding` and `0005-missing-force16-includes` took the
+  numbers the fork's own FSR 2 patches held, so `webgpu-no-image-atomics` is now `0006` and
+  `godot-reactive-mask-from-alpha` `0007`. Upstream also deleted `ffx_fsr2_force16_{begin,end}.h`; nothing here referenced them.
+- **Two fixes the sync forced.** `RenderingDeviceDriver` gained a pure virtual, `texture_get_nearest_supported_samples()`:
+  the WebGPU driver answers it from `_clamp_sample_count()`, already its single policy (1 or 4, 2x clamping up rather than
+  off), so shared code that now asks before `texture_create()` gets the count that call would use. And upstream's doctest
+  2.5.3 (b2e7d293d4) takes `__LINE__` over `__COUNTER__` for its anonymous registration symbols on clang 22+: with every
+  module test header in one translation unit through `modules_tests.gen.h`, the 16 pairs of `TEST_CASE`s that share a line
+  number each declare `DOCTEST_ANON_VAR_<line>` twice, so **every web template with `tests=yes` failed to compile** while
+  the GCC editor stayed green. `tests/test_macros.h` pins `DOCTEST_COUNTER` to `__COUNTER__` (trap 116).
+- **Verified**, all from this branch's own builds: compile gate `dev_mode=yes` (wgsl_cli, editor, both nothreads web
+  templates); WGSL precompile 323/323; converter smoke against the stored references — interfaces 323/323 identical, text
+  scans 646/646, Chrome 323 modules 0 invalid on the 4080, so upstream's six engine `.glsl` changes moved no binding;
+  shader corpus 14/14; driver 379; preprocessing 291; unit tests 1466/1467 (`[IP] resolve_hostname` again, this machine's
+  `/etc/hosts`, as in §4.98); `local_ci.sh --dev-mode --no-safari` 33 passed, 2 failed, 2 skipped, **both failures
+  environment, each re-verified** — Forward+ `compositor_effect` timed out waiting for READY under load but passes 3/3 in
+  isolation with an identical delta (20.954) and the full matrix passed 100/100 on a quieter run, and the Firefox fog
+  check failed on an Xvfb non-render that slipped its byte-exact uniform guard, where the real display gives a clear PASS
+  (p99 |laplacian| 3.07 against a limit of 10, flat 49.1% against 70%). Forward+ `--parity` against native Vulkan passed.
+- **Not run**: playbook step 8 — a full `build-linux.sh` in the worktree and camera-sim native and web against it. The
+  sync went to `webgpu-4.8` and on to `main` on the user's instruction without it.
 
 ## 5. References — retired docs
 

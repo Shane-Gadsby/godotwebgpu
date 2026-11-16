@@ -156,10 +156,14 @@ if (!native.done) {
 }
 
 const { chromium } = await import('playwright');
+// Headed system Chrome with the Vulkan flags, as every real-GPU tier launches it (TASKS §3 trap 43): headless Chrome
+// lost its WebGPU adapter entirely with Chrome 156.0.8078.79 ("WebGPU adapter not found", 2026-10-30). Run under
+// xvfb-run (local_ci.sh does) to keep the window off the desktop.
 const browser = await chromium.launch({
-	headless: true,
+	headless: !!process.env.CI,
 	executablePath: existsSync(chromePath) ? chromePath : undefined,
-	args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
+	ignoreDefaultArgs: ['--enable-unsafe-swiftshader'],
+	args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan', '--ignore-gpu-blocklist'],
 });
 let failed = 0;
 let ran = 0;

@@ -185,6 +185,8 @@ private:
 		float IBL_exposure_normalization; // Adjusts for baked exposure.
 		uint32_t camera_visible_layers;
 		float pass_alpha_multiplier;
+
+		float flicker_timing[4]; // Time (mod 100 s), exposure, rolling shutter readout, unused (light flicker per row).
 	};
 
 	struct UBODATA {

@@ -472,10 +472,19 @@ bool CameraAttributes::is_motion_blur_enabled() const {
 	return motion_blur_enabled;
 }
 
-void CameraAttributes::set_motion_blur_shutter_angle(float p_angle) {
+void CameraAttributes::set_shutter_angle(float p_angle) {
 	motion_blur_shutter_angle = p_angle;
 	_update_motion_blur();
+	_update_exposure(); // CameraAttributesPhysical's Angle mode exposes for it.
 	emit_changed();
+}
+
+float CameraAttributes::get_shutter_angle() const {
+	return motion_blur_shutter_angle;
+}
+
+void CameraAttributes::set_motion_blur_shutter_angle(float p_angle) {
+	set_shutter_angle(p_angle);
 }
 
 float CameraAttributes::get_motion_blur_shutter_angle() const {
@@ -552,6 +561,33 @@ void CameraAttributes::set_rolling_shutter_readout_time(float p_time) {
 
 float CameraAttributes::get_rolling_shutter_readout_time() const {
 	return rolling_shutter_readout_time;
+}
+
+void CameraAttributes::set_frame_rate(float p_frame_rate) {
+	frame_rate = MAX(p_frame_rate, 0.0f);
+	_update_frame_rate();
+	_update_exposure(); // CameraAttributesPhysical's Angle mode exposes for a share of this frame.
+	notify_property_list_changed();
+	emit_changed();
+}
+
+float CameraAttributes::get_frame_rate() const {
+	return frame_rate;
+}
+
+void CameraAttributes::set_frame_rate_hold(bool p_hold) {
+	frame_rate_hold = p_hold;
+	_update_frame_rate();
+	emit_changed();
+}
+
+bool CameraAttributes::is_frame_rate_hold() const {
+	return frame_rate_hold;
+}
+
+void CameraAttributes::_update_frame_rate() {
+	// Holding frames is a playback effect, so the editor's own viewports never hold (as motion blur is opt-in there).
+	RS::get_singleton()->camera_attributes_set_frame_rate(camera_attributes, frame_rate, frame_rate_hold && !Engine::get_singleton()->is_editor_hint());
 }
 
 void CameraAttributes::_update_rolling_shutter() {
@@ -935,6 +971,9 @@ void CameraAttributes::_validate_property(PropertyInfo &p_property) const {
 		return;
 	}
 
+	if (p_property.name == "frame_rate_hold" && frame_rate <= 0.0f) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+	}
 	if (p_property.name.begins_with("rolling_shutter_") && p_property.name != "rolling_shutter_enabled" && !rolling_shutter_enabled) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 		return;
@@ -1046,6 +1085,8 @@ void CameraAttributes::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_motion_blur_enabled", "enabled"), &CameraAttributes::set_motion_blur_enabled);
 	ClassDB::bind_method(D_METHOD("is_motion_blur_enabled"), &CameraAttributes::is_motion_blur_enabled);
+	ClassDB::bind_method(D_METHOD("set_shutter_angle", "angle"), &CameraAttributes::set_shutter_angle);
+	ClassDB::bind_method(D_METHOD("get_shutter_angle"), &CameraAttributes::get_shutter_angle);
 	ClassDB::bind_method(D_METHOD("set_motion_blur_shutter_angle", "angle"), &CameraAttributes::set_motion_blur_shutter_angle);
 	ClassDB::bind_method(D_METHOD("get_motion_blur_shutter_angle"), &CameraAttributes::get_motion_blur_shutter_angle);
 	ClassDB::bind_method(D_METHOD("set_motion_blur_strength", "strength"), &CameraAttributes::set_motion_blur_strength);
@@ -1059,12 +1100,17 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_rolling_shutter_readout_time"), &CameraAttributes::get_rolling_shutter_readout_time);
 	ClassDB::bind_method(D_METHOD("set_motion_blur_visible_in_editor", "visible"), &CameraAttributes::set_motion_blur_visible_in_editor);
 	ClassDB::bind_method(D_METHOD("is_motion_blur_visible_in_editor"), &CameraAttributes::is_motion_blur_visible_in_editor);
+	ClassDB::bind_method(D_METHOD("set_frame_rate", "frame_rate"), &CameraAttributes::set_frame_rate);
+	ClassDB::bind_method(D_METHOD("get_frame_rate"), &CameraAttributes::get_frame_rate);
+	ClassDB::bind_method(D_METHOD("set_frame_rate_hold", "hold"), &CameraAttributes::set_frame_rate_hold);
+	ClassDB::bind_method(D_METHOD("is_frame_rate_hold"), &CameraAttributes::is_frame_rate_hold);
 	ClassDB::bind_method(D_METHOD("set_rolling_shutter_visible_in_editor", "visible"), &CameraAttributes::set_rolling_shutter_visible_in_editor);
 	ClassDB::bind_method(D_METHOD("is_rolling_shutter_visible_in_editor"), &CameraAttributes::is_rolling_shutter_visible_in_editor);
 
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_sensitivity", PROPERTY_HINT_RANGE, "0.1,32000.0,0.1,suffix:ISO"), "set_exposure_sensitivity", "get_exposure_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_multiplier", PROPERTY_HINT_RANGE, "0.0,8.0,0.001,or_greater"), "set_exposure_multiplier", "get_exposure_multiplier");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_shutter_angle", PROPERTY_HINT_RANGE, "1,360,0.1,degrees"), "set_shutter_angle", "get_shutter_angle");
 
 	ADD_GROUP("Auto Exposure", "auto_exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_exposure_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_auto_exposure_enabled", "is_auto_exposure_enabled");
@@ -1238,7 +1284,8 @@ void CameraAttributes::_bind_methods() {
 
 	ADD_GROUP("Motion Blur", "motion_blur_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "motion_blur_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_motion_blur_enabled", "is_motion_blur_enabled");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_shutter_angle", PROPERTY_HINT_RANGE, "1,360,0.1,degrees"), "set_motion_blur_shutter_angle", "get_motion_blur_shutter_angle");
+	// Moved to exposure_shutter_angle; still read from scenes saved before (not shown, not saved).
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_shutter_angle", PROPERTY_HINT_RANGE, "1,360,0.1,degrees", PROPERTY_USAGE_NONE), "set_motion_blur_shutter_angle", "get_motion_blur_shutter_angle");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_strength", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater"), "set_motion_blur_strength", "get_motion_blur_strength");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "motion_blur_max_length", PROPERTY_HINT_RANGE, "0.001,0.25,0.001,or_greater"), "set_motion_blur_max_length", "get_motion_blur_max_length");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "motion_blur_visible_in_editor"), "set_motion_blur_visible_in_editor", "is_motion_blur_visible_in_editor");
@@ -1247,6 +1294,11 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rolling_shutter_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_rolling_shutter_enabled", "is_rolling_shutter_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "rolling_shutter_readout_time", PROPERTY_HINT_RANGE, "0,50,0.1,or_greater,suffix:ms"), "set_rolling_shutter_readout_time", "get_rolling_shutter_readout_time");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rolling_shutter_visible_in_editor"), "set_rolling_shutter_visible_in_editor", "is_rolling_shutter_visible_in_editor");
+
+	ADD_GROUP("Frame Rate", "frame_rate_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "frame_rate", PROPERTY_HINT_RANGE, "0,240,0.001,or_greater,suffix:fps"), "set_frame_rate", "get_frame_rate");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "frame_rate_hold"), "set_frame_rate_hold", "is_frame_rate_hold");
+	ADD_GROUP("", "");
 
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM);
 	BIND_ENUM_CONSTANT(GRAIN_TYPE_FILM_MONOCHROME);
@@ -1466,6 +1518,27 @@ float CameraAttributesPhysical::get_aperture() const {
 	return exposure_aperture;
 }
 
+void CameraAttributesPhysical::set_shutter_mode(ShutterMode p_mode) {
+	exposure_shutter_mode = p_mode;
+	_update_exposure();
+	_update_motion_blur();
+	notify_property_list_changed();
+	emit_changed();
+}
+
+CameraAttributesPhysical::ShutterMode CameraAttributesPhysical::get_shutter_mode() const {
+	return exposure_shutter_mode;
+}
+
+float CameraAttributesPhysical::_get_exposure_time() const {
+	if (exposure_shutter_mode == SHUTTER_MODE_ANGLE) {
+		// An angle is a share of the camera's frame; without a frame rate set, that of 24 fps film.
+		const float fps = frame_rate > 0.0f ? frame_rate : 24.0f;
+		return CLAMP(motion_blur_shutter_angle, 1.0f, 360.0f) / 360.0f / fps;
+	}
+	return exposure_shutter_speed > 0.0f ? 1.0f / exposure_shutter_speed : 0.0f;
+}
+
 void CameraAttributesPhysical::set_shutter_speed(float p_shutter_speed) {
 	exposure_shutter_speed = p_shutter_speed;
 	_update_exposure();
@@ -1473,6 +1546,11 @@ void CameraAttributesPhysical::set_shutter_speed(float p_shutter_speed) {
 }
 
 float CameraAttributesPhysical::get_shutter_speed() const {
+	// In Angle mode, the speed the angle exposes for (shown read-only).
+	if (exposure_shutter_mode == SHUTTER_MODE_ANGLE) {
+		const float t = _get_exposure_time();
+		return t > 0.0f ? 1.0f / t : exposure_shutter_speed;
+	}
 	return exposure_shutter_speed;
 }
 
@@ -1488,6 +1566,10 @@ bool CameraAttributesPhysical::is_motion_blur_using_shutter_speed() const {
 }
 
 float CameraAttributesPhysical::_get_motion_blur_shutter_time() const {
+	// Angle mode: the exposure time the angle sets, which also sets the brightness.
+	if (exposure_shutter_mode == SHUTTER_MODE_ANGLE) {
+		return _get_exposure_time();
+	}
 	return motion_blur_use_shutter_speed && exposure_shutter_speed > 0.0f ? 1.0f / exposure_shutter_speed : 0.0f;
 }
 
@@ -1634,7 +1716,8 @@ void CameraAttributesPhysical::_update_frustum() {
 }
 
 float CameraAttributesPhysical::calculate_exposure_normalization() const {
-	float e = (exposure_aperture * exposure_aperture) * exposure_shutter_speed * (100.0 / exposure_sensitivity);
+	const float exposure_time = _get_exposure_time();
+	float e = (exposure_aperture * exposure_aperture) * (exposure_time > 0.0f ? 1.0f / exposure_time : exposure_shutter_speed) * (100.0 / exposure_sensitivity);
 	// An ND filter and the lens's transmission loss (the gap between its T-stop and f-stop) both take light away
 	// before the sensor, one stop halving it. Skipped at 0 so the default stays bit-identical.
 	const float light_loss_stops = exposure_nd_filter + lens_transmission_loss;
@@ -1849,11 +1932,18 @@ void CameraAttributesPhysical::_validate_property(PropertyInfo &property) const 
 		return;
 	}
 	// The shutter speed sets the motion blur's exposure time too, so it shows whenever that uses it.
-	const bool shutter_speed_blurs = motion_blur_enabled && motion_blur_use_shutter_speed;
+	const bool angle_mode = exposure_shutter_mode == SHUTTER_MODE_ANGLE;
+	if (angle_mode && property.name == "exposure_shutter_speed") {
+		property.usage |= PROPERTY_USAGE_READ_ONLY;
+	}
+	if (angle_mode && property.name == "motion_blur_use_shutter_speed") {
+		property.usage = PROPERTY_USAGE_NO_EDITOR;
+	}
+	const bool shutter_speed_blurs = motion_blur_enabled && motion_blur_use_shutter_speed && !angle_mode;
 	if (!GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") && (property.name == "exposure_aperture" || (property.name == "exposure_shutter_speed" && !shutter_speed_blurs) || property.name == "exposure_nd_filter")) {
 		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 	}
-	if (property.name == "motion_blur_shutter_angle" && motion_blur_use_shutter_speed) {
+	if (property.name == "exposure_shutter_angle" && motion_blur_use_shutter_speed && !angle_mode) {
 		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL;
 	}
 	// The physical vignetting has no free falloff, and automatic distortion has no coefficients to set.
@@ -1880,6 +1970,8 @@ void CameraAttributesPhysical::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_aperture"), &CameraAttributesPhysical::get_aperture);
 	ClassDB::bind_method(D_METHOD("set_shutter_speed", "shutter_speed"), &CameraAttributesPhysical::set_shutter_speed);
 	ClassDB::bind_method(D_METHOD("get_shutter_speed"), &CameraAttributesPhysical::get_shutter_speed);
+	ClassDB::bind_method(D_METHOD("set_shutter_mode", "mode"), &CameraAttributesPhysical::set_shutter_mode);
+	ClassDB::bind_method(D_METHOD("get_shutter_mode"), &CameraAttributesPhysical::get_shutter_mode);
 	ClassDB::bind_method(D_METHOD("set_motion_blur_use_shutter_speed", "enable"), &CameraAttributesPhysical::set_motion_blur_use_shutter_speed);
 	ClassDB::bind_method(D_METHOD("is_motion_blur_using_shutter_speed"), &CameraAttributesPhysical::is_motion_blur_using_shutter_speed);
 
@@ -1966,6 +2058,7 @@ void CameraAttributesPhysical::_bind_methods() {
 
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_aperture", PROPERTY_HINT_RANGE, "0.5,64.0,0.01,exp,suffix:f-stop"), "set_aperture", "get_aperture");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "exposure_shutter_mode", PROPERTY_HINT_ENUM, "Speed,Angle"), "set_shutter_mode", "get_shutter_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_shutter_speed", PROPERTY_HINT_RANGE, "0.1,8000.0,0.001,suffix:1/s"), "set_shutter_speed", "get_shutter_speed");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_nd_filter", PROPERTY_HINT_RANGE, "0,10,0.1,or_greater,suffix:stops"), "set_exposure_nd_filter", "get_exposure_nd_filter");
 
@@ -1984,6 +2077,9 @@ void CameraAttributesPhysical::_bind_methods() {
 	BIND_ENUM_CONSTANT(SENSOR_FORMAT_ONE_INCH);
 	BIND_ENUM_CONSTANT(SENSOR_FORMAT_CUSTOM);
 	BIND_ENUM_CONSTANT(SENSOR_FORMAT_MAX);
+
+	BIND_ENUM_CONSTANT(SHUTTER_MODE_SPEED);
+	BIND_ENUM_CONSTANT(SHUTTER_MODE_ANGLE);
 }
 
 CameraAttributesPhysical::CameraAttributesPhysical() {

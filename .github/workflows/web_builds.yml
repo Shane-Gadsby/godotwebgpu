@@ -9,11 +9,11 @@ env:
     dev_mode=yes
     debug_symbols=no
     use_closure_compiler=yes
-  EM_VERSION: 6.0.9
+  EM_VERSION: 6.0.12
 
 jobs:
   web-template:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     name: ${{ matrix.name }}
     timeout-minutes: 60
     strategy:
@@ -96,9 +96,9 @@ jobs:
         run: |
           emcc -v
 
-      # dlink_enabled=yes builds need this fork's two Emscripten toolchain patches,
-      # and setup-emsdk above lays down a fresh toolchain tree every run, so they
-      # have to be applied here. See misc/emsdk_patches/README.md.
+      # Applies whatever Emscripten patch this version still needs (none on 6.0.12).
+      # setup-emsdk above lays down a fresh toolchain tree every run, so it has to
+      # run here. See misc/emsdk_patches/README.md.
       #
       # Run for every web job, not just the dlink ones: it is harmless for the
       # others (neither patched code path is taken without -sSIDE_MODULE /
